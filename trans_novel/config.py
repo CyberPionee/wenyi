@@ -72,6 +72,12 @@ punctuation:
 # ── 路径 ─────────────────────────────────────────────────────────────────
 paths:
   state_dir: state # 运行状态、各章中间产物、术语库
+
+# ── 双语输出 ───────────────────────────────────────────────────────────────
+output:
+  mono: true # 产出单语中文版（<书名>.zh.epub）
+  bilingual: false # 产出原文与译文对照版（<书名>.zh-bi.epub）
+  bilingual_order: target_first # target_first=译文在上；source_first=原文在上
 """
 
 
@@ -116,7 +122,7 @@ class PipelineConfig(BaseModel):
 
 class OutputConfig(BaseModel):
     mono: bool = True  # 产出单语版
-    bilingual: bool = True  # 产出双语版
+    bilingual: bool = False  # 产出双语版
     bilingual_order: str = (
         "target_first"  # target_first=译文在上原文在下(默认); source_first=原文在上
     )

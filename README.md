@@ -12,7 +12,7 @@ export DEEPSEEK_API_KEY=sk-...
 uv run trans-novel translate book.epub
 ```
 
-翻译完成后，默认在源文件所在目录的 `output/` 中生成中文 EPUB；运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
+翻译完成后，默认在源文件所在目录的 `output/` 中生成单语中文版 `book.zh.epub`；也可按需生成原文对照版 `book.zh-bi.epub`。运行状态、章节 JSON、术语库和报告写入 `state/`。中断后可继续：
 
 ```bash
 uv run trans-novel resume book.epub
@@ -22,9 +22,18 @@ uv run trans-novel status book.epub
 ## 支持范围
 
 - 输入：EPUB、FB2、TXT。
-- 输出：默认 EPUB；可通过 `--format txt` 导出纯文本。
+- 输出：默认生成单语 EPUB，可选双语对照版；可通过 `--format txt` 导出纯文本。
 - EPUB：尽量保留原书样式、图片、目录与锚点；译文元数据默认设为简体中文，并将竖排样式转为横排。
 - 语言：默认由模型识别源语言，也可在 `config.yaml` 固定为语言代码。
+
+可通过命令行临时选择产物：
+
+```bash
+uv run trans-novel translate book.epub --bilingual           # 同时生成单语版和双语版
+uv run trans-novel translate book.epub --no-mono --bilingual # 仅生成双语版
+```
+
+双语版默认译文在上、原文在下，可在 `config.yaml` 中将 `output.bilingual_order` 改为 `source_first`。
 
 ## 文档
 

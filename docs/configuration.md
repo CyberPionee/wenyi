@@ -54,6 +54,21 @@ pipeline:
 
 命令行的 `--polish`、`--no-polish`、`--qa`、`--no-qa` 会覆盖对应配置。
 
+## 输出
+
+```yaml
+output:
+  mono: true
+  bilingual: false
+  bilingual_order: target_first
+```
+
+- `mono`：生成单语中文版，文件名为 `<书名>.zh.epub`。
+- `bilingual`：生成原文与译文对照版，文件名为 `<书名>.zh-bi.epub`。
+- `bilingual_order`：`target_first` 表示译文在上，`source_first` 表示原文在上。
+
+默认只生成单语版；使用 `--bilingual` 可同时生成双语版，配置和命令行也可组合为仅生成双语版。
+
 ## 切分、敬称与路径
 
 ```yaml

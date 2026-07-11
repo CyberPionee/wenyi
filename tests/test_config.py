@@ -18,7 +18,12 @@ class TestConfigFileCreation(unittest.TestCase):
             self.assertTrue(path.is_file())
             self.assertEqual(cfg.llm.provider, "deepseek")
             self.assertIn("strong", cfg.llm.tiers)
-            self.assertIn("# trans-novel 配置", path.read_text(encoding="utf-8"))
+            generated = path.read_text(encoding="utf-8")
+            self.assertIn("# trans-novel 配置", generated)
+            self.assertIn("output:\n", generated)
+            self.assertTrue(cfg.output.mono)
+            self.assertFalse(cfg.output.bilingual)
+            self.assertEqual(cfg.output.bilingual_order, "target_first")
 
     def test_load_never_overwrites_existing_config(self):
         with tempfile.TemporaryDirectory() as d:

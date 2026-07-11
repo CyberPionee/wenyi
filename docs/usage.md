@@ -33,16 +33,11 @@ setx DEEPSEEK_API_KEY "sk-..."
 ## 输入与输出
 
 - 输入格式：EPUB、FB2、TXT。
-- 默认输出：源文件所在目录的 `output/` 中的中文 EPUB。
+- 默认输出：源文件所在目录 `output/` 中的单语版 `<书名>.zh.epub`；双语版 `<书名>.zh-bi.epub` 需按需开启。
 - `--format txt`：输出纯文本；TXT 输入默认仍生成 EPUB。
 - EPUB 输入会尽量按原 XHTML 模板回填译文，保留样式、图片、目录和锚点。
+- 双语版按段展示译文与淡化原文，排列顺序由 `output.bilingual_order` 控制。
 - 状态文件位于 `state/`，包含章节中间结果、术语 SQLite 库和报告。
-
-```bash
-uv run trans-novel translate book.epub
-uv run trans-novel translate book.epub --format txt
-uv run trans-novel translate book.epub --chapter 3
-```
 
 ## 常用命令
 
@@ -55,6 +50,10 @@ uv run trans-novel translate book.epub --format txt
 # 覆盖配置中的润色与审校开关
 uv run trans-novel translate book.epub --polish --qa
 uv run trans-novel translate book.epub --no-polish --no-qa
+
+# 同时生成单语和双语版 / 仅生成双语版
+uv run trans-novel translate book.epub --bilingual
+uv run trans-novel translate book.epub --no-mono --bilingual
 ```
 
 ## 中断与续跑

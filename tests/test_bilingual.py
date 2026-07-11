@@ -9,6 +9,7 @@ import zipfile
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
+from bs4.element import Tag
 from typer.testing import CliRunner
 
 from trans_novel.cli import app
@@ -23,6 +24,13 @@ from trans_novel.assemble.writer import (
 from trans_novel.ingest.models import KIND_HEADING, KIND_TEXT, Chapter, Segment
 from tests.sample_data import write_sample_epub, write_sample_txt
 from tests.fake_llm import routing_handler
+
+
+def _required_tag(value: object) -> Tag:
+    """Assert a BeautifulSoup lookup succeeded and narrow its static type."""
+    if not isinstance(value, Tag):
+        raise AssertionError("expected HTML tag")
+    return value
 
 
 def _chapter_with_template() -> Chapter:
@@ -56,12 +64,12 @@ class TestRenderChapterHtmlBilingual(unittest.TestCase):
         self.assertNotIn("data-tn-id", html)  # 占位标记已清
 
         soup = BeautifulSoup(html, "html.parser")
-        h1 = soup.find("h1")
+        h1 = _required_tag(soup.find("h1"))
         self.assertEqual(h1.get_text(), "译标题")
         # 标题不应带 tn-source（紧邻的下一个兄弟是 p1 的译文，不是 tn-source 段）
-        nxt = h1.find_next_sibling()
+        nxt = _required_tag(h1.find_next_sibling())
         self.assertEqual(nxt.name, "p")
-        self.assertNotIn("tn-source", nxt.get("class", []))
+        self.assertNotIn("tn-source", nxt.get("class") or ())
 
         ps = soup.find_all("p")
         self.assertEqual(
@@ -115,10 +123,10 @@ class TestRenderChapterHtmlBilingual(unittest.TestCase):
 
         html = _render_chapter_html(ch, bilingual=True, order="target_first")
         soup = BeautifulSoup(html, "html.parser")
-        ul = soup.find("ul")
+        ul = _required_tag(soup.find("ul"))
         self.assertEqual([child.name for child in ul.find_all(recursive=False)], ["li"])
-        li = ul.find("li", recursive=False)
-        source = li.find(class_="tn-source", recursive=False)
+        li = _required_tag(ul.find("li", recursive=False))
+        source = _required_tag(li.find(class_="tn-source", recursive=False))
         self.assertEqual(source.name, "div")
         self.assertEqual(source.get_text(), "原项目")
         self.assertTrue(li.get_text().startswith("译项目"))
@@ -152,13 +160,17 @@ class TestRenderChapterHtmlBilingual(unittest.TestCase):
 
         html = _render_chapter_html(ch, bilingual=True, order="source_first")
         soup = BeautifulSoup(html, "html.parser")
-        ol = soup.find("ol")
+        ol = _required_tag(soup.find("ol"))
         self.assertEqual([child.name for child in ol.find_all(recursive=False)], ["li"])
-        li = ol.find("li", recursive=False)
-        quote = soup.find("blockquote")
-        self.assertEqual(li.find(class_="tn-source", recursive=False).get_text(), "原项目")
+        li = _required_tag(ol.find("li", recursive=False))
+        quote = _required_tag(soup.find("blockquote"))
+        li_source = _required_tag(li.find(class_="tn-source", recursive=False))
+        quote_source = _required_tag(
+            quote.find(class_="tn-source", recursive=False)
+        )
+        self.assertEqual(li_source.get_text(), "原项目")
         self.assertEqual(
-            quote.find(class_="tn-source", recursive=False).get_text(), "原引用"
+            quote_source.get_text(), "原引用"
         )
         self.assertTrue(li.get_text().startswith("原项目"))
         self.assertTrue(quote.get_text().startswith("原引用"))
@@ -276,7 +288,7 @@ class TestOutputConfigParsing(unittest.TestCase):
     def test_defaults(self):
         cfg = Config.from_dict({})
         self.assertTrue(cfg.output.mono)
-        self.assertTrue(cfg.output.bilingual)
+        self.assertFalse(cfg.output.bilingual)
         self.assertEqual(cfg.output.bilingual_order, "target_first")
 
     def test_bilingual_off_keeps_mono_default(self):
@@ -286,33 +298,31 @@ class TestOutputConfigParsing(unittest.TestCase):
 
 
 class TestOrchestratorMultiOutput(unittest.TestCase):
-    def test_default_config_produces_mono_and_bilingual(self):
+    def test_default_config_produces_only_mono(self):
         with tempfile.TemporaryDirectory() as d:
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
-            cfg = _config(
-                os.path.join(d, "state")
-            )  # 不传 output -> 默认 mono+bilingual 都开
+            cfg = _config(os.path.join(d, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
+            result = orch.run_all(txt, out_format="epub")
+            outputs = result["outputs"]
+            self.assertEqual(len(outputs), 1)
+            self.assertEqual(os.path.basename(outputs[0]), "novel.zh.epub")
+            for p in outputs:
+                self.assertTrue(os.path.isfile(p))
+            self.assertEqual(result["output"], outputs[0])
+
+    def test_bilingual_on_produces_mono_and_bilingual_outputs(self):
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"), output={"bilingual": True})
             orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
             result = orch.run_all(txt, out_format="epub")
             outputs = result["outputs"]
             self.assertEqual(len(outputs), 2)
             basenames = sorted(os.path.basename(p) for p in outputs)
             self.assertEqual(basenames, ["novel.zh-bi.epub", "novel.zh.epub"])
-            for p in outputs:
-                self.assertTrue(os.path.isfile(p))
-            self.assertEqual(result["output"], outputs[0])
-
-    def test_bilingual_off_produces_single_mono_output(self):
-        with tempfile.TemporaryDirectory() as d:
-            txt = os.path.join(d, "novel.txt")
-            write_sample_txt(txt)
-            cfg = _config(os.path.join(d, "state"), output={"bilingual": False})
-            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
-            result = orch.run_all(txt, out_format="epub")
-            outputs = result["outputs"]
-            self.assertEqual(len(outputs), 1)
-            self.assertEqual(os.path.basename(outputs[0]), "novel.zh.epub")
 
 
 class TestAssembleEpubTemplateBilingual(unittest.TestCase):

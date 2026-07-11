@@ -190,7 +190,7 @@ def _render_chapter_html(
         # 同时保留引用块的语义和样式。
         nested_source = el.name in {"li", "blockquote"}
         src_el = soup.new_tag("div" if nested_source else "p")
-        src_el["class"] = ["tn-source", "ibooks-dark-theme-use-custom-text-color"]
+        src_el["class"] = "tn-source ibooks-dark-theme-use-custom-text-color"
         src_el.append(src)
         if nested_source and order == "source_first":
             el.insert(0, src_el)
@@ -280,7 +280,7 @@ def _rewrite_html_document(
         html["xml:lang"] = lang
         classes = html.get("class")
         if isinstance(classes, list) and "vrtl" in classes:
-            html["class"] = [c for c in classes if c != "vrtl"]
+            html["class"] = " ".join(str(c) for c in classes if c != "vrtl")
 
         if force_horizontal and soup.find(id=_HORIZONTAL_OVERRIDE_ID) is None:
             head = soup.find("head")
