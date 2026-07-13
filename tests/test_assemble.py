@@ -11,7 +11,7 @@ import zipfile
 from bs4 import BeautifulSoup
 
 from trans_novel.config import Config
-from trans_novel.llm.base import FakeClient
+from trans_novel.llm.providers.fake import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
 from trans_novel.assemble.writer import assemble
 from trans_novel.assemble.report import build_report
@@ -231,6 +231,7 @@ class TestReport(unittest.TestCase):
             self.assertEqual(s["chapters_done"], s["chapters_total"])
             self.assertEqual(s["empty_targets"], 0)  # 全部段都有译文
             self.assertGreaterEqual(s["terms"], 1)
+            self.assertNotIn("low_confidence_terms", report)
 
 
 class TestConsistency(unittest.TestCase):
