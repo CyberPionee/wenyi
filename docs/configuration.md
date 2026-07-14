@@ -1,8 +1,10 @@
-# 配置说明
+# Configuration
 
-程序读取当前工作目录的 `config.yaml`。配置文件不存在时会自动创建带注释的默认文件。
+[简体中文](zh/configuration.md)
 
-## 语言
+Wenyi reads `config.yaml` from the current working directory. If the file is missing, running the program creates a documented default configuration.
+
+## Languages
 
 ```yaml
 language:
@@ -10,25 +12,25 @@ language:
   target: zh
 ```
 
-`source: auto` 会调用模型识别源语言；也可以写死 ISO 639-1 代码，例如 `ja`、`en`、`ko`、`ru`、`fr`、`de`、`es`。目标语言目前为简体中文。
+`source: auto` asks the model to identify the source language. You may instead use an ISO 639-1 code such as `ja`, `en`, `ko`, `ru`, `fr`, `de`, or `es`. The current translation pipeline is primarily designed for Simplified Chinese output.
 
-## 模型
+## Model provider
 
 ```yaml
 llm:
   provider: deepseek
 ```
 
-只需选择模型提供商。DeepSeek provider 默认使用：
+Selecting `deepseek` is enough for the built-in defaults:
 
-- `https://api.deepseek.com`；
-- `DEEPSEEK_API_KEY` 环境变量；
-- `deepseek-v4-pro` 作为 strong 档；
-- `deepseek-v4-flash` 作为 cheap 和 fast 档。
+- Base URL: `https://api.deepseek.com`
+- API key environment variable: `DEEPSEEK_API_KEY`
+- Strong tier: `deepseek-v4-pro`
+- Cheap and fast tiers: `deepseek-v4-flash`
 
-API Key 始终从环境变量读取，避免把密钥写进配置并提交到仓库。离线测试或调试可将 `provider` 改为 `fake`，此时不会发网络请求。
+API keys are always read from environment variables so they are not accidentally committed with the configuration. Use `provider: fake` for offline tests that must not make network requests.
 
-需要代理、自定义环境变量或覆盖模型时，可添加高级配置：
+Add the advanced fields only when you need a proxy, custom environment variable, timeout, retry policy, or model override:
 
 ```yaml
 llm:
@@ -54,15 +56,13 @@ llm:
         thinking: false
 ```
 
-用户配置的档位会覆盖 provider 中对应的默认档位，未配置的档位继续使用默认值。
-运行时若请求了仍不存在的档位，则按 `fast -> cheap -> strong` 回退。
-`options` 由所选 provider 自行解释和校验；上述 `thinking`、`reasoning_effort`
-只属于 DeepSeek，不会进入通用 LLM 抽象层。
+Configured tiers override the corresponding provider defaults; omitted tiers continue to use their defaults. When a requested tier is unavailable, Wenyi follows the fallback chain `fast -> cheap -> strong`.
 
-### OpenAI 与 OpenRouter
+The selected provider owns and validates the contents of `options`. In the example above, `thinking` and `reasoning_effort` are DeepSeek-specific and do not belong to the common LLM interface.
 
-OpenAI 和 OpenRouter 分别维护独立 provider，会自动选择各自的 Base URL、API Key
-环境变量和思考参数格式。模型档位需要显式配置：
+### OpenAI and OpenRouter
+
+OpenAI and OpenRouter have dedicated providers that select their own default Base URL, API key environment variable, request fields, and reasoning format. Their model tiers must be configured explicitly:
 
 ```yaml
 llm:
@@ -84,12 +84,11 @@ llm:
         thinking: false
 ```
 
-`openai` 默认读取 `OPENAI_API_KEY`，`openrouter` 默认读取
-`OPENROUTER_API_KEY`。两者均可使用 `base_url`、`api_key_env` 覆盖默认值。
+The OpenAI provider reads `OPENAI_API_KEY`; OpenRouter reads `OPENROUTER_API_KEY`. Both providers allow `base_url` and `api_key_env` to override their defaults.
 
-### 其他 OpenAI 兼容端点
+### Other OpenAI-compatible endpoints
 
-任意兼容 Chat Completions 的端点可使用 `openai-compatible`：
+Use `openai-compatible` for any endpoint implementing OpenAI Chat Completions:
 
 ```yaml
 llm:
@@ -109,17 +108,14 @@ llm:
             budget: 8192
 ```
 
-`reasoning_style` 把统一的 `thinking`、`reasoning_effort` 转换为中转站实际
-接受的请求格式：
+`reasoning_style` converts the common `thinking` and `reasoning_effort` options into the request dialect accepted by the endpoint:
 
-- `deepseek`：`thinking.type` 与 `reasoning_effort`；
-- `openai`：`reasoning_effort`，关闭时发送 `none`；
-- `openrouter`：`reasoning.effort`，关闭时发送 `reasoning.enabled: false`；
-- `none`：不转换，适合依赖模型默认行为或使用自定义请求字段。
+- `deepseek`: `thinking.type` plus `reasoning_effort`
+- `openai`: `reasoning_effort`, with `none` sent when reasoning is disabled
+- `openrouter`: `reasoning.effort`, with `reasoning.enabled: false` sent when disabled
+- `none`: no conversion, for endpoints that rely on model defaults or custom request fields
 
-`request_overrides` 是未知中转协议的兜底入口，其内容会作为原始顶层请求体
-字段发送，并在方言生成的字段之后递归合并。例如中转站使用
-`enable_thinking: true` 时可以这样配置：
+`request_overrides` is an escape hatch for provider-specific fields that Wenyi does not know about. Its contents are merged recursively into the raw top-level request body after the selected reasoning dialect is generated. For example, an endpoint using `enable_thinking: true` can be configured as follows:
 
 ```yaml
 llm:
@@ -135,18 +131,11 @@ llm:
           enable_thinking: true
 ```
 
-方言由中转站协议决定，而不是由实际模型名称决定。例如，中转站即使代理
-DeepSeek 模型，只要它要求 OpenAI 的 `reasoning_effort` 格式，就应选择
-`reasoning_style: openai`。
+Choose a reasoning dialect according to the endpoint protocol, not the underlying model name. A relay serving a DeepSeek model should still use `reasoning_style: openai` when that relay expects OpenAI reasoning fields.
 
-本地 Ollama 和 vLLM 还可以分别使用 `ollama`、`vllm`，默认地址为
-`http://localhost:11434/v1` 和 `http://localhost:8000/v1`，默认不要求 API Key。
-两者同样需要配置实际部署的模型档位。Ollama 的 OpenAI 兼容接口可使用
-`reasoning_style: openai`；vLLM 是否支持思考开关取决于模型模板和服务端启动
-参数，必要时可通过 `request_overrides.chat_template_kwargs` 传入
-`enable_thinking`。
+Local Ollama and vLLM endpoints are available through the `ollama` and `vllm` providers. Their default addresses are `http://localhost:11434/v1` and `http://localhost:8000/v1`, and neither requires an API key by default. Both require explicit model tiers. Ollama's OpenAI-compatible endpoint may use `reasoning_style: openai`; vLLM reasoning support depends on the model template and server arguments. When necessary, pass `enable_thinking` through `request_overrides.chat_template_kwargs`.
 
-## 流水线
+## Pipeline
 
 ```yaml
 pipeline:
@@ -162,20 +151,20 @@ pipeline:
   glossary_scope: chapter
 ```
 
-- `review`：每章翻译结束后检查漏译、误译、术语和人称问题。
-- `autofix_severe`：自动重译并采纳通过校验的漏译、误译等严重问题。
-- `polish`：翻译后再调用强模型润色，质量可能提升，但显著增加耗时和成本。
-- `backtranslate_sample`：回译抽检比例，`0` 为关闭。
-- `consistency_qa`：全书完成后进行跨章术语、人称、语气和标点检查。
-- `rolling_context_segments`：每批翻译附带的前文译文段数。
-- `book_understanding`：预扫全书，生成章节梗概和全书概览。
-- `prescan_concurrency`：预扫章节梗概的并发数。
-- `review_concurrency`：章末审校分块的并发数；设为 `1` 时串行审校。
-- `glossary_scope`：`chapter` 仅带本章相关术语，`full` 带全量术语表。
+- `review`: check each completed chapter for omissions, mistranslations, terminology, and incorrect references.
+- `autofix_severe`: retranslate severe omissions and mistranslations and adopt fixes that pass validation.
+- `polish`: run the strong model over translated batches again for style. This may improve quality but significantly increases runtime and cost.
+- `backtranslate_sample`: fraction of translated segments to inspect through backtranslation; `0` disables it.
+- `consistency_qa`: run a final cross-chapter check of terminology, references, voice, and punctuation.
+- `rolling_context_segments`: number of recent translated segments included with each translation batch.
+- `book_understanding`: prescan the book to create chapter digests and a whole-book synopsis.
+- `prescan_concurrency`: number of chapter-digest requests that may run concurrently.
+- `review_concurrency`: number of chapter-review chunks that may run concurrently; set it to `1` for sequential review.
+- `glossary_scope`: `chapter` includes terms relevant to the current chapter; `full` includes the complete glossary.
 
-命令行的 `--polish`、`--no-polish`、`--qa`、`--no-qa` 会覆盖对应配置。
+The command-line flags `--polish`, `--no-polish`, `--qa`, and `--no-qa` override the corresponding configuration values for that run.
 
-## 输出
+## Output
 
 ```yaml
 output:
@@ -185,14 +174,14 @@ output:
   about_page: true
 ```
 
-- `mono`：生成单语中文版，文件名为 `<书名>.zh.epub`。
-- `bilingual`：生成原文与译文对照版，文件名为 `<书名>.zh-bi.epub`。
-- `bilingual_order`：`target_first` 表示译文在上，`source_first` 表示原文在上。
-- `about_page`：在书籍末尾附加“关于此翻译”项目说明页；设为 `false` 可关闭。
+- `mono`: produce the monolingual Chinese edition as `<book-name>.zh.epub`.
+- `bilingual`: produce a source-and-translation edition as `<book-name>.zh-bi.epub`.
+- `bilingual_order`: `target_first` places the translation before the source; `source_first` reverses the order.
+- `about_page`: append an “About this translation” project page to the book; set it to `false` to disable it.
 
-默认只生成单语版；使用 `--bilingual` 可同时生成双语版，配置和命令行也可组合为仅生成双语版。
+Only the monolingual edition is enabled by default. `--bilingual` enables both editions, and configuration plus command-line switches can be combined to produce only the bilingual edition.
 
-## 切分、敬称与路径
+## Segmentation, honorifics, punctuation, and paths
 
 ```yaml
 segment:
@@ -209,8 +198,8 @@ paths:
   state_dir: state
 ```
 
-- `max_chars_per_batch`：单个模型翻译批次的目标字符数。
-- `max_chars_per_segment`：超长段落的拆分阈值。
-- `honorific.strategy`：日语源文本的敬称处理策略，可选 `keep_style`、`normalize`、`drop`。
-- `punctuation.normalize`：统一简体中文大陆常用全角标点。
-- `state_dir`：断点、章节产物、术语库和报告的位置。
+- `max_chars_per_batch`: approximate source-character budget for one model translation request.
+- `max_chars_per_segment`: threshold for splitting an exceptionally long source paragraph.
+- `honorific.strategy`: Japanese-source honorific policy: `keep_style`, `normalize`, or `drop`.
+- `punctuation.normalize`: normalize output to common full-width Simplified Chinese punctuation.
+- `state_dir`: location of checkpoints, chapter files, the glossary database, usage data, and reports.
