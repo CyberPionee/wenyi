@@ -335,7 +335,6 @@ def _rewrite_opf_metadata(
         return soup.encode()
     except Exception:
         return data
-    return data
 
 
 def _epub_looks_vertical(zf: zipfile.ZipFile) -> bool:
@@ -553,18 +552,22 @@ def _inject_bilingual_style(
         infos = zin.infolist()
         entries = {info.filename: zin.read(info.filename) for info in infos}
     tmp_path = out_path + ".tmp"
-    with zipfile.ZipFile(tmp_path, "w") as zout:
-        for info in infos:
-            data = entries[info.filename]
-            if os.path.basename(info.filename) in chapter_filenames:
-                data = _rewrite_html_document(
-                    data,
-                    lang=lang,
-                    force_horizontal=False,
-                    bilingual=True,
-                )
-            zout.writestr(info, data)
-    os.replace(tmp_path, out_path)
+    try:
+        with zipfile.ZipFile(tmp_path, "w") as zout:
+            for info in infos:
+                data = entries[info.filename]
+                if os.path.basename(info.filename) in chapter_filenames:
+                    data = _rewrite_html_document(
+                        data,
+                        lang=lang,
+                        force_horizontal=False,
+                        bilingual=True,
+                    )
+                zout.writestr(info, data)
+        os.replace(tmp_path, out_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
 
 
 def _build_epub_from_chapters(
