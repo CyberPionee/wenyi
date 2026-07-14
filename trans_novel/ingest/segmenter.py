@@ -90,6 +90,7 @@ def split_long_segments(chapters: list[Chapter], max_chars: int) -> None:
 
 def load_document(path: str, source_lang: str, target_lang: str,
                   split_segments: int = 0) -> Document:
+    """按文件扩展名读取文档，并按需拆分超过上限的翻译段。"""
     ext = os.path.splitext(path)[1].lower()
     if ext == ".epub":
         doc = read_epub(path, source_lang, target_lang)

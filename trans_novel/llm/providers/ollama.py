@@ -8,6 +8,7 @@ DEFAULT_BASE_URL = "http://localhost:11434/v1"
 
 class OllamaClient(OpenAICompatibleClient):
     def __init__(self, cfg: LLMConfig):
+        """使用 Ollama 本地默认地址初始化默认免密的兼容客户端。"""
         super().__init__(
             cfg,
             provider_name="Ollama",

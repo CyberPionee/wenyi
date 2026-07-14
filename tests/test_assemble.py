@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
@@ -14,7 +15,13 @@ from bs4.element import Tag
 from trans_novel.config import Config
 from trans_novel.llm.providers.fake import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
-from trans_novel.assemble.writer import _render_chapter_html, assemble
+from trans_novel.assemble.writer import (
+    _inject_bilingual_style,
+    _render_chapter_html,
+    _rewrite_html_document,
+    assemble,
+)
+from trans_novel.assemble.about import append_about_page
 from trans_novel.assemble.report import build_report
 from trans_novel.glossary.store import GlossaryStore
 from trans_novel.ingest.segmenter import load_document
@@ -26,6 +33,23 @@ from tests.sample_data import (
     write_sample_txt,
 )
 from tests.fake_llm import routing_handler
+
+
+_FB2_WITH_IMAGES = """\
+<?xml version="1.0" encoding="utf-8"?>
+<FictionBook xmlns="http://www.gribuser.ru/xml/fictionbook/2.0"
+             xmlns:xlink="http://www.w3.org/1999/xlink">
+<description><title-info>
+  <book-title>Illustrated Book</book-title>
+  <coverpage><image xlink:href="#cover.jpg"/></coverpage>
+</title-info></description>
+<body><section><title><p>Chapter</p></title>
+  <image xlink:href="#inside.png"/><p>Illustrated text.</p>
+</section></body>
+<binary id="cover.jpg" content-type="image/jpeg">Y292ZXItYnl0ZXM=</binary>
+<binary id="inside.png" content-type="image/png">aW5zaWRlLWJ5dGVz</binary>
+</FictionBook>
+"""
 
 
 def _write_vertical_epub(path: str) -> None:
@@ -84,6 +108,32 @@ def _run(input_path, state_dir):
 
 
 class TestAssembleText(unittest.TestCase):
+    def test_fb2_images_and_cover_are_preserved_in_generated_epub(self):
+        with tempfile.TemporaryDirectory() as d:
+            fb2 = os.path.join(d, "illustrated.fb2")
+            with open(fb2, "w", encoding="utf-8") as file:
+                file.write(_FB2_WITH_IMAGES)
+            store, _ = _run(fb2, os.path.join(d, "state"))
+
+            out = assemble(store, fb2, out_format="epub", about_page=False)
+
+            with zipfile.ZipFile(out) as archive:
+                names = archive.namelist()
+                cover_name = next(name for name in names if name.endswith("images/cover.jpg"))
+                inside_name = next(name for name in names if name.endswith("images/inside.png"))
+                chapter_name = next(name for name in names if name.endswith("/ch0.xhtml"))
+                chapter = BeautifulSoup(archive.read(chapter_name), "html.parser")
+                package_name = next(name for name in names if name.endswith("content.opf"))
+                package = BeautifulSoup(archive.read(package_name), "xml")
+
+                self.assertEqual(archive.read(cover_name), b"cover-bytes")
+                self.assertEqual(archive.read(inside_name), b"inside-bytes")
+
+        image = chapter.find("img", src="images/inside.png")
+        self.assertIsNotNone(image)
+        cover_item = package.find("item", properties="cover-image")
+        self.assertIsNotNone(cover_item)
+
     def test_txt_input_to_txt(self):
         with tempfile.TemporaryDirectory() as d:
             txt = os.path.join(d, "novel.txt")
@@ -96,6 +146,45 @@ class TestAssembleText(unittest.TestCase):
             with open(out, encoding="utf-8") as f:
                 content = f.read()
             self.assertIn("润0", content)  # 译文已写入
+
+    def test_about_page_is_not_written_when_opf_cannot_reference_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "broken.epub")
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr(
+                    "META-INF/container.xml",
+                    """<container><rootfiles>
+                    <rootfile full-path="content.opf"/>
+                    </rootfiles></container>""",
+                )
+                archive.writestr("content.opf", "<package><metadata/></package>")
+
+            self.assertFalse(append_about_page(path, "zh-Hans"))
+
+            with zipfile.ZipFile(path) as archive:
+                self.assertFalse(
+                    any("trans-novel-about" in name for name in archive.namelist())
+                )
+
+    def test_bilingual_rewrite_removes_temporary_file_on_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "book.epub")
+            with zipfile.ZipFile(path, "w") as archive:
+                archive.writestr(
+                    "ch0.xhtml",
+                    "<html><head></head><body><p>text</p></body></html>",
+                )
+
+            with (
+                patch(
+                    "trans_novel.assemble.writer.os.replace",
+                    side_effect=OSError("replace failed"),
+                ),
+                self.assertRaisesRegex(OSError, "replace failed"),
+            ):
+                _inject_bilingual_style(path, {"ch0.xhtml"}, "zh-Hans")
+
+            self.assertFalse(os.path.exists(path + ".tmp"))
 
     def test_pipeline_passes_about_page_config_to_writer(self):
         with tempfile.TemporaryDirectory() as d:
@@ -136,6 +225,48 @@ class TestAssembleText(unittest.TestCase):
 
 
 class TestAssembleEpub(unittest.TestCase):
+    def test_epub_render_flattens_textual_inline_markup(self):
+        html = """<html><body>
+<p><em>Hello</em> <a href="note.xhtml">world</a></p>
+<p><ruby>漢字<rt>かんじ</rt></ruby>です</p>
+</body></html>"""
+        title, segments, template = _extract_chapter(html, 0, "chapter.xhtml")
+        segments[0].target = "你好世界"
+        segments[1].target = "汉字如此"
+        chapter = Chapter(
+            index=0,
+            title=title,
+            segments=segments,
+            href="chapter.xhtml",
+            template=template,
+        )
+
+        rendered = BeautifulSoup(_render_chapter_html(chapter), "html.parser")
+        paragraphs = rendered.find_all("p")
+
+        self.assertEqual(paragraphs[0].get_text(), "你好世界")
+        self.assertEqual(paragraphs[1].get_text(), "汉字如此")
+        self.assertIsNone(paragraphs[0].find("em"))
+        self.assertIsNone(paragraphs[0].find("a"))
+        self.assertIsNone(paragraphs[1].find("ruby"))
+
+    def test_rewrite_html_honors_declared_encoding_and_emits_utf8(self):
+        source = (
+            '<?xml version="1.0" encoding="Shift_JIS"?>'
+            "<html><body><p>日本語</p></body></html>"
+        ).encode("shift_jis")
+
+        output = _rewrite_html_document(
+            source,
+            lang="zh-Hans",
+            force_horizontal=False,
+        )
+        decoded = output.decode("utf-8")
+
+        self.assertIn("日本語", decoded)
+        self.assertIn('encoding="utf-8"', decoded)
+        self.assertIn('lang="zh-Hans"', decoded)
+
     def test_epub_export_restores_inline_image_from_persisted_meta(self):
         with tempfile.TemporaryDirectory() as d:
             epub = os.path.join(d, "inline.epub")
@@ -162,7 +293,7 @@ class TestAssembleEpub(unittest.TestCase):
         assert isinstance(image, Tag)
         self.assertEqual(image.get("src"), "image.jpg")
         self.assertEqual(image_data, b"inline-image")
-        self.assertIsNone(rendered.find(attrs={"data-tn-inline-id": True}))
+        self.assertIsNone(rendered.select_one("[data-tn-inline-id]"))
 
     def test_epub_render_restores_inline_images_and_breaks(self):
         html = """<html><body>
@@ -196,12 +327,12 @@ class TestAssembleEpub(unittest.TestCase):
         self.assertIsNotNone(paragraph.find("br"))
         self.assertEqual(
             [
-                child.name if getattr(child, "name", None) else str(child)
+                child.name if isinstance(child, Tag) else str(child)
                 for child in paragraph.children
             ],
             ["img", "甲乙", "br", "丙丁", "img"],
         )
-        self.assertIsNone(rendered.find(attrs={"data-tn-inline-id": True}))
+        self.assertIsNone(rendered.select_one("[data-tn-inline-id]"))
         standalone = rendered.find("p", class_="illustration")
         self.assertIsInstance(standalone, Tag)
         assert isinstance(standalone, Tag)

@@ -2,8 +2,8 @@
 
 单章流水线（章内批次**串行**，逐批刷新滚动上下文与术语快照；跨章亦串行传递梗概）：
   每批：渲染上下文（含前一批刚译出的译文）→ 翻译（对齐保证）→ 润色（可选）→
-        标点规范化 → 术语/称呼/固定表达实时抽取入库 → 立即供下一批参照。
-  章末：全章术语兜底抽取 → 整章分块并行审校 →
+        术语/称呼/固定表达实时抽取入库 → 立即供下一批参照。
+  章末：跨段标点规范化 → 全章术语兜底抽取 → 整章分块并行审校 →
         严重项串行定向重译（autofix_severe，过长度校验才采纳）→ 回译抽检 → 写 TM → 落盘标记 done。
 翻译前先预扫源文建立全书理解（逐章梗概+全书概览，fast 档并行），作恒定前缀注入每章翻译。
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import random
+import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
@@ -26,7 +27,7 @@ from ..llm.base import LLMClient
 from ..llm.factory import build_client
 from ..llm.usage import merge_usage_summaries, usage_delta
 from ..ingest.segmenter import load_document, batch_segments
-from ..postprocess.punct import normalize_zh
+from ..postprocess.punct import normalize_zh, normalize_zh_segments
 from ..agents.analyzer import Analyzer
 from ..agents.synopsis import Synopsizer
 from ..agents.translator import Translator
@@ -55,6 +56,7 @@ _LANG_ALIASES = {
 
 
 def _normalize_lang(code: str) -> str:
+    """把模型返回的语言名或别名规整为 ISO 639-1 两字母代码。"""
     c = (code or "").strip().lower()
     if not c or c in {"auto", "unknown", "und", "uncertain", "mixed", "多语言", "未知"}:
         return ""
@@ -63,15 +65,37 @@ def _normalize_lang(code: str) -> str:
     return c[:2] if c[:2].isalpha() else ""
 
 
+def _resume_batches(segments, max_chars: int) -> list[list]:
+    """按字符预算分批后，再沿“已完成/待翻译”边界切开。
+
+    用户调整批次预算时，新的批次可能同时包含已有译文和空译文。若直接重跑
+    该混合批次会覆盖已确认内容；按完成状态分组可只补译缺失段。
+    """
+    batches: list[list] = []
+    for raw_batch in batch_segments(segments, max_chars):
+        current: list = []
+        current_done: bool | None = None
+        for segment in raw_batch:
+            done = bool(segment.target and segment.target.strip())
+            if current and done != current_done:
+                batches.append(current)
+                current = []
+            current.append(segment)
+            current_done = done
+        if current:
+            batches.append(current)
+    return batches
+
+
 @dataclass
 class _BatchResult:
     targets: list[str]
-    issues: list[dict] = field(default_factory=list)
     bt_samples: list[tuple[str, str]] = field(default_factory=list)
 
 
 class Orchestrator:
     def __init__(self, config: Config, client: LLMClient | None = None):
+        """初始化共享 LLM 客户端、用量检查点和各流水线 Agent。"""
         self.config = config
         self.client = client or build_client(config)
         # client 的统计是进程内累计；checkpoint 用于每次落盘时只提取新增部分。
@@ -83,6 +107,13 @@ class Orchestrator:
         self.backtrans = BackTranslator(self.client, config)
         self.polisher = Polisher(self.client, config)
         self.extractor = GlossaryExtractor(self.client, config)
+
+    def _punctuation_enabled(self) -> bool:
+        """判断当前目标语言是否应启用中文标点规范化。"""
+        target = (self.config.target_lang or "").lower().replace("_", "-")
+        return self.config.punctuation_normalize and (
+            target == "zh" or target.startswith("zh-")
+        )
 
     def _flush_usage(self, store: RunStore, *, scope: str) -> dict[str, Any]:
         """把当前 client 尚未落盘的用量增量合并到本书 usage.json。"""
@@ -118,6 +149,7 @@ class Orchestrator:
     # ── 准备 / 续跑入口 ──────────────────────────────────────────────────
     def prepare(self, input_path: str, *,
                 progress: Optional[ProgressFn] = None) -> RunStore:
+        """解析输入并定位状态目录；首次运行时在书级锁内完成初始化。"""
         if progress:
             progress(0, 0, "解析文档…")
         # 超长段按句拆分（max_chars_per_segment），续段标 cont 供回填并回
@@ -125,6 +157,17 @@ class Orchestrator:
                             split_segments=self.config.segment.max_chars_per_segment)
         run_dir = os.path.join(self.config.state_dir, slugify(doc.title))
         store = RunStore(run_dir)
+        with store.lock():
+            return self._prepare_locked(doc, store, input_path, progress)
+
+    def _prepare_locked(
+        self,
+        doc,
+        store: RunStore,
+        input_path: str,
+        progress: Optional[ProgressFn],
+    ) -> RunStore:
+        """恢复已有状态；新运行分阶段写入，并以 manifest 原子提交完成标志。"""
         if store.exists():
             store.log_event("run_resumed", input_path=input_path, run_dir=store.run_dir)
             return store  # 已有进度 → 直接续跑，不重置（语言在 run() 里按 manifest 应用）
@@ -144,37 +187,49 @@ class Orchestrator:
             store.log_event("language_detected", source_lang=doc.source_lang)
         self._apply_language(doc.source_lang)
 
-        store.init_from_document(doc)
-        store.log_event(
-            "run_initialized",
-            input_path=input_path,
-            run_dir=store.run_dir,
-            title=doc.title,
-            fmt=doc.fmt,
-            source_lang=doc.source_lang,
-            target_lang=doc.target_lang,
-            chapters=len(doc.chapters),
-            config={
-                "review": self.config.pipeline.review,
-                "autofix_severe": self.config.pipeline.autofix_severe,
-                "polish": self.config.pipeline.polish,
-                "backtranslate_sample": self.config.pipeline.backtranslate_sample,
-                "consistency_qa": self.config.pipeline.consistency_qa,
-                "book_understanding": self.config.pipeline.book_understanding,
-                "review_concurrency": self.config.pipeline.review_concurrency,
-            },
-        )
+        manifest = store.stage_document(doc)
         glossary = GlossaryStore(store.glossary_path)
-        if progress:
-            progress(0, 0, "分析全书风格…")
-        sample = self._sample_text(doc)
-        analysis = self.analyzer.analyze(sample) if sample else {}
-        if analysis:
-            self.analyzer.seed_glossary(glossary, analysis)
-        store.save_analysis(analysis)
-        store.log_event("analysis_saved", has_analysis=bool(analysis))
-        glossary.close()
-        store.save_context(RollingContext().to_dict())
+        try:
+            if progress:
+                progress(0, 0, "分析全书风格…")
+            sample = self._sample_text(doc)
+            analysis = self.analyzer.analyze(sample) if sample else {}
+            if analysis:
+                self.analyzer.seed_glossary(glossary, analysis)
+            store.save_analysis(analysis)
+            store.log_event("analysis_saved", has_analysis=bool(analysis))
+            store.save_context(
+                RollingContext(
+                    max_recent_keep=max(
+                        40, self.config.pipeline.rolling_context_segments
+                    )
+                ).to_dict()
+            )
+
+            # manifest 是初始化完成标志，必须最后原子落盘。
+            manifest["initialized"] = True
+            store.save_manifest(manifest)
+            store.log_event(
+                "run_initialized",
+                input_path=input_path,
+                run_dir=store.run_dir,
+                title=doc.title,
+                fmt=doc.fmt,
+                source_lang=doc.source_lang,
+                target_lang=doc.target_lang,
+                chapters=len(doc.chapters),
+                config={
+                    "review": self.config.pipeline.review,
+                    "autofix_severe": self.config.pipeline.autofix_severe,
+                    "polish": self.config.pipeline.polish,
+                    "backtranslate_sample": self.config.pipeline.backtranslate_sample,
+                    "consistency_qa": self.config.pipeline.consistency_qa,
+                    "book_understanding": self.config.pipeline.book_understanding,
+                    "review_concurrency": self.config.pipeline.review_concurrency,
+                },
+            )
+        finally:
+            glossary.close()
         return store
 
     def _detect_language_ai(self, doc) -> str:
@@ -224,11 +279,39 @@ class Orchestrator:
 
     def run(self, input_path: str, *, only_chapter: int | None = None,
             progress: Optional[ProgressFn] = None) -> RunStore:
+        """准备运行状态并在书级锁内翻译待处理章节。"""
         store = self.prepare(input_path, progress=progress)
+        with store.lock():
+            return self._run_locked(store, only_chapter=only_chapter, progress=progress)
+
+    def _run_locked(
+        self,
+        store: RunStore,
+        *,
+        only_chapter: int | None,
+        progress: Optional[ProgressFn],
+    ) -> RunStore:
+        """恢复语言和上下文，依次翻译章节并持续保存用量与进度。"""
         manifest = store.load_manifest()
         self._apply_language(manifest.get("source_lang") or self.config.source_lang)
+        chapter_indices = {
+            chapter.get("index") for chapter in manifest.get("chapters", [])
+        }
+        if only_chapter is not None and only_chapter not in chapter_indices:
+            available = sorted(
+                index for index in chapter_indices if isinstance(index, int)
+            )
+            valid_range = (
+                f"0–{available[-1]}" if available else "无可翻译章节"
+            )
+            raise ValueError(
+                f"章节编号 {only_chapter} 不存在；可用范围：{valid_range}"
+            )
         glossary = GlossaryStore(store.glossary_path)
-        context = RollingContext.from_dict(store.load_context() or {})
+        context = RollingContext.from_dict(
+            store.load_context() or {},
+            min_recent_keep=max(40, self.config.pipeline.rolling_context_segments),
+        )
         style = self.analyzer.style_brief(store.load_analysis() or {})
         # 翻译前预扫源文，建立全书理解（幂等、可续跑）；全书概览注入每章翻译
         book_synopsis = self._build_understanding(store, progress=progress)
@@ -279,7 +362,7 @@ class Orchestrator:
         for ci in chapter_indices:
             segments = store.load_chapter(ci).text_segments
             total += len(segments)
-            for batch in batch_segments(
+            for batch in _resume_batches(
                 segments, self.config.segment.max_chars_per_batch
             ):
                 if all(segment.target and segment.target.strip()
@@ -361,6 +444,7 @@ class Orchestrator:
 
         # 标题压成单行，避免内嵌换行破坏 numbered 对齐
         def _flat(s: object) -> str:
+            """把标题压缩为不含换行和连续空白的单行文本。"""
             return " ".join(str(s or "").split())
 
         raw_meta = m.get("meta")
@@ -374,7 +458,6 @@ class Orchestrator:
         ]
 
         titled_chapters = [c for c in chapters if _flat(c.get("title", ""))]
-        m.pop("title_translated", None)
         if (all(c.get("title_translated") for c in titled_chapters)
                 and all(e.get("title_translated") for e in toc_entries)):
             store.save_manifest(m)
@@ -434,6 +517,7 @@ class Orchestrator:
                            style: str, book_synopsis: str = "", *,
                            progress: Optional[ProgressFn] = None,
                            done: int = 0, total: int = 0) -> int:
+        """翻译、润色、抽取、审校并落盘单章，返回更新后的完成段数。"""
         chapter = store.load_chapter(ci)
         text_segs = chapter.text_segments
         if not text_segs:
@@ -442,7 +526,9 @@ class Orchestrator:
             return done
         chapter_digest = chapter.meta.get("source_digest", "")
 
-        batches = batch_segments(text_segs, self.config.segment.max_chars_per_batch)
+        batches = _resume_batches(
+            text_segs, self.config.segment.max_chars_per_batch
+        )
         label = self._chapter_progress_label(chapter.title, ci)
         # prepare() 的最后一个标签通常是“解析文档…”。续跑首批可能先恢复术语，
         # 若不在章首刷新，整个模型请求期间都会错误地显示成仍在解析源文件。
@@ -506,8 +592,7 @@ class Orchestrator:
                 start_index=batch_start,
                 count=len(b),
                 polished=self.config.pipeline.polish,
-                punctuation_normalized=self.config.punctuation_normalize,
-                issues=res.issues,
+                punctuation_normalized=self._punctuation_enabled(),
                 backtranslate_sample_count=len(res.bt_samples),
                 segments=[
                     {"index": batch_start + i, "source": s.source, "target": t}
@@ -515,10 +600,6 @@ class Orchestrator:
                 ],
             )
             context.add_targets(res.targets)
-            for it in res.issues:
-                it["chapter"] = ci
-                it["index"] += batch_start   # 批内下标 → 章内段号
-            review_issues.extend(res.issues)
             bt_samples.extend(res.bt_samples)
             done += len(b)
             seg_base += len(b)
@@ -531,6 +612,21 @@ class Orchestrator:
             self._extract_batch_glossary(glossary, store, ci, batch_start, b)
             glossary_checkpoints.add(glossary_key)
             term_snapshot = self._chapter_term_snapshot(glossary, text_segs)
+
+        # 标点在章级统一处理，直引号状态才能跨批次、跨段保持连续。
+        if self._punctuation_enabled():
+            translated = [segment.target or "" for segment in text_segs]
+            normalized_targets = normalize_zh_segments(
+                translated,
+                [segment.cont for segment in text_segs],
+            )
+            for segment, normalized in zip(text_segs, normalized_targets):
+                segment.target = normalized
+            # 当前章译文已在逐批处理中加入滚动上下文；同步替换其保留在尾部的
+            # 部分，确保下一章看到的是最终规范化版本。
+            retained = min(len(normalized_targets), len(context.recent_targets))
+            if retained:
+                context.recent_targets[-retained:] = normalized_targets[-retained:]
 
         # 全章术语抽取入库：保留为兜底，捕捉跨段才能确认的称呼/口癖/固定表达。
         # 放在 review 前，让本章审校也能使用兜底抽出的术语。
@@ -649,15 +745,28 @@ class Orchestrator:
             base += len(chunk)
 
         def review_one(job: tuple[int, list]) -> list[dict]:
+            """审校一个连续块，并把块内问题索引映射为章内索引。"""
             chunk_base, chunk = job
             srcs = [s.source for s in chunk]
             tgts = [s.target or "" for s in chunk]
             chunk_issues: list[dict] = []
             for it in self.reviewer.review(srcs, tgts, terms):
                 idx = it.get("index")
+                if isinstance(idx, str):
+                    try:
+                        idx = int(idx.strip())
+                    except ValueError:
+                        idx = None
                 if isinstance(idx, int) and 0 <= idx < len(chunk):
                     it["index"] = chunk_base + idx
                     chunk_issues.append(it)
+                else:
+                    warnings.warn(
+                        f"忽略无效审校索引 {it.get('index')!r}；"
+                        f"当前审校块长度为 {len(chunk)}",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
             return chunk_issues
 
         workers = min(
@@ -715,7 +824,7 @@ class Orchestrator:
                 context_before=before, context_after=after,
                 book_synopsis=book_synopsis, chapter_digest=chapter_digest)
             if new_t and not checks.length_flags([seg.source], [new_t]):
-                if self.config.punctuation_normalize:
+                if self._punctuation_enabled():
                     new_t = normalize_zh(new_t)
                 old_t = seg.target
                 seg.target = new_t
@@ -744,10 +853,11 @@ class Orchestrator:
 
     def _process_batch(self, batch, terms, ctx_text: str, style: str,
                        book_synopsis: str = "", chapter_digest: str = "") -> _BatchResult:
-        """单个批次：整批翻译 → 润色 → 标点规范化。
+        """单个批次：整批翻译 → 润色。
 
         每段都在自身上下文里翻译，不跨位置复用译文（避免丢失语境信息）。
         全书概览/本章梗概作为恒定前缀注入，让译者把握全局。
+        标点规范化在章末统一执行，以维持跨段引号状态。
         LLM 审校不在批内做（移至章末统一做，见 _review_chapter，不阻塞翻译主路径）。
         """
         sources = [s.source for s in batch]
@@ -755,15 +865,10 @@ class Orchestrator:
             sources, glossary_terms=terms, style=style, context=ctx_text,
             book_synopsis=book_synopsis, chapter_digest=chapter_digest)
 
-        issues: list[dict] = []
-
         if self.config.pipeline.polish:
             polished = self.polisher.polish(targets, glossary_terms=terms, style=style)
             if len(polished) == len(targets):
                 targets = polished
-
-        if self.config.punctuation_normalize:
-            targets = [normalize_zh(t) if t else t for t in targets]
 
         bt_samples: list[tuple[str, str]] = []
         rate = self.config.pipeline.backtranslate_sample
@@ -772,7 +877,7 @@ class Orchestrator:
                 if random.random() < rate:
                     bt_samples.append((s, t or ""))
 
-        return _BatchResult(targets=targets, issues=issues, bt_samples=bt_samples)
+        return _BatchResult(targets=targets, bt_samples=bt_samples)
 
     # ── 可选步骤 / 连续全流程 ────────────────────────────────────────────────
     ALL_STEPS = ("translate", "qa", "report", "assemble")
@@ -781,10 +886,6 @@ class Orchestrator:
                   progress: Optional[ProgressFn] = None,
                   out_format: str = "epub", out_path: str | None = None) -> dict[str, Any]:
         """按需执行步骤子集（可单选可全选）。steps ⊆ ALL_STEPS。"""
-        from ..agents.consistency import ConsistencyChecker
-        from ..assemble.writer import assemble, bilingual_out_path
-        from ..assemble.report import build_report
-
         steps = set(steps)
         run_steps_input = sorted(steps)
 
@@ -794,6 +895,33 @@ class Orchestrator:
             store = self.prepare(input_path, progress=progress)
             m = store.load_manifest()
             self._apply_language(m.get("source_lang") or self.config.source_lang)
+        with store.lock():
+            return self._finish_steps_locked(
+                store,
+                input_path=input_path,
+                steps=steps,
+                run_steps_input=run_steps_input,
+                progress=progress,
+                out_format=out_format,
+                out_path=out_path,
+            )
+
+    def _finish_steps_locked(
+        self,
+        store: RunStore,
+        *,
+        input_path: str,
+        steps: set[str],
+        run_steps_input: list[str],
+        progress: Optional[ProgressFn],
+        out_format: str,
+        out_path: str | None,
+    ) -> dict[str, Any]:
+        """在书级锁内执行 QA、报告和导出收尾步骤并返回结果汇总。"""
+        from ..agents.consistency import ConsistencyChecker
+        from ..assemble.report import build_report
+        from ..assemble.writer import assemble, bilingual_out_path
+
         store.log_event("run_steps_started", steps=run_steps_input, input_path=input_path)
 
         glossary = GlossaryStore(store.glossary_path)

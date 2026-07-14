@@ -44,6 +44,7 @@ def _split_paragraphs(block: str) -> list[str]:
 
 
 def read_text(path: str, source_lang: str, target_lang: str) -> Document:
+    """读取 UTF-8 文本或 Markdown，识别章节标题并构造 Document。"""
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 
@@ -51,28 +52,31 @@ def read_text(path: str, source_lang: str, target_lang: str) -> Document:
     book_title = os.path.splitext(os.path.basename(path))[0]
 
     # 先按章节标题切块
-    chapters_raw: list[tuple[str, list[str]]] = []  # (title, body_lines)
+    chapters_raw: list[tuple[str | None, list[str]]] = []  # (explicit_title, body_lines)
     current_title: str | None = None
     current_body: list[str] = []
     for line in lines:
         heading = _is_chapter_heading(line)
         if heading is not None:
             if current_title is not None or current_body:
-                chapters_raw.append((current_title or book_title, current_body))
+                chapters_raw.append((current_title, current_body))
             current_title = heading
             current_body = []
         else:
             current_body.append(line)
     if current_title is not None or current_body:
-        chapters_raw.append((current_title or book_title, current_body))
+        chapters_raw.append((current_title, current_body))
 
     chapters: list[Chapter] = []
-    for ci, (title, body_lines) in enumerate(chapters_raw):
+    for ci, (explicit_title, body_lines) in enumerate(chapters_raw):
+        title = explicit_title or book_title
         segments: list[Segment] = []
         idx = 0
         # 标题作为 heading segment（便于翻译并回填）
-        if title and title != book_title or len(chapters_raw) > 1:
-            segments.append(Segment(index=idx, source=title, kind=KIND_HEADING))
+        if explicit_title:
+            segments.append(
+                Segment(index=idx, source=explicit_title, kind=KIND_HEADING)
+            )
             idx += 1
         body = "\n".join(body_lines)
         for para in _split_paragraphs(body):

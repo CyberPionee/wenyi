@@ -37,6 +37,7 @@ def build_request_kwargs(
     json_mode: bool = False,
     max_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
+    """把档位选项转换成 OpenRouter reasoning 请求体。"""
     kwargs = base_request_kwargs(tier_config.model, messages, json_mode=json_mode)
     extra_body = {
         "reasoning": (
@@ -57,6 +58,7 @@ def build_request_kwargs(
 
 class OpenRouterClient(OpenAICompatibleBaseClient[OpenRouterTierOptions]):
     def __init__(self, cfg: LLMConfig):
+        """校验 OpenRouter 档位选项并初始化官方兼容端点。"""
         tiers = resolve_provider_tiers(
             cfg.tiers,
             options_type=OpenRouterTierOptions,
@@ -78,6 +80,7 @@ class OpenRouterClient(OpenAICompatibleBaseClient[OpenRouterTierOptions]):
         json_mode: bool,
         max_tokens: Optional[int],
     ) -> dict[str, Any]:
+        """构造当前 OpenRouter 档位的最终请求参数。"""
         return build_request_kwargs(
             tier_config,
             messages,

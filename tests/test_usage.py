@@ -5,6 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 import os
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from typing import Any
@@ -505,6 +506,28 @@ class TestUsageIncrementalPersistence(unittest.TestCase):
             self.assertEqual(usage["totals"]["total_tokens"], 170)
             self.assertEqual(usage["totals"]["calls"], 2)
             self.assertEqual(result["store"].load_usage(), usage)
+
+
+class TestRunStoreLock(unittest.TestCase):
+    def test_second_store_waits_for_first_store_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = os.path.join(directory, "state", "book")
+            first = RunStore(run_dir)
+            second = RunStore(run_dir)
+            entered = threading.Event()
+
+            def acquire_second() -> None:
+                with second.lock():
+                    entered.set()
+
+            with first.lock():
+                worker = threading.Thread(target=acquire_second)
+                worker.start()
+                self.assertFalse(entered.wait(0.1))
+
+            self.assertTrue(entered.wait(1))
+            worker.join(timeout=1)
+            self.assertFalse(worker.is_alive())
 
 
 if __name__ == "__main__":

@@ -15,12 +15,27 @@ import posixpath
 import xml.etree.ElementTree as ET
 import zipfile
 
-from bs4 import BeautifulSoup, Comment, NavigableString, Tag
+from bs4 import BeautifulSoup, UnicodeDammit
+from bs4.element import Comment, NavigableString, Tag
 
 from .models import KIND_HEADING, KIND_TEXT, Chapter, Document, Segment
 
 _CONTAINER = "META-INF/container.xml"
-_BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote"}
+_BLOCK_TAGS = {
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "li",
+    "blockquote",
+    "td",
+    "th",
+    "dt",
+    "dd",
+}
 _HEADING_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 _INLINE_META_KEY = "epub_inline"
 _INLINE_ID_ATTR = "data-tn-inline-id"
@@ -78,9 +93,13 @@ def _segment_content(block: Tag, anchor: str) -> tuple[str, dict[str, object]]:
     raw_length = 0
 
     def walk(parent: Tag) -> None:
+        """递归收集正文文本节点，并记录需保留节点的源文偏移。"""
         nonlocal raw_length
         for child in parent.children:
             if isinstance(child, Tag):
+                if child.name == "rt":
+                    # 振假名是注音而非正文；保留在模板中，不送给模型翻译。
+                    continue
                 if id(child) in root_ids:
                     node_offsets.append((child, raw_length))
                 else:
@@ -130,13 +149,16 @@ def _segment_content(block: Tag, anchor: str) -> tuple[str, dict[str, object]]:
 
 
 def _find_opf_path(zf: zipfile.ZipFile) -> str:
+    """从 container.xml 解析 EPUB 包文档的 zip 内路径。"""
     data = zf.read(_CONTAINER)
     root = ET.fromstring(data)
     # container.xml 用了默认命名空间，按 localname 匹配
     for el in root.iter():
         if el.tag.rsplit("}", 1)[-1] == "rootfile":
-            return el.attrib["full-path"]
-    raise ValueError("EPUB 损坏：container.xml 未找到 rootfile")
+            path = el.attrib.get("full-path", "").strip()
+            if path:
+                return path
+    raise ValueError("EPUB 损坏：container.xml 未找到有效的 rootfile full-path")
 
 
 def _zip_href(base_path: str, href: str) -> str:
@@ -149,6 +171,7 @@ def _zip_href(base_path: str, href: str) -> str:
 
 
 def _attr_str(value: object) -> str:
+    """把 BeautifulSoup 属性安全收窄为字符串。"""
     return value if isinstance(value, str) else ""
 
 
@@ -157,6 +180,7 @@ def _parse_opf(zf: zipfile.ZipFile, opf_path: str) -> tuple[str, list[str], list
     root = ET.fromstring(zf.read(opf_path))
 
     def local(tag: str) -> str:
+        """去掉 XML 命名空间并返回标签本地名。"""
         return tag.rsplit("}", 1)[-1]
 
     title = ""
@@ -169,13 +193,18 @@ def _parse_opf(zf: zipfile.ZipFile, opf_path: str) -> tuple[str, list[str], list
         if name == "title" and not title and el.text:
             title = el.text.strip()
         elif name == "item":
-            manifest[el.attrib["id"]] = (
+            item_id = el.attrib.get("id", "").strip()
+            if not item_id:
+                continue
+            manifest[item_id] = (
                 el.attrib.get("href", ""),
                 el.attrib.get("media-type", ""),
                 el.attrib.get("properties", ""),
             )
         elif name == "itemref":
-            spine_ids.append(el.attrib["idref"])
+            idref = el.attrib.get("idref", "").strip()
+            if idref:
+                spine_ids.append(idref)
         elif name == "spine":
             toc = el.attrib.get("toc")
             if toc:
@@ -198,7 +227,14 @@ def _parse_opf(zf: zipfile.ZipFile, opf_path: str) -> tuple[str, list[str], list
 
 
 def _local(tag: str) -> str:
+    """去掉 XML 命名空间并返回标签本地名。"""
     return tag.rsplit("}", 1)[-1]
+
+
+def _decode_markup(data: bytes) -> str:
+    """按 XML/HTML 声明与字节特征解码 XHTML，最后才使用 UTF-8 替换兜底。"""
+    decoded = UnicodeDammit(data).unicode_markup
+    return decoded if decoded is not None else data.decode("utf-8", errors="replace")
 
 
 def _toc_label_map(zf: zipfile.ZipFile, toc_paths: list[str]) -> dict[str, str]:
@@ -242,6 +278,7 @@ def _toc_label_map(zf: zipfile.ZipFile, toc_paths: list[str]) -> dict[str, str]:
 
 
 def _looks_like_internal_title(title: str, href: str, book_title: str = "") -> bool:
+    """判断 XHTML title 是否只是内部文件名或重复的全书书名。"""
     base = posixpath.basename(href).rsplit(".", 1)[0]
     stripped = title.strip()
     return (bool(base) and stripped == base) or (bool(book_title) and stripped == book_title.strip())
@@ -298,6 +335,7 @@ def _extract_chapter(
 
 
 def read_epub(path: str, source_lang: str, target_lang: str) -> Document:
+    """按 spine 顺序读取 EPUB 正文，提取章节并保留可回填模板。"""
     with zipfile.ZipFile(path, "r") as zf:
         names = set(zf.namelist())
         opf_path = _find_opf_path(zf)
@@ -314,7 +352,7 @@ def read_epub(path: str, source_lang: str, target_lang: str) -> Document:
         for href in hrefs:
             if href not in names:
                 continue
-            html = zf.read(href).decode("utf-8", errors="replace")
+            html = _decode_markup(zf.read(href))
             title, segments, template = _extract_chapter(
                 html, ci, href, book_title=book_title, toc_title=toc_titles.get(href, "")
             )

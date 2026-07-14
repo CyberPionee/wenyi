@@ -161,12 +161,14 @@ class Config(BaseModel):
 
     @classmethod
     def load(cls, path: str = "config.yaml") -> "Config":
+        """从 YAML 文件加载配置，并应用缺失字段的类型化默认值。"""
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
         return cls.from_dict(raw)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Config":
+        """把 YAML 对应的嵌套字典转换为运行时配置模型。"""
         lang = raw.get("language", {})
         llm_raw = raw.get("llm", {})
         tiers = {

@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Sequence
-from typing import Any, Optional
+from typing import Any, Optional, Protocol
 
 import typer
 from rich.console import Console
@@ -77,6 +77,7 @@ class _ConfigInitializingGroup(TyperGroup):
         *main_args: Any,
         **main_kwargs: Any,
     ) -> Any:
+        """在 Click 解析命令前定位并创建缺失的默认配置文件。"""
         cli_args = list(args) if args is not None else sys.argv[1:]
         config_path = _config_path_from_args(cli_args)
         _CONFIG["path"] = config_path
@@ -96,28 +97,58 @@ tools_app = typer.Typer(
 console = Console()
 
 
+class _ManifestStore(Protocol):
+    def load_manifest(self) -> dict[str, Any]:
+        """返回运行目录中的 manifest 数据。"""
+        ...
+
+
 @app.callback()
 def _root(
     config: str = typer.Option("config.yaml", "--config", "-c", help="配置文件路径"),
 ):
+    """记录本次 CLI 调用使用的全局配置文件路径。"""
     _CONFIG["path"] = config
 
 
 def _load_config() -> Config:
+    """加载当前 CLI 调用选定的配置文件。"""
     return Config.load(_CONFIG["path"])
 
 
 def _require_input_file(input_path: str) -> None:
+    """确认输入路径是文件，否则打印错误并以状态码 1 退出。"""
     if not os.path.isfile(input_path):
         console.print(f"[red]输入文件不存在：{input_path}[/]")
         raise typer.Exit(1)
 
 
+def _validate_output_format(fmt: str) -> str:
+    """规范化并校验输出格式，只接受 epub 或 txt。"""
+    normalized = fmt.strip().lower()
+    if normalized not in {"epub", "txt"}:
+        console.print(f"[red]不支持的输出格式：{fmt}（可选 epub / txt）[/]")
+        raise typer.Exit(2)
+    return normalized
+
+
 def _runstore_for(config: Config, input_path: str) -> RunStore:
+    """解析输入书名并定位其已有状态目录，不主动创建目录。"""
     _require_input_file(input_path)
     doc = load_document(input_path, config.source_lang, config.target_lang)
     run_dir = os.path.join(config.state_dir, slugify(doc.title))
     return RunStore(run_dir, create=False)
+
+
+def _apply_store_languages(config: Config, store: _ManifestStore) -> None:
+    """独立工具命令从运行 manifest 恢复实际语言。"""
+    manifest = store.load_manifest()
+    source_lang = manifest.get("source_lang")
+    target_lang = manifest.get("target_lang")
+    if isinstance(source_lang, str) and source_lang:
+        config.source_lang = source_lang
+    if isinstance(target_lang, str) and target_lang:
+        config.target_lang = target_lang
 
 
 def _translate_impl(
@@ -135,6 +166,7 @@ def _translate_impl(
     from .pipeline.orchestrator import Orchestrator
 
     _require_input_file(input_path)
+    fmt = _validate_output_format(fmt)
     config = _load_config()
     if polish is not None:
         config.pipeline.polish = polish
@@ -155,6 +187,7 @@ def _translate_impl(
         task = prog.add_task("准备中…", total=None)
 
         def cb(done: int, total: int, label: str) -> None:
+            """把编排器的通用进度回调同步到 Rich 任务。"""
             nonlocal task
             if total > 0:
                 prog.update(task, completed=done, total=total, description=label)
@@ -165,7 +198,11 @@ def _translate_impl(
             task = prog.add_task(label, total=None)
 
         if chapter is not None:
-            store = orch.run(input_path, only_chapter=chapter, progress=cb)
+            try:
+                store = orch.run(input_path, only_chapter=chapter, progress=cb)
+            except ValueError as error:
+                console.print(f"[red]{error}[/]")
+                raise typer.Exit(2) from error
             console.print(f"[green]已翻第 {chapter} 章[/]，状态目录：{store.run_dir}")
             _print_usage({"usage": store.load_usage() or {}})
             return
@@ -219,9 +256,9 @@ def _print_usage(report: dict) -> None:
 # ── translate / resume：连续全流程 ──────────────────────────────────────────
 @app.command()
 def translate(
-    input: str = typer.Argument(..., help="输入文件（.epub / .txt / .md）"),
+    input: str = typer.Argument(..., help="输入文件（.epub / .fb2 / .txt / .md）"),
     chapter: Optional[int] = typer.Option(
-        None, "--chapter", help="只翻指定章（调试用，不做收尾）"
+        None, "--chapter", min=0, help="只翻指定章（从 0 起；调试用，不做收尾）"
     ),
     fmt: str = typer.Option("epub", "--format", help="输出格式：epub | txt"),
     out: Optional[str] = typer.Option(
@@ -367,6 +404,7 @@ def assemble(
     from .assemble.writer import bilingual_out_path
 
     config = _load_config()
+    fmt = _validate_output_format(fmt)
     store = _runstore_for(config, input)
     if not store.exists():
         console.print("[yellow]尚无进度。先运行 translate。[/]")
@@ -416,9 +454,12 @@ def qa(input: str = typer.Argument(..., help="输入文件")):
     if not store.exists():
         console.print("[yellow]尚无进度。先运行 translate。[/]")
         raise typer.Exit(1)
+    _apply_store_languages(config, store)
     g = GlossaryStore(store.glossary_path)
-    issues = ConsistencyChecker(build_client(config), config).check(store, g)
-    g.close()
+    try:
+        issues = ConsistencyChecker(build_client(config), config).check(store, g)
+    finally:
+        g.close()
     console.print(f"一致性问题 {len(issues)} 项：")
     for it in issues:
         console.print(
@@ -454,6 +495,7 @@ app.add_typer(tools_app, name="tools")
 
 
 def main() -> None:
+    """启动 Typer 命令行应用。"""
     app()
 
 

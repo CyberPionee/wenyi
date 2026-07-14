@@ -7,6 +7,7 @@ from .base import LLMClient
 
 
 def build_client(config: Config) -> LLMClient:
+    """根据 llm.provider 延迟导入并构造对应客户端。"""
     provider = config.llm.provider.strip().lower().replace("_", "-")
     if provider == "deepseek":
         from .providers.deepseek import DeepSeekClient
@@ -20,7 +21,7 @@ def build_client(config: Config) -> LLMClient:
         from .providers.openrouter import OpenRouterClient
 
         return OpenRouterClient(config.llm)
-    if provider in {"openai-compatible", "custom"}:
+    if provider == "openai-compatible":
         from .providers.openai_compatible import OpenAICompatibleClient
 
         return OpenAICompatibleClient(config.llm)

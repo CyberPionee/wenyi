@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from typer.testing import CliRunner
 
-from trans_novel.cli import _configure_windows_console, app
+from trans_novel.cli import _apply_store_languages, _configure_windows_console, app
 from trans_novel.config import Config
 
 
@@ -19,6 +19,21 @@ class FakeStore:
 
 
 class TestCliConfig(unittest.TestCase):
+    def test_standalone_tools_restore_manifest_languages(self):
+        cfg = Config.from_dict(
+            {"language": {"source": "auto", "target": "zh"}}
+        )
+
+        class Store:
+            @staticmethod
+            def load_manifest():
+                return {"source_lang": "ru", "target_lang": "en"}
+
+        _apply_store_languages(cfg, Store())
+
+        self.assertEqual(cfg.source_lang, "ru")
+        self.assertEqual(cfg.target_lang, "en")
+
     def test_every_cli_start_checks_default_config(self):
         runner = CliRunner()
         with patch.object(Config, "create_default_file", return_value=True) as create:
@@ -177,6 +192,44 @@ class TestCliConfig(unittest.TestCase):
 
         self.assertEqual(result.exit_code, 1, result.output)
         self.assertIn("输入文件不存在", result.output)
+
+    def test_translate_rejects_unknown_output_format_before_loading_config(self):
+        with (
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch(
+                "trans_novel.cli._load_config",
+                side_effect=AssertionError("config should not load"),
+            ),
+        ):
+            result = CliRunner().invoke(
+                app, ["translate", "input.txt", "--format", "pdf"]
+            )
+
+        self.assertEqual(result.exit_code, 2, result.output)
+        self.assertIn("不支持的输出格式", result.output)
+
+    def test_translate_reports_out_of_range_chapter_without_traceback(self):
+        cfg = Config.from_dict({"llm": {"provider": "fake"}})
+
+        class FakeOrchestrator:
+            def __init__(self, config):
+                pass
+
+            def run(self, input_path, **kwargs):
+                raise ValueError("章节编号 9 不存在；可用范围：0–1")
+
+        with (
+            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
+            patch("trans_novel.cli.os.path.isfile", return_value=True),
+        ):
+            result = CliRunner().invoke(
+                app, ["translate", "input.txt", "--chapter", "9"]
+            )
+
+        self.assertEqual(result.exit_code, 2, result.output)
+        self.assertIn("章节编号 9 不存在", result.output)
+        self.assertNotIn("Traceback", result.output)
 
     def test_status_does_not_create_state_directory(self):
         with tempfile.TemporaryDirectory() as d:

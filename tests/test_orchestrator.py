@@ -38,6 +38,32 @@ def _config(state_dir: str):
 
 
 class TestOrchestrator(unittest.TestCase):
+    def test_prepare_retries_after_analysis_failure(self):
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+
+            def fail_analysis(messages, tier, json_mode):
+                raise RuntimeError("temporary model failure")
+
+            with self.assertRaisesRegex(RuntimeError, "temporary model failure"):
+                Orchestrator(cfg, client=FakeClient(handler=fail_analysis)).prepare(txt)
+
+            run_dirs = [
+                os.path.join(cfg.state_dir, name)
+                for name in os.listdir(cfg.state_dir)
+            ]
+            self.assertEqual(len(run_dirs), 1)
+            self.assertFalse(os.path.isfile(os.path.join(run_dirs[0], "manifest.json")))
+
+            store = Orchestrator(
+                cfg, client=FakeClient(handler=routing_handler)
+            ).prepare(txt)
+            self.assertTrue(store.exists())
+            self.assertTrue(store.load_manifest()["initialized"])
+            self.assertIsNotNone(store.load_analysis())
+
     def test_full_run_and_resume(self):
         with tempfile.TemporaryDirectory() as d:
             txt = os.path.join(d, "novel.txt")
@@ -163,6 +189,34 @@ class TestSegmentLevelResume(unittest.TestCase):
             assert last_target is not None
             self.assertTrue(first_target.startswith("R1"))
             self.assertTrue(last_target.startswith("R2"))
+
+    def test_resume_splits_mixed_batch_after_budget_change(self):
+        """大批次内只缺一段时，也不能覆盖同批已有译文。"""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.segment.max_chars_per_batch = 100_000
+            cfg.pipeline.polish = False
+
+            first_client = FakeClient(handler=self._tr_handler("R1"))
+            store = Orchestrator(cfg, client=first_client).run(
+                txt, only_chapter=0
+            )
+            chapter = store.load_chapter(0)
+            chapter.text_segments[-1].target = ""
+            store.save_chapter(chapter)
+            store.set_chapter_status(0, STATUS_PENDING)
+
+            # 改变预算后，新分批仍可能把已完成段与空段放在一起。
+            cfg.segment.max_chars_per_batch = 50_000
+            second_client = FakeClient(handler=self._tr_handler("R2"))
+            Orchestrator(cfg, client=second_client).run(txt, only_chapter=0)
+
+            self.assertEqual(_translated_para_count(second_client.calls), 1)
+            resumed = store.load_chapter(0).text_segments
+            self.assertTrue(all((segment.target or "").startswith("R1") for segment in resumed[:-1]))
+            self.assertTrue((resumed[-1].target or "").startswith("R2"))
 
 
 class TestBookUnderstanding(unittest.TestCase):
@@ -347,6 +401,56 @@ class TestReviewReporting(unittest.TestCase):
                           if i.get("type") == "missing")
             # 每块报 index 0 → 映射后应为各块首段的章内段号（0,1,2,...互不相同）
             self.assertEqual(idxs, list(range(len(ch.text_segments))))
+
+    def test_review_accepts_numeric_string_index(self):
+        def handler(messages, tier, json_mode):
+            if "译文审校" in messages[0]["content"]:
+                return json.dumps(
+                    {"issues": [
+                        {"index": "0", "type": "missing",
+                         "detail": "x", "suggestion": ""}
+                    ]},
+                    ensure_ascii=False,
+                )
+            return routing_handler(messages, tier, json_mode)
+
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.autofix_severe = False
+
+            store = Orchestrator(
+                cfg, client=FakeClient(handler=handler)
+            ).run(txt, only_chapter=0)
+
+            issues = store.load_chapter(0).meta["review_issues"]
+            self.assertTrue(issues)
+            self.assertEqual(issues[0]["index"], 0)
+
+    def test_review_warns_when_index_is_invalid(self):
+        def handler(messages, tier, json_mode):
+            if "译文审校" in messages[0]["content"]:
+                return json.dumps(
+                    {"issues": [
+                        {"index": "unknown", "type": "missing",
+                         "detail": "x", "suggestion": ""}
+                    ]}
+                )
+            return routing_handler(messages, tier, json_mode)
+
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.autofix_severe = False
+
+            with self.assertWarnsRegex(RuntimeWarning, "无效审校索引"):
+                store = Orchestrator(
+                    cfg, client=FakeClient(handler=handler)
+                ).run(txt, only_chapter=0)
+
+            self.assertEqual(store.load_chapter(0).meta["review_issues"], [])
 
 
 class TestStyleAnalysis(unittest.TestCase):

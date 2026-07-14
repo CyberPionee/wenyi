@@ -11,9 +11,19 @@ from ..agents.base import Agent
 from .store import GlossaryStore, GlossaryTerm
 
 
+def _text(value: object, default: str = "") -> str:
+    """把模型返回的标量字段规整为字符串。"""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return default
+
+
 class GlossaryExtractor(Agent):
     def extract(self, source_text: str, target_text: str,
                 existing: list[GlossaryTerm]) -> list[GlossaryTerm]:
+        """从一组原译文中抽取有效术语，并清洗模型返回的字段类型。"""
         system = prompts.render("glossary_extractor_system", src=self.src, tgt=self.tgt)
         user = prompts.render(
             "glossary_extractor_user", src=self.src, tgt=self.tgt,
@@ -23,21 +33,27 @@ class GlossaryExtractor(Agent):
         raw = self._ask_json(system, user, tier="fast", key="terms", default=[])
         terms: list[GlossaryTerm] = []
         for d in self.dict_items(raw):
-            if not d.get("source") or not d.get("target"):
+            source = _text(d.get("source"))
+            target = _text(d.get("target"))
+            if not source or not target:
                 continue
+            raw_aliases = d.get("aliases")
+            aliases = raw_aliases if isinstance(raw_aliases, list) else []
+            gender = _text(d.get("gender"))
             terms.append(GlossaryTerm(
-                source=str(d["source"]).strip(),
-                target=str(d["target"]).strip(),
-                reading=str(d.get("reading", "")).strip(),
-                type=d.get("type", "术语"),
-                gender=d.get("gender", "") if d.get("gender") not in ("未知", None) else "",
-                aliases=[a for a in d.get("aliases", []) if a],
-                note=d.get("note", ""),
+                source=source,
+                target=target,
+                reading=_text(d.get("reading")),
+                type=_text(d.get("type"), "术语"),
+                gender="" if gender == "未知" else gender,
+                aliases=[alias for a in aliases if (alias := _text(a))],
+                note=_text(d.get("note")),
             ))
         return terms
 
     def extract_and_store(self, store: GlossaryStore, source_text: str,
                           target_text: str, chapter: int) -> dict[str, int]:
+        """抽取术语并写入数据库，返回新增、冲突和未变化数量。"""
         existing = store.all_terms()
         terms = self.extract(source_text, target_text, existing)
         summary = {"inserted": 0, "conflict": 0, "unchanged": 0}

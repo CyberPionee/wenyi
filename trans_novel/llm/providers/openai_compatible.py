@@ -61,6 +61,7 @@ def build_request_kwargs(
     max_tokens: Optional[int] = None,
     reasoning_style: ReasoningStyle = "none",
 ) -> dict[str, Any]:
+    """按配置的思考方言组装通用兼容端点请求参数。"""
     kwargs = base_request_kwargs(tier_config.model, messages, json_mode=json_mode)
     reasoning_kwargs, extra_body = _reasoning_body(
         tier_config.options,
@@ -93,6 +94,7 @@ class OpenAICompatibleClient(
         default_api_key_env: str | None = None,
         requires_api_key: bool = False,
     ) -> None:
+        """初始化可自定义端点、密钥要求和思考参数方言的兼容客户端。"""
         tiers = resolve_provider_tiers(
             cfg.tiers,
             options_type=OpenAICompatibleTierOptions,
@@ -115,6 +117,7 @@ class OpenAICompatibleClient(
         json_mode: bool,
         max_tokens: Optional[int],
     ) -> dict[str, Any]:
+        """构造当前兼容端点档位的最终请求参数。"""
         return build_request_kwargs(
             tier_config,
             messages,

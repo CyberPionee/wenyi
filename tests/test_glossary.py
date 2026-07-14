@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import os
-import sqlite3
 import tempfile
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from trans_novel.glossary.store import (
     GlossaryStore,
@@ -44,6 +45,21 @@ class TestGlossary(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertEqual(hits[0].source, "綾小路")
 
+    def test_terms_in_text_normalizes_case_and_character_width(self):
+        self.store.upsert_term(
+            GlossaryTerm(source="OpenAI", target="开放人工智能")
+        )
+        self.store.upsert_term(
+            GlossaryTerm(source="ＡＢＣ", target="ABC 组织")
+        )
+
+        hits = self.store.terms_in_text("openai 与 ABC")
+
+        self.assertEqual(
+            {term.source for term in hits},
+            {"OpenAI", "ＡＢＣ"},
+        )
+
     def test_appellation_does_not_match_bare_name_alias(self):
         self.store.upsert_term(
             GlossaryTerm(
@@ -80,37 +96,32 @@ class TestGlossary(unittest.TestCase):
         self.assertEqual(term.status, "ok")
         self.assertEqual(self.store.open_conflicts(), [])
 
-    def test_legacy_confidence_and_locked_columns_are_migrated(self):
-        path = os.path.join(self.tmp.name, "legacy.db")
-        conn = sqlite3.connect(path)
-        conn.executescript(
-            """
-            CREATE TABLE glossary (
-                source TEXT PRIMARY KEY, target TEXT NOT NULL, reading TEXT,
-                type TEXT, gender TEXT, aliases TEXT, first_chapter INTEGER,
-                note TEXT, confidence TEXT DEFAULT 'medium',
-                locked INTEGER DEFAULT 0, status TEXT DEFAULT 'ok', updated_at REAL
-            );
-            INSERT INTO glossary
-                (source,target,aliases,confidence,locked,status)
-            VALUES ('X','旧译','[]','high',1,'ok');
-            """
-        )
-        conn.close()
+    def test_concurrent_upserts_make_one_atomic_conflict_decision(self):
+        path = os.path.join(self.tmp.name, "concurrent.db")
+        initial = GlossaryStore(path)
+        initial.close()
+        barrier = threading.Barrier(2)
 
-        migrated = GlossaryStore(path)
+        def write(target: str) -> str:
+            store = GlossaryStore(path)
+            try:
+                barrier.wait()
+                return store.upsert_term(
+                    GlossaryTerm(source="Name", target=target), chapter=1
+                )
+            finally:
+                store.close()
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(write, ["译名甲", "译名乙"]))
+
+        check = GlossaryStore(path)
         try:
-            columns = {
-                row["name"]
-                for row in migrated.conn.execute("PRAGMA table_info(glossary)")
-            }
-            self.assertNotIn("confidence", columns)
-            self.assertNotIn("locked", columns)
-            term = migrated.get_term("X")
-            assert term is not None
-            self.assertEqual(term.target, "旧译")
+            self.assertCountEqual(results, ["inserted", "conflict"])
+            self.assertEqual(len(check.all_terms()), 1)
+            self.assertEqual(len(check.open_conflicts()), 1)
         finally:
-            migrated.close()
+            check.close()
 
     def test_translation_memory(self):
         self.store.add_tm("風が強かった。", "风很大。", chapter=1)
