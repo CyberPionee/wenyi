@@ -24,6 +24,7 @@ def _text(value: Any, default: str = "") -> str:
 
 class Analyzer(Agent):
     def analyze(self, sample_text: str) -> dict[str, Any]:
+        """分析样本文本，并返回经过类型清洗的风格、角色和术语信息。"""
         system = prompts.render("analyzer_system", src=self.src, tgt=self.tgt)
         user = prompts.render("analyzer_user", src=self.src, tgt=self.tgt,
                               sample=sample_text)

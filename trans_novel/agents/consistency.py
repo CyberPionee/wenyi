@@ -17,10 +17,12 @@ from .base import Agent
 class ConsistencyChecker(Agent):
     @staticmethod
     def _chapter_label(title: str, index: int) -> str:
+        """返回适合报告展示的章节名，无标题时按序号生成。"""
         title = (title or "").strip()
         return title or f"章节 {index + 1}"
 
     def _chapter_digests(self, store: RunStore, max_chars_each: int = 600) -> str:
+        """提取已完成章节的首尾译文，拼成受字符预算限制的检查摘要。"""
         m = store.load_manifest()
         parts: list[str] = []
         for c in m["chapters"]:
@@ -37,6 +39,7 @@ class ConsistencyChecker(Agent):
         return "\n\n".join(parts)
 
     def check(self, store: RunStore, glossary: GlossaryStore) -> list[dict[str, Any]]:
+        """结合术语表和各章摘要扫描跨章一致性问题。"""
         digests = self._chapter_digests(store)
         if not digests.strip():
             return []

@@ -305,6 +305,7 @@ def honorific_rule(strategy: str) -> str:
 
 
 def render_glossary(terms: list[GlossaryTerm]) -> str:
+    """把术语对象渲染为适合注入模型提示词的逐行对照表。"""
     if not terms:
         return "（暂无）"
     lines = []
@@ -321,10 +322,12 @@ def render_glossary(terms: list[GlossaryTerm]) -> str:
 
 
 def numbered(texts: list[str]) -> str:
+    """把文本列表渲染成以零为起点的方括号编号格式。"""
     return "\n".join(f"[{i}] {t}" for i, t in enumerate(texts))
 
 
 def numbered_pairs(sources: list[str], targets: list[str]) -> str:
+    """按相同下标并排渲染原文和译文，供审校提示词使用。"""
     out = []
     for i, (s, t) in enumerate(zip(sources, targets)):
         out.append(f"[{i}] 原文：{s}\n    译文：{t}")

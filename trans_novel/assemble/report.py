@@ -12,6 +12,7 @@ from ..pipeline.runstore import RunStore, STATUS_DONE
 
 
 def build_report(store: RunStore, glossary: GlossaryStore) -> dict[str, Any]:
+    """汇总完成进度、空译文、术语冲突、审校和回译问题。"""
     m = store.load_manifest()
     chapters_total = len(m["chapters"])
     chapters_done = sum(1 for c in m["chapters"] if c["status"] == STATUS_DONE)

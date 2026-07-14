@@ -56,6 +56,7 @@ _LANG_ALIASES = {
 
 
 def _normalize_lang(code: str) -> str:
+    """把模型返回的语言名或别名规整为 ISO 639-1 两字母代码。"""
     c = (code or "").strip().lower()
     if not c or c in {"auto", "unknown", "und", "uncertain", "mixed", "多语言", "未知"}:
         return ""
@@ -94,6 +95,7 @@ class _BatchResult:
 
 class Orchestrator:
     def __init__(self, config: Config, client: LLMClient | None = None):
+        """初始化共享 LLM 客户端、用量检查点和各流水线 Agent。"""
         self.config = config
         self.client = client or build_client(config)
         # client 的统计是进程内累计；checkpoint 用于每次落盘时只提取新增部分。
@@ -107,6 +109,7 @@ class Orchestrator:
         self.extractor = GlossaryExtractor(self.client, config)
 
     def _punctuation_enabled(self) -> bool:
+        """判断当前目标语言是否应启用中文标点规范化。"""
         target = (self.config.target_lang or "").lower().replace("_", "-")
         return self.config.punctuation_normalize and (
             target == "zh" or target.startswith("zh-")
@@ -146,6 +149,7 @@ class Orchestrator:
     # ── 准备 / 续跑入口 ──────────────────────────────────────────────────
     def prepare(self, input_path: str, *,
                 progress: Optional[ProgressFn] = None) -> RunStore:
+        """解析输入并定位状态目录；首次运行时在书级锁内完成初始化。"""
         if progress:
             progress(0, 0, "解析文档…")
         # 超长段按句拆分（max_chars_per_segment），续段标 cont 供回填并回
@@ -163,6 +167,7 @@ class Orchestrator:
         input_path: str,
         progress: Optional[ProgressFn],
     ) -> RunStore:
+        """恢复已有状态；新运行分阶段写入，并以 manifest 原子提交完成标志。"""
         if store.exists():
             store.log_event("run_resumed", input_path=input_path, run_dir=store.run_dir)
             return store  # 已有进度 → 直接续跑，不重置（语言在 run() 里按 manifest 应用）
@@ -274,6 +279,7 @@ class Orchestrator:
 
     def run(self, input_path: str, *, only_chapter: int | None = None,
             progress: Optional[ProgressFn] = None) -> RunStore:
+        """准备运行状态并在书级锁内翻译待处理章节。"""
         store = self.prepare(input_path, progress=progress)
         with store.lock():
             return self._run_locked(store, only_chapter=only_chapter, progress=progress)
@@ -285,6 +291,7 @@ class Orchestrator:
         only_chapter: int | None,
         progress: Optional[ProgressFn],
     ) -> RunStore:
+        """恢复语言和上下文，依次翻译章节并持续保存用量与进度。"""
         manifest = store.load_manifest()
         self._apply_language(manifest.get("source_lang") or self.config.source_lang)
         chapter_indices = {
@@ -437,6 +444,7 @@ class Orchestrator:
 
         # 标题压成单行，避免内嵌换行破坏 numbered 对齐
         def _flat(s: object) -> str:
+            """把标题压缩为不含换行和连续空白的单行文本。"""
             return " ".join(str(s or "").split())
 
         raw_meta = m.get("meta")
@@ -510,6 +518,7 @@ class Orchestrator:
                            style: str, book_synopsis: str = "", *,
                            progress: Optional[ProgressFn] = None,
                            done: int = 0, total: int = 0) -> int:
+        """翻译、润色、抽取、审校并落盘单章，返回更新后的完成段数。"""
         chapter = store.load_chapter(ci)
         text_segs = chapter.text_segments
         if not text_segs:
@@ -737,6 +746,7 @@ class Orchestrator:
             base += len(chunk)
 
         def review_one(job: tuple[int, list]) -> list[dict]:
+            """审校一个连续块，并把块内问题索引映射为章内索引。"""
             chunk_base, chunk = job
             srcs = [s.source for s in chunk]
             tgts = [s.target or "" for s in chunk]
@@ -908,6 +918,7 @@ class Orchestrator:
         out_format: str,
         out_path: str | None,
     ) -> dict[str, Any]:
+        """在书级锁内执行 QA、报告和导出收尾步骤并返回结果汇总。"""
         from ..agents.consistency import ConsistencyChecker
         from ..assemble.report import build_report
         from ..assemble.writer import assemble, bilingual_out_path

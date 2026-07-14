@@ -27,12 +27,14 @@ STATUS_DONE = "done"
 
 
 def slugify(name: str) -> str:
+    """把书名转换为适合作为状态目录名的稳定短名。"""
     s = re.sub(r"[^\w一-鿿぀-ヿ-]+", "_", name).strip("_")
     return s or "book"
 
 
 class RunStore:
     def __init__(self, run_dir: str, *, create: bool = True):
+        """绑定一本书的状态目录，并按需创建章节子目录。"""
         self.run_dir = run_dir
         self.chapters_dir = os.path.join(run_dir, "chapters")
         self._batch_glossary_event_cache: dict[int, set[str]] | None = None
@@ -40,6 +42,7 @@ class RunStore:
             self.ensure_dirs()
 
     def ensure_dirs(self) -> None:
+        """创建运行目录及章节状态子目录。"""
         os.makedirs(self.chapters_dir, exist_ok=True)
 
     @contextmanager
@@ -74,38 +77,47 @@ class RunStore:
     # ── 路径 ──────────────────────────────────────────────────────────────
     @property
     def manifest_path(self) -> str:
+        """返回书籍清单文件路径。"""
         return os.path.join(self.run_dir, "manifest.json")
 
     @property
     def context_path(self) -> str:
+        """返回滚动上下文文件路径。"""
         return os.path.join(self.run_dir, "context.json")
 
     @property
     def analysis_path(self) -> str:
+        """返回全书风格分析文件路径。"""
         return os.path.join(self.run_dir, "analysis.json")
 
     @property
     def glossary_path(self) -> str:
+        """返回术语及翻译记忆数据库路径。"""
         return os.path.join(self.run_dir, "glossary.db")
 
     @property
     def report_path(self) -> str:
+        """返回质量报告文件路径。"""
         return os.path.join(self.run_dir, "report.json")
 
     @property
     def usage_path(self) -> str:
+        """返回本书累计 token 用量文件路径。"""
         return os.path.join(self.run_dir, "usage.json")
 
     @property
     def event_log_path(self) -> str:
+        """返回追加式 JSONL 事件日志路径。"""
         return os.path.join(self.run_dir, "events.jsonl")
 
     def chapter_path(self, ci: int) -> str:
+        """返回指定章节索引对应的状态文件路径。"""
         return os.path.join(self.chapters_dir, f"ch{ci}.json")
 
     # ── 通用 JSON ─────────────────────────────────────────────────────────
     @staticmethod
     def _write_json(path: str, data) -> None:
+        """通过同目录临时文件原子写入格式化 JSON。"""
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -114,10 +126,12 @@ class RunStore:
 
     @staticmethod
     def _read_json(path: str):
+        """读取并解析 UTF-8 JSON 文件。"""
         with open(path, "r", encoding="utf-8") as f:
             return json.load(f)
 
     def exists(self) -> bool:
+        """判断运行状态是否已完成初始化并写入 manifest。"""
         return os.path.isfile(self.manifest_path)
 
     # ── manifest ──────────────────────────────────────────────────────────
@@ -145,12 +159,15 @@ class RunStore:
         return manifest
 
     def save_manifest(self, manifest: dict) -> None:
+        """原子保存书籍清单和章节状态。"""
         self._write_json(self.manifest_path, manifest)
 
     def load_manifest(self) -> dict:
+        """读取书籍清单和章节状态。"""
         return self._read_json(self.manifest_path)
 
     def set_chapter_status(self, ci: int, status: str) -> None:
+        """更新指定章节状态并原子保存整份 manifest。"""
         manifest = self.load_manifest()
         for c in manifest["chapters"]:
             if c["index"] == ci:
@@ -159,36 +176,46 @@ class RunStore:
         self.save_manifest(manifest)
 
     def pending_chapters(self) -> list[int]:
+        """返回尚未标记完成的章节索引。"""
         manifest = self.load_manifest()
         return [c["index"] for c in manifest["chapters"] if c["status"] != STATUS_DONE]
 
     # ── 章 ────────────────────────────────────────────────────────────────
     def save_chapter(self, chapter: Chapter) -> None:
+        """原子保存一个章节的源文、译文和阶段元数据。"""
         self._write_json(self.chapter_path(chapter.index), chapter.to_dict())
 
     def load_chapter(self, ci: int) -> Chapter:
+        """读取并校验指定章节状态。"""
         return Chapter.from_dict(self._read_json(self.chapter_path(ci)))
 
     # ── 上下文 / 分析 / 报告 ──────────────────────────────────────────────
     def save_context(self, data: dict) -> None:
+        """原子保存滚动上下文快照。"""
         self._write_json(self.context_path, data)
 
     def load_context(self) -> dict | None:
+        """读取滚动上下文；文件尚不存在时返回 None。"""
         return self._read_json(self.context_path) if os.path.isfile(self.context_path) else None
 
     def save_analysis(self, data: dict) -> None:
+        """原子保存全书分析和概览数据。"""
         self._write_json(self.analysis_path, data)
 
     def load_analysis(self) -> dict | None:
+        """读取全书分析；文件尚不存在时返回 None。"""
         return self._read_json(self.analysis_path) if os.path.isfile(self.analysis_path) else None
 
     def save_report(self, data: dict) -> None:
+        """原子保存质量检查报告。"""
         self._write_json(self.report_path, data)
 
     def save_usage(self, data: dict) -> None:
+        """原子保存本书累计 token 用量。"""
         self._write_json(self.usage_path, data)
 
     def load_usage(self) -> dict | None:
+        """读取累计 token 用量；文件尚不存在时返回 None。"""
         return self._read_json(self.usage_path) if os.path.isfile(self.usage_path) else None
 
     # ── 批次恢复检查点 ────────────────────────────────────────────────────

@@ -44,6 +44,7 @@ def _split_paragraphs(block: str) -> list[str]:
 
 
 def read_text(path: str, source_lang: str, target_lang: str) -> Document:
+    """读取 UTF-8 文本或 Markdown，识别章节标题并构造 Document。"""
     with open(path, "r", encoding="utf-8") as f:
         content = f.read()
 

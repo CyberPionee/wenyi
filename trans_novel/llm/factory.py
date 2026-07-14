@@ -7,6 +7,7 @@ from .base import LLMClient
 
 
 def build_client(config: Config) -> LLMClient:
+    """根据 llm.provider 延迟导入并构造对应客户端。"""
     provider = config.llm.provider.strip().lower().replace("_", "-")
     if provider == "deepseek":
         from .providers.deepseek import DeepSeekClient

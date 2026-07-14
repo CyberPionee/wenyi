@@ -18,6 +18,7 @@ class FakeClient(LLMClient):
         self,
         handler: Optional[Callable[[Messages, str, bool], str]] = None,
     ) -> None:
+        """保存可选响应处理器，并初始化调用记录列表。"""
         super().__init__()
         self.handler = handler
         self.calls: list[dict[str, Any]] = []  # 记录调用，便于断言
@@ -31,6 +32,7 @@ class FakeClient(LLMClient):
         max_tokens: Optional[int] = None,
         stage: Optional[str] = None,
     ) -> str:
+        """记录调用并返回处理器结果；未配置处理器时返回最小默认响应。"""
         self.calls.append(
             {
                 "messages": messages,

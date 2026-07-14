@@ -70,6 +70,7 @@ def make_usage_sample(
 
 
 def _hit_rate(hit: int, miss: int) -> float:
+    """计算缓存 token 命中率，无可统计 token 时返回 0。"""
     total = hit + miss
     return round(hit / total, 4) if total else 0.0
 
@@ -109,6 +110,7 @@ def _usage_summary(
 def _usage_group_delta(
     current: dict[str, dict[str, int]], previous: dict[str, dict[str, int]]
 ) -> dict[str, dict[str, int]]:
+    """按槽位计算累计用量的非负字段增量，并移除全零槽位。"""
     delta: dict[str, dict[str, int]] = {}
     for name, values in current.items():
         old = previous.get(name) or {}
@@ -127,6 +129,7 @@ def _usage_group_delta(
 def _merge_usage_groups(
     *groups: dict[str, dict[str, int]],
 ) -> dict[str, dict[str, int]]:
+    """按槽位逐字段累加多组 token 用量。"""
     merged: dict[str, dict[str, int]] = {}
     for group in groups:
         for name, values in group.items():
@@ -156,6 +159,7 @@ class UsageTracker:
     """线程安全地累加标准化用量，按 tier 和调用 stage 分别归因。"""
 
     def __init__(self) -> None:
+        """初始化 tier 与调用阶段两种归因视图；总计始终以 tier 为准。"""
         self._lock = threading.Lock()
         self._by_tier: dict[str, dict[str, int]] = {}
         self._by_stage: dict[str, dict[str, int]] = {}

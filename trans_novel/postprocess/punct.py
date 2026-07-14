@@ -32,6 +32,7 @@ def _convert_quotes(
     double_open: bool = True,
     single_open: bool = True,
 ) -> tuple[str, bool, bool]:
+    """转换日式和 ASCII 引号，并返回处理后的单双引号开闭状态。"""
     # 日式引号直接映射
     text = text.translate(str.maketrans({"「": "“", "」": "”", "『": "‘", "』": "’"}))
 
@@ -70,6 +71,7 @@ def _convert_quotes(
 
 
 def _convert_ellipsis_dash(text: str) -> str:
+    """把多种省略号和破折号写法统一为中文双字符形式。"""
     text = re.sub(r"。{3,}", "……", text)
     text = re.sub(r"・{2,}", "……", text)
     text = re.sub(r"\.{3,}", "……", text)
@@ -82,6 +84,7 @@ def _convert_ellipsis_dash(text: str) -> str:
 def _convert_halfwidth(text: str) -> str:
     """半角 ,.!?:; 紧邻 CJK 时转全角。"""
     def repl(m: re.Match) -> str:
+        """按映射表替换一个已匹配的半角标点。"""
         return _HALF_TO_FULL[m.group(0)]
 
     # 标点左侧是 CJK 时转换；只与右侧 CJK 相邻时，若左侧是 ASCII
@@ -106,6 +109,7 @@ def _normalize_with_quote_state(
     double_open: bool,
     single_open: bool,
 ) -> tuple[str, bool, bool]:
+    """在给定引号状态下完成一段规范化，并返回新的状态。"""
     if not text:
         return text, double_open, single_open
     text, double_open, single_open = _convert_quotes(

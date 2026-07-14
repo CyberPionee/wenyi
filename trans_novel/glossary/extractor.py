@@ -23,6 +23,7 @@ def _text(value: object, default: str = "") -> str:
 class GlossaryExtractor(Agent):
     def extract(self, source_text: str, target_text: str,
                 existing: list[GlossaryTerm]) -> list[GlossaryTerm]:
+        """从一组原译文中抽取有效术语，并清洗模型返回的字段类型。"""
         system = prompts.render("glossary_extractor_system", src=self.src, tgt=self.tgt)
         user = prompts.render(
             "glossary_extractor_user", src=self.src, tgt=self.tgt,
@@ -52,6 +53,7 @@ class GlossaryExtractor(Agent):
 
     def extract_and_store(self, store: GlossaryStore, source_text: str,
                           target_text: str, chapter: int) -> dict[str, int]:
+        """抽取术语并写入数据库，返回新增、冲突和未变化数量。"""
         existing = store.all_terms()
         terms = self.extract(source_text, target_text, existing)
         summary = {"inserted": 0, "conflict": 0, "unchanged": 0}

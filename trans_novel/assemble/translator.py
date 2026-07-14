@@ -28,6 +28,7 @@ class Translator(Agent):
         book_synopsis: str = "",
         chapter_digest: str = "",
     ) -> list[str]:
+        """调用一次批量翻译，并严格校验输出类型、数量和非空性。"""
         n = len(sources)
         system = prompts.render(
             "translator_system", src=self.src, tgt=self.tgt,
@@ -56,6 +57,7 @@ class Translator(Agent):
 
     def _translate_one(self, source, glossary_terms, style, context,
                        book_synopsis, chapter_digest) -> str:
+        """借用批量协议翻译单段，作为批量对齐失败后的最终兜底。"""
         out = self._call_batch([source], glossary_terms, style, context,
                                book_synopsis, chapter_digest)
         return out[0]

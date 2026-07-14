@@ -77,6 +77,7 @@ class _ConfigInitializingGroup(TyperGroup):
         *main_args: Any,
         **main_kwargs: Any,
     ) -> Any:
+        """在 Click 解析命令前定位并创建缺失的默认配置文件。"""
         cli_args = list(args) if args is not None else sys.argv[1:]
         config_path = _config_path_from_args(cli_args)
         _CONFIG["path"] = config_path
@@ -97,27 +98,33 @@ console = Console()
 
 
 class _ManifestStore(Protocol):
-    def load_manifest(self) -> dict[str, Any]: ...
+    def load_manifest(self) -> dict[str, Any]:
+        """返回运行目录中的 manifest 数据。"""
+        ...
 
 
 @app.callback()
 def _root(
     config: str = typer.Option("config.yaml", "--config", "-c", help="配置文件路径"),
 ):
+    """记录本次 CLI 调用使用的全局配置文件路径。"""
     _CONFIG["path"] = config
 
 
 def _load_config() -> Config:
+    """加载当前 CLI 调用选定的配置文件。"""
     return Config.load(_CONFIG["path"])
 
 
 def _require_input_file(input_path: str) -> None:
+    """确认输入路径是文件，否则打印错误并以状态码 1 退出。"""
     if not os.path.isfile(input_path):
         console.print(f"[red]输入文件不存在：{input_path}[/]")
         raise typer.Exit(1)
 
 
 def _validate_output_format(fmt: str) -> str:
+    """规范化并校验输出格式，只接受 epub 或 txt。"""
     normalized = fmt.strip().lower()
     if normalized not in {"epub", "txt"}:
         console.print(f"[red]不支持的输出格式：{fmt}（可选 epub / txt）[/]")
@@ -126,6 +133,7 @@ def _validate_output_format(fmt: str) -> str:
 
 
 def _runstore_for(config: Config, input_path: str) -> RunStore:
+    """解析输入书名并定位其已有状态目录，不主动创建目录。"""
     _require_input_file(input_path)
     doc = load_document(input_path, config.source_lang, config.target_lang)
     run_dir = os.path.join(config.state_dir, slugify(doc.title))
@@ -179,6 +187,7 @@ def _translate_impl(
         task = prog.add_task("准备中…", total=None)
 
         def cb(done: int, total: int, label: str) -> None:
+            """把编排器的通用进度回调同步到 Rich 任务。"""
             nonlocal task
             if total > 0:
                 prog.update(task, completed=done, total=total, description=label)
@@ -486,6 +495,7 @@ app.add_typer(tools_app, name="tools")
 
 
 def main() -> None:
+    """启动 Typer 命令行应用。"""
     app()
 
 

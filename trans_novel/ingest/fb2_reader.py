@@ -33,6 +33,7 @@ import xml.etree.ElementTree as ET
 from .models import KIND_HEADING, KIND_TEXT, Chapter, Document, Segment
 
 def _local(el: ET.Element) -> str:
+    """返回 FB2 元素去除 XML 命名空间后的标签名。"""
     return el.tag.rsplit("}", 1)[-1]
 
 
@@ -73,6 +74,7 @@ def _direct_segments(
     title_text = ""
 
     def add(text: str, kind: str) -> None:
+        """清洗并追加非空段落，同时分配稳定的章内索引和锚点。"""
         nonlocal idx
         text = text.strip()
         if text:
@@ -83,6 +85,7 @@ def _direct_segments(
             idx += 1
 
     def emit_block(el: ET.Element) -> None:
+        """递归展开正文容器，收集文字块和图片相对位置。"""
         tag = _local(el)
         if tag == "image":
             image_id = _image_id(el)
@@ -139,6 +142,7 @@ def _make_chapter(
     segments: list[Segment],
     images: list[dict[str, int | str]],
 ) -> Chapter:
+    """用提取结果构造章节，并为无标题章节生成可展示标题。"""
     if not title_text and segments:
         title_text = segments[0].source[:80]
     elif not title_text:

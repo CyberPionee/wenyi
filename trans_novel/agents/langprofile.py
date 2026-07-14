@@ -14,10 +14,12 @@ LABELS = {
 
 
 def label(src: str) -> str:
+    """把 ISO 源语言代码转换为提示词中的中文语言名称。"""
     return LABELS.get(src, f"{src}文" if src else "原文")
 
 
 def honorific_rule(strategy: str) -> str:
+    """返回指定敬称策略对应的提示词约束。"""
     return {
         "keep_style": (
             "体现敬称所含的人物关系与语气（如 先輩→前辈、ちゃん→小X）；"

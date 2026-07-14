@@ -15,6 +15,7 @@ class LLMClient(ABC):
     """所有 provider 实现此接口。"""
 
     def __init__(self) -> None:
+        """为 provider 初始化独立的线程安全用量统计器。"""
         self.usage = UsageTracker()
 
     def usage_summary(self) -> dict[str, Any]:

@@ -68,6 +68,7 @@ def base_request_kwargs(
     *,
     json_mode: bool,
 ) -> dict[str, Any]:
+    """构造 Chat Completions 基础参数，并为 JSON 模式补充明确指令。"""
     request_messages = messages
     if json_mode:
         request_messages = [dict(message) for message in messages]
@@ -148,6 +149,7 @@ class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
         tiers: dict[str, ResolvedTier[OptionsT]],
         requires_api_key: bool,
     ) -> None:
+        """解析连接信息并保存已校验档位，SDK 客户端稍后按需创建。"""
         super().__init__()
         self.cfg = cfg
         self.provider_name = provider_name
@@ -161,6 +163,7 @@ class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
         self._client_lock = threading.Lock()
 
     def _ensure_client(self) -> Any:
+        """线程安全地惰性创建 OpenAI SDK 客户端并校验 API Key。"""
         with self._client_lock:
             if self._client is None:
                 try:
@@ -207,6 +210,7 @@ class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
         max_tokens: Optional[int] = None,
         stage: Optional[str] = None,
     ) -> str:
+        """按指定档位调用兼容接口，自动重试并记录标准化用量。"""
         tier_config = resolve_tier(self.tiers, tier)
         kwargs = self._build_request_kwargs(
             tier_config,
@@ -223,6 +227,7 @@ class OpenAICompatibleBaseClient(LLMClient, Generic[OptionsT]):
             reraise=True,
         )
         def _call() -> str:
+            """执行一次实际请求；异常交由 tenacity 重试装饰器处理。"""
             response = client.chat.completions.create(**kwargs)
             sample = self._normalize_usage(getattr(response, "usage", None))
             self.usage.record(tier, sample, stage)

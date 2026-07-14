@@ -44,6 +44,7 @@ class GlossaryTerm:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "GlossaryTerm":
+        """把 SQLite 行转换为术语对象，并恢复 JSON 编码的别名。"""
         return cls(
             source=row["source"],
             target=row["target"],
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS translation_memory (
 
 
 def _hash(text: str) -> str:
+    """生成忽略首尾空白的翻译记忆键。"""
     return hashlib.sha256(text.strip().encode("utf-8")).hexdigest()
 
 
@@ -104,6 +106,7 @@ def _match_text(text: str) -> str:
 
 class GlossaryStore:
     def __init__(self, db_path: str):
+        """打开术语数据库，初始化表结构并迁移旧版字段。"""
         self.db_path = db_path
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
@@ -115,6 +118,7 @@ class GlossaryStore:
         self.conn.commit()
 
     def close(self) -> None:
+        """关闭底层 SQLite 连接。"""
         self.conn.close()
 
     def _migrate_legacy_glossary_schema(self) -> None:
@@ -152,6 +156,7 @@ class GlossaryStore:
 
     # ── 术语 ──────────────────────────────────────────────────────────────
     def get_term(self, source: str) -> Optional[GlossaryTerm]:
+        """按原文精确查询术语；不存在时返回 None。"""
         row = self.conn.execute(
             "SELECT * FROM glossary WHERE source = ?", (source,)
         ).fetchone()
@@ -216,6 +221,7 @@ class GlossaryStore:
             raise
 
     def _log_conflict(self, source, existing_target, proposed_target, chapter):
+        """在当前事务中记录一次候选译法冲突。"""
         self.conn.execute(
             """INSERT INTO term_conflicts
                (source,existing_target,proposed_target,chapter,created_at)
@@ -239,6 +245,7 @@ class GlossaryStore:
         return cur.rowcount > 0
 
     def all_terms(self) -> list[GlossaryTerm]:
+        """按术语类型和原文排序返回全部术语。"""
         rows = self.conn.execute(
             "SELECT * FROM glossary ORDER BY type, source"
         ).fetchall()
@@ -269,12 +276,14 @@ class GlossaryStore:
         return self.terms_in(self.all_terms(), text)
 
     def mark_conflicts_resolved(self, source: str) -> None:
+        """把指定原文术语的全部未决冲突标记为已处理。"""
         self.conn.execute(
             "UPDATE term_conflicts SET resolved=1 WHERE source=?", (source,)
         )
         self.conn.commit()
 
     def open_conflicts(self) -> list[dict[str, Any]]:
+        """按发生时间返回仍待人工裁决的冲突记录。"""
         rows = self.conn.execute(
             "SELECT * FROM term_conflicts WHERE resolved=0 ORDER BY created_at"
         ).fetchall()
@@ -282,6 +291,7 @@ class GlossaryStore:
 
     # ── 翻译记忆库 ──────────────────────────────────────────────────────
     def add_tm(self, source_text: str, target_text: str, chapter: Optional[int] = None) -> None:
+        """新增或覆盖一条以源文哈希为键的翻译记忆。"""
         self.conn.execute(
             """INSERT INTO translation_memory (source_hash,source_text,target_text,chapter,updated_at)
                VALUES (?,?,?,?,?)
@@ -292,6 +302,7 @@ class GlossaryStore:
         self.conn.commit()
 
     def tm_lookup(self, source_text: str) -> Optional[str]:
+        """按源文精确查找翻译记忆；未命中时返回 None。"""
         row = self.conn.execute(
             "SELECT target_text FROM translation_memory WHERE source_hash=?",
             (_hash(source_text),),
@@ -299,6 +310,7 @@ class GlossaryStore:
         return row["target_text"] if row else None
 
     def stats(self) -> dict[str, int]:
+        """返回术语数、未决冲突数和翻译记忆条目数。"""
         g = self.conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
         c = self.conn.execute("SELECT COUNT(*) FROM term_conflicts WHERE resolved=0").fetchone()[0]
         t = self.conn.execute("SELECT COUNT(*) FROM translation_memory").fetchone()[0]

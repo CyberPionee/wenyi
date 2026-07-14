@@ -79,6 +79,7 @@ _BILINGUAL_CSS = """\
 
 
 def _sanitize_filename(name: str, fallback: str = "translated") -> str:
+    """移除跨平台非法文件名字符，并限制名称长度。"""
     name = _ILLEGAL_FN.sub(" ", name or "").strip().strip(".")
     name = re.sub(r"\s+", " ", name)
     return name[:120] or fallback
@@ -118,6 +119,7 @@ def _ch_title(c: dict) -> str:
 
 
 def _seg_text(seg) -> str:
+    """返回有效译文；译文为空时回退到源文以避免丢内容。"""
     return seg.target if (seg.target and seg.target.strip()) else seg.source
 
 
@@ -218,6 +220,7 @@ def _assemble_text(
     bilingual: bool = False,
     order: str = "target_first",
 ) -> str:
+    """按章节和段落重建 UTF-8 文本，可选插入双语对照原文。"""
     m = store.load_manifest()
     chapter_blocks: list[str] = []
     for c in m["chapters"]:
@@ -248,6 +251,7 @@ def _render_chapter_html(
     bilingual: bool = False,
     order: str = "target_first",
 ) -> str:
+    """把一章译文按锚点回填 XHTML，并按需生成双语原文块。"""
     soup = BeautifulSoup(chapter.template or "", "html.parser")
     # 合并 cont 续段：续段文本并回其所属 anchor 元素
     by_anchor: dict[str, str] = {}
@@ -300,6 +304,7 @@ def _base_no_frag(href: str) -> str:
 
 
 def _attr_str(value: object) -> str:
+    """把 BeautifulSoup 属性安全收窄为字符串。"""
     return value if isinstance(value, str) else ""
 
 
@@ -457,6 +462,7 @@ def _assemble_epub(
     bilingual: bool = False,
     order: str = "target_first",
 ) -> str:
+    """复制原 EPUB 并替换正文、目录及目标语言相关元数据。"""
     m = store.load_manifest()
     target_lang = _epub_lang(m.get("target_lang", "zh"))
     # href -> 渲染后的 XHTML
@@ -540,6 +546,7 @@ def _assemble_epub(
 
 
 def _is_nav(data: bytes) -> bool:
+    """粗略判断 HTML 资源是否包含 EPUB3 目录导航。"""
     return b"epub:type" in data and b"toc" in data
 
 
