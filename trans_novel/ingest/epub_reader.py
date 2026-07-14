@@ -95,6 +95,9 @@ def _segment_content(block: Tag, anchor: str) -> tuple[str, dict[str, object]]:
         nonlocal raw_length
         for child in parent.children:
             if isinstance(child, Tag):
+                if child.name == "rt":
+                    # 振假名是注音而非正文；保留在模板中，不送给模型翻译。
+                    continue
                 if id(child) in root_ids:
                     node_offsets.append((child, raw_length))
                 else:

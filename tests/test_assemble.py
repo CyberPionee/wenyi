@@ -140,6 +140,35 @@ class TestAssembleText(unittest.TestCase):
 
 
 class TestAssembleEpub(unittest.TestCase):
+    def test_epub_render_preserves_textual_inline_markup(self):
+        html = """<html><body>
+<p><em>Hello</em> <a href="note.xhtml">world</a></p>
+<p><ruby>漢字<rt>かんじ</rt></ruby>です</p>
+</body></html>"""
+        title, segments, template = _extract_chapter(html, 0, "chapter.xhtml")
+        segments[0].target = "你好世界"
+        segments[1].target = "汉字如此"
+        chapter = Chapter(
+            index=0,
+            title=title,
+            segments=segments,
+            href="chapter.xhtml",
+            template=template,
+        )
+
+        rendered = BeautifulSoup(_render_chapter_html(chapter), "html.parser")
+        paragraphs = rendered.find_all("p")
+
+        self.assertEqual(paragraphs[0].get_text(), "你好世界")
+        self.assertTrue(paragraphs[0].find("em").get_text())
+        link = paragraphs[0].find("a")
+        self.assertEqual(link.get("href"), "note.xhtml")
+        self.assertTrue(link.get_text())
+        ruby = paragraphs[1].find("ruby")
+        self.assertIsNotNone(ruby)
+        self.assertEqual(ruby.find("rt").get_text(), "かんじ")
+        self.assertIn("汉字如此", paragraphs[1].get_text().replace("かんじ", ""))
+
     def test_rewrite_html_honors_declared_encoding_and_emits_utf8(self):
         source = (
             '<?xml version="1.0" encoding="Shift_JIS"?>'

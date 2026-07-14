@@ -12,7 +12,7 @@ import os
 import re
 import zipfile
 
-from bs4 import BeautifulSoup, UnicodeDammit
+from bs4 import BeautifulSoup, Comment, NavigableString, UnicodeDammit
 from bs4.element import Tag
 
 from ..ingest.models import KIND_HEADING, Chapter
@@ -33,6 +33,19 @@ _HORIZONTAL_OVERRIDE_ID = "trans-novel-horizontal-override"
 _BILINGUAL_STYLE_ID = "tn-bilingual-style"
 _INLINE_META_KEY = "epub_inline"
 _INLINE_ID_ATTR = "data-tn-inline-id"
+_NON_TEXT_INLINE_TAGS = {
+    "audio",
+    "canvas",
+    "embed",
+    "iframe",
+    "img",
+    "math",
+    "object",
+    "script",
+    "style",
+    "svg",
+    "video",
+}
 _XML_ENCODING = re.compile(
     r"(<\?xml[^>]*\bencoding\s*=\s*)(['\"])[^'\"]+\2",
     re.IGNORECASE,
@@ -132,46 +145,61 @@ def _bilingual_source(source: str, target: str) -> str:
 
 
 def _replace_block_content(el: Tag, text: str, meta: dict[str, object]) -> None:
-    """替换块内文字，同时按解析阶段记录的位置恢复图片等非文本节点。"""
-    raw_inline = meta.get(_INLINE_META_KEY)
-    inline = raw_inline if isinstance(raw_inline, dict) else {}
-    raw_nodes = inline.get("nodes")
-    nodes = raw_nodes if isinstance(raw_nodes, list) else []
-    source_length = inline.get("source_length")
-    if not isinstance(source_length, int) or source_length < 0:
-        source_length = 0
+    """在原有文本节点间按源文长度比例分配译文，保留内联标签与属性。
 
-    restored: list[tuple[int, int, Tag]] = []
-    for order, record in enumerate(nodes):
-        if not isinstance(record, dict):
+    翻译会改变语序，无法在没有对齐信息时精确知道每个标签应包裹哪些译文；
+    按原文文本节点的相对长度分配，可稳定保留 em/a/ruby 等结构，
+    也会自然保留图片、换行和空锚点的相对位置。
+    """
+    del meta  # 新回填算法直接使用模板 DOM；参数保留为了稳定内部接口。
+
+    text_nodes: list[NavigableString] = []
+    raw_parts: list[str] = []
+    for node in el.descendants:
+        if not isinstance(node, NavigableString) or isinstance(node, Comment):
             continue
-        inline_id = record.get("id")
-        offset = record.get("offset")
-        if not isinstance(inline_id, str) or not isinstance(offset, int):
-            continue
-        node = el.find(True, attrs={_INLINE_ID_ATTR: inline_id})
-        if not isinstance(node, Tag):
-            continue
-        node.extract()
+        parent = node.parent
+        translatable = True
+        while isinstance(parent, Tag) and parent is not el:
+            if parent.name == "rt" or parent.name in _NON_TEXT_INLINE_TAGS:
+                translatable = False
+                break
+            parent = parent.parent
+        if translatable:
+            text_nodes.append(node)
+            raw_parts.append(str(node))
+
+    if not text_nodes:
+        el.append(text)
+    else:
+        raw_text = "".join(raw_parts)
+        content_start = len(raw_text) - len(raw_text.lstrip())
+        content_end = len(raw_text.rstrip())
+        source_length = max(0, content_end - content_start)
+        raw_cursor = 0
+        source_cursor = 0
+        target_cursor = 0
+        for node, raw_part in zip(text_nodes, raw_parts):
+            part_start = raw_cursor
+            part_end = raw_cursor + len(raw_part)
+            contribution = max(
+                0,
+                min(part_end, content_end) - max(part_start, content_start),
+            )
+            source_cursor += contribution
+            target_end = (
+                round(source_cursor * len(text) / source_length)
+                if source_length
+                else len(text)
+            )
+            node.replace_with(text[target_cursor:target_end])
+            target_cursor = target_end
+            raw_cursor = part_end
+        if target_cursor < len(text):
+            el.append(text[target_cursor:])
+
+    for node in el.find_all(True, attrs={_INLINE_ID_ATTR: True}):
         node.attrs.pop(_INLINE_ID_ATTR, None)
-        if offset <= 0:
-            target_offset = 0
-        elif source_length <= 0 or offset >= source_length:
-            target_offset = len(text)
-        else:
-            target_offset = round(offset * len(text) / source_length)
-        restored.append((target_offset, order, node))
-
-    el.clear()
-    cursor = 0
-    for target_offset, _order, node in sorted(restored):
-        target_offset = min(max(target_offset, cursor), len(text))
-        if target_offset > cursor:
-            el.append(text[cursor:target_offset])
-        el.append(node)
-        cursor = target_offset
-    if cursor < len(text):
-        el.append(text[cursor:])
 
 
 # ── 纯文本 ──────────────────────────────────────────────────────────────────
