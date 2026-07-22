@@ -346,7 +346,7 @@ class TestAssembleEpub(unittest.TestCase):
             0,
             "chapter.xhtml",
         )
-        segments[0].target = "甲乙丙丁"
+        segments[0].target = "甲乙\n丙丁"
         chapter = Chapter(
             index=0,
             title=title,
@@ -381,6 +381,79 @@ class TestAssembleEpub(unittest.TestCase):
         self.assertIsInstance(standalone_image, Tag)
         assert isinstance(standalone_image, Tag)
         self.assertEqual(standalone_image.get("src"), "standalone.jpg")
+
+    def test_epub_render_preserves_nested_list_links_and_blockquote_lines(self):
+        html = """<html><body>
+<ul><li><a href="#author">Author</a><ul>
+<li><a href="chapter.xhtml#one">Chapter One</a></li>
+<li><a href="chapter.xhtml#two">Chapter Two</a></li>
+</ul></li></ul>
+<blockquote><div>Dedication One</div><div>Dedication Two</div></blockquote>
+</body></html>"""
+        title, segments, template = annotate_epub_resource(html, 0, "contents.xhtml")
+        for segment, target in zip(
+            segments,
+            ["作者", "第一章", "第二章", "献词一", "献词二"],
+        ):
+            segment.target = target
+        chapter = Chapter(
+            index=0,
+            title=title,
+            segments=segments,
+            href="contents.xhtml",
+            template=template,
+        )
+
+        rendered = BeautifulSoup(_render_chapter_html(chapter), "html.parser")
+
+        links = rendered.find_all("a")
+        self.assertEqual(
+            [link.get_text() for link in links],
+            ["作者", "第一章", "第二章"],
+        )
+        self.assertEqual(
+            [link.get("href") for link in links],
+            ["#author", "chapter.xhtml#one", "chapter.xhtml#two"],
+        )
+        self.assertEqual(len(rendered.find_all("li")), 3)
+        quote = rendered.find("blockquote")
+        self.assertIsInstance(quote, Tag)
+        assert isinstance(quote, Tag)
+        self.assertEqual(
+            [line.get_text() for line in quote.find_all("div", recursive=False)],
+            ["献词一", "献词二"],
+        )
+
+    def test_epub_render_rebuilds_heading_breaks_from_translated_lines(self):
+        html = """<html><body><h1>
+Isaac Asimov<br/><br/>Tales of the Black Widowers<br/>
+</h1></body></html>"""
+        title, segments, template = annotate_epub_resource(html, 0, "title.xhtml")
+        self.assertEqual(
+            segments[0].source,
+            "Isaac Asimov\n\nTales of the Black Widowers",
+        )
+        segments[0].target = "艾萨克·阿西莫夫\n\n《黑鳏夫俱乐部故事》"
+        chapter = Chapter(
+            index=0,
+            title=title,
+            segments=segments,
+            href="title.xhtml",
+            template=template,
+        )
+
+        rendered = BeautifulSoup(_render_chapter_html(chapter), "html.parser")
+        heading = rendered.find("h1")
+        self.assertIsInstance(heading, Tag)
+        assert isinstance(heading, Tag)
+        self.assertEqual(len(heading.find_all("br")), 2)
+        self.assertEqual(
+            [
+                child.name if isinstance(child, Tag) else str(child)
+                for child in heading.children
+            ],
+            ["艾萨克·阿西莫夫", "br", "br", "《黑鳏夫俱乐部故事》"],
+        )
 
     def test_bilingual_render_does_not_duplicate_inline_images(self):
         html = """<html><body>

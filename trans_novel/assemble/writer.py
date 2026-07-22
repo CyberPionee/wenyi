@@ -152,8 +152,23 @@ def _bilingual_source(source: str, target: str) -> str:
     return source if (source.strip() and source != target) else ""
 
 
-def _replace_block_content(el: Tag, text: str, meta: dict[str, object]) -> None:
-    """用纯译文替换块内容，并按解析元数据恢复图片等非文本节点。"""
+def _append_text_with_breaks(soup: BeautifulSoup, element: Tag, text: str) -> None:
+    """向元素追加文本，并把译文换行转换为 XHTML ``br``。"""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for index, line in enumerate(lines):
+        if line:
+            element.append(line)
+        if index + 1 < len(lines):
+            element.append(soup.new_tag("br"))
+
+
+def _replace_block_content(
+    soup: BeautifulSoup,
+    el: Tag,
+    text: str,
+    meta: dict[str, object],
+) -> None:
+    """用译文替换块内容，按元数据恢复图片，并按译文换行生成 ``br``。"""
     raw_inline = meta.get(_INLINE_META_KEY)
     inline = raw_inline if isinstance(raw_inline, dict) else {}
     raw_nodes = inline.get("nodes")
@@ -188,11 +203,11 @@ def _replace_block_content(el: Tag, text: str, meta: dict[str, object]) -> None:
     for target_offset, _order, node in sorted(restored):
         target_offset = min(max(target_offset, cursor), len(text))
         if target_offset > cursor:
-            el.append(text[cursor:target_offset])
+            _append_text_with_breaks(soup, el, text[cursor:target_offset])
         el.append(node)
         cursor = target_offset
     if cursor < len(text):
-        el.append(text[cursor:])
+        _append_text_with_breaks(soup, el, text[cursor:])
 
 
 # ── 纯文本 ──────────────────────────────────────────────────────────────────
@@ -308,7 +323,7 @@ def _render_segments_html(
             if render_meta_by_anchor is not None
             else stored_meta_by_anchor.get(anchor, {})
         )
-        _replace_block_content(el, text, render_meta)
+        _replace_block_content(soup, el, text, render_meta)
         del el["data-tn-id"]
         if not bilingual or kind_by_anchor.get(anchor) == KIND_HEADING:
             continue

@@ -626,6 +626,44 @@ class TestEpubIngest(unittest.TestCase):
         )
         self.assertEqual(template.count("data-tn-id"), 3)
 
+    def test_nested_lists_and_blockquotes_use_leaf_translation_targets(self):
+        html = """<html><body>
+<ul><li><a href="#author">Author</a><ul>
+<li><a href="chapter.xhtml#one">Chapter One</a></li>
+<li><a href="chapter.xhtml#two">Chapter Two</a></li>
+</ul></li></ul>
+<blockquote><div>Dedication One</div><div>Dedication Two</div></blockquote>
+</body></html>"""
+
+        _title, segments, template = annotate_epub_resource(
+            html,
+            0,
+            "contents.xhtml",
+        )
+
+        self.assertEqual(
+            [segment.source for segment in segments],
+            [
+                "Author",
+                "Chapter One",
+                "Chapter Two",
+                "Dedication One",
+                "Dedication Two",
+            ],
+        )
+        rendered = BeautifulSoup(template, "html.parser")
+        self.assertTrue(
+            all(not item.has_attr("data-tn-id") for item in rendered.find_all("li"))
+        )
+        self.assertTrue(
+            all(
+                not quote.has_attr("data-tn-id")
+                for quote in rendered.find_all("blockquote")
+            )
+        )
+        self.assertEqual(len(rendered.select("a[data-tn-id]")), 3)
+        self.assertEqual(len(rendered.select("blockquote div[data-tn-id]")), 2)
+
     def test_declared_legacy_xhtml_encoding_is_honored(self):
         markup = (
             '<?xml version="1.0" encoding="Shift_JIS"?>'
@@ -676,18 +714,18 @@ class TestEpubIngest(unittest.TestCase):
 
         self.assertEqual(len(segments), 1)
         segment = segments[0]
-        self.assertEqual(segment.source, "AvantAprès")
+        self.assertEqual(segment.source, "Avant\nAprès")
         inline = segment.meta["epub_inline"]
         self.assertEqual(inline["source_length"], len(segment.source))
         self.assertEqual(
             [node["placement"] for node in inline["nodes"]],
-            ["before", "inline", "after"],
+            ["before", "after"],
         )
         self.assertEqual(
             [node["offset"] for node in inline["nodes"]],
-            [0, len("Avant"), len(segment.source)],
+            [0, len(segment.source)],
         )
-        self.assertEqual(template.count("data-tn-inline-id"), 3)
+        self.assertEqual(template.count("data-tn-inline-id"), 2)
         self.assertIn('<img src="standalone.jpg"/>', template)
 
     def test_epub_chapters_and_anchors(self):

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import posixpath
+import re
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -45,7 +46,6 @@ _INLINE_META_KEY = "epub_inline"
 _INLINE_ID_ATTR = "data-tn-inline-id"
 _ATOMIC_INLINE_TAGS = {
     "audio",
-    "br",
     "canvas",
     "embed",
     "hr",
@@ -56,6 +56,8 @@ _ATOMIC_INLINE_TAGS = {
     "svg",
     "video",
 }
+
+_SEMANTIC_BREAK_TOKEN = "\ue000tn-break\ue001"
 
 
 def _preserved_inline_roots(block: Tag) -> list[Tag]:
@@ -89,32 +91,53 @@ def _preserved_inline_roots(block: Tag) -> list[Tag]:
 
 
 def _segment_content(block: Tag, anchor: str) -> tuple[str, dict[str, object]]:
-    """提取可翻译文本，并给内联非文本节点写入稳定 ID 和位置元数据。"""
+    """提取可翻译文本，并给内联非文本节点写入稳定 ID 和位置元数据。
+
+    XHTML 源码中的排版空白按浏览器规则折叠；``br`` 则转换为真正的
+    ``\n`` 送入翻译。这样译文可以按语义保留换行，组装时也不必再按
+    源文/译文长度比例猜测 ``br`` 的插入位置。
+    """
     roots = _preserved_inline_roots(block)
     root_ids = {id(node) for node in roots}
     text_parts: list[str] = []
-    node_offsets: list[tuple[Tag, int]] = []
-    raw_length = 0
+    preserved_nodes: list[tuple[str, Tag]] = []
 
     def walk(parent: Tag) -> None:
         """递归收集正文文本节点，并记录需保留节点的源文偏移。"""
-        nonlocal raw_length
         for child in parent.children:
             if isinstance(child, Tag):
                 if child.name == "rt":
                     # 振假名是注音而非正文；保留在模板中，不送给模型翻译。
                     continue
+                if child.name == "br":
+                    text_parts.append(_SEMANTIC_BREAK_TOKEN)
+                    continue
                 if id(child) in root_ids:
-                    node_offsets.append((child, raw_length))
+                    marker = f"\ue000tn-inline-{len(preserved_nodes)}\ue001"
+                    preserved_nodes.append((marker, child))
+                    text_parts.append(marker)
                 else:
                     walk(child)
             elif isinstance(child, NavigableString) and not isinstance(child, Comment):
-                value = str(child)
-                text_parts.append(value)
-                raw_length += len(value)
+                text_parts.append(str(child))
 
     walk(block)
-    raw_text = "".join(text_parts)
+    # 普通源码换行只是 HTML 排版空白；只有 br 标记保留为语义换行。
+    raw_text = re.sub(r"[ \t\r\n\f\v]+", " ", "".join(text_parts))
+    raw_text = re.sub(
+        rf" *{re.escape(_SEMANTIC_BREAK_TOKEN)} *",
+        _SEMANTIC_BREAK_TOKEN,
+        raw_text,
+    ).replace(_SEMANTIC_BREAK_TOKEN, "\n")
+
+    node_offsets: list[tuple[Tag, int]] = []
+    for marker, node in preserved_nodes:
+        offset = raw_text.find(marker)
+        if offset < 0:  # pragma: no cover - marker 由本函数写入
+            continue
+        raw_text = raw_text[:offset] + raw_text[offset + len(marker) :]
+        node_offsets.append((node, offset))
+
     text = raw_text.strip()
     if not text:
         return "", {}
@@ -150,6 +173,49 @@ def _segment_content(block: Tag, anchor: str) -> tuple[str, dict[str, object]]:
             "nodes": nodes,
         }
     return text, meta
+
+
+def _has_meaningful_descendant_block(element: Tag) -> bool:
+    """块内若已有更细粒度的正文块，则外层只作为布局容器保留。"""
+    return any(
+        descendant.get_text(strip=True)
+        for descendant in element.find_all(_BLOCK_CANDIDATE_TAGS)
+    )
+
+
+def _list_item_link_target(element: Tag) -> Tag | None:
+    """返回列表项自己的直接链接标签，避免回填时清空 ``li`` 和子列表。"""
+    link = element.find("a", recursive=False)
+    return link if isinstance(link, Tag) and link.get_text(strip=True) else None
+
+
+def _translation_targets(
+    soup: BeautifulSoup,
+    *,
+    skip_navigation: bool,
+) -> list[Tag]:
+    """按文档顺序选择可安全替换内容的最细粒度 EPUB 节点。
+
+    含子正文块的 ``div``/``blockquote`` 等仅作为容器保留；``li`` 的
+    直接链接文字单独成为翻译目标，从而同时保留列表层级和 ``href``。
+    """
+    targets: list[Tag] = []
+    for element in soup.find_all(_BLOCK_CANDIDATE_TAGS):
+        if skip_navigation and _inside_navigation_list(element):
+            continue
+
+        has_descendant_block = _has_meaningful_descendant_block(element)
+        if element.name == "li":
+            link = _list_item_link_target(element)
+            if link is not None:
+                targets.append(link)
+            if link is not None or has_descendant_block:
+                continue
+
+        if has_descendant_block:
+            continue
+        targets.append(element)
+    return targets
 
 
 def _find_opf_path(zf: zipfile.ZipFile) -> str:
@@ -270,22 +336,7 @@ def annotate_epub_resource(
     soup = BeautifulSoup(html, "html.parser")
     segments: list[Segment] = []
     idx = 0
-    for el in soup.find_all(_BLOCK_CANDIDATE_TAGS):
-        if el.name == "div" and any(
-            descendant.get_text(strip=True)
-            for descendant in el.find_all(_BLOCK_CANDIDATE_TAGS)
-        ):
-            # Calibre 等工具有时直接用 div 表示段落。只把没有更细粒度
-            # 正文块的叶子 div 当作段落，避免布局 div 吞并内部多个 p/div。
-            continue
-        if skip_navigation and _inside_navigation_list(el):
-            # NAV 可以同时是 spine 中的可见目录页。目录 li 中嵌套着
-            # a/ol，若当普通段落回填会清空整棵目录结构；nav 内独立的
-            # “Contents”等 heading/p 仍可安全作为普通正文翻译。
-            continue
-        # 跳过嵌套在另一个块级元素内的块（避免重复计数，如 blockquote 里的 p）
-        if any(getattr(p, "name", None) in _BLOCK_TAGS for p in el.parents):
-            continue
+    for el in _translation_targets(soup, skip_navigation=skip_navigation):
         # 带文字的内联 id/name 包装会在回填纯译文时被拍平。先把它
         # 改成同位置的空锚点，便可复用现有内联非文本节点恢复机制。
         for descendant in list(el.find_all(True)):
