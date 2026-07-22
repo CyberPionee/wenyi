@@ -44,6 +44,7 @@ _IMAGE_EXTENSION_BY_TYPE = {
 }
 _INLINE_META_KEY = "epub_inline"
 _INLINE_ID_ATTR = "data-tn-inline-id"
+_LINE_WRAPPER_ATTR = "data-tn-line"
 _XML_ENCODING = re.compile(
     r"(<\?xml[^>]*\bencoding\s*=\s*)(['\"])[^'\"]+\2",
     re.IGNORECASE,
@@ -318,6 +319,7 @@ def _render_segments_html(
         el = soup.find(True, attrs={"data-tn-id": anchor})
         if el is None:
             continue
+        line_wrapper = el.has_attr(_LINE_WRAPPER_ATTR)
         render_meta = (
             render_meta_by_anchor.get(anchor, {})
             if render_meta_by_anchor is not None
@@ -334,7 +336,9 @@ def _render_segments_html(
         # 避免生成 <ul><li>...</li><p>...</p></ul> 之类的非法列表结构，
         # 同时保留引用块的语义和样式。
         nested_source = el.name in {"li", "blockquote"}
-        src_el = soup.new_tag("div" if nested_source else "p")
+        src_el = soup.new_tag(
+            "span" if line_wrapper else "div" if nested_source else "p"
+        )
         source_classes = ["tn-source"]
         if preserve_source_style:
             original_classes = el.get("class")
@@ -349,7 +353,13 @@ def _render_segments_html(
             source_classes.append("ibooks-dark-theme-use-custom-text-color")
         src_el["class"] = " ".join(source_classes)
         src_el.append(src)
-        if nested_source and order == "source_first":
+        if line_wrapper and order == "source_first":
+            el.insert_before(src_el)
+            src_el.insert_after(soup.new_tag("br"))
+        elif line_wrapper:
+            el.insert_after(src_el)
+            el.insert_after(soup.new_tag("br"))
+        elif nested_source and order == "source_first":
             el.insert(0, src_el)
         elif nested_source:
             el.append(src_el)
@@ -357,6 +367,9 @@ def _render_segments_html(
             el.insert_before(src_el)
         else:
             el.insert_after(src_el)
+    # br 拆行包装只用于提供独立回填锚点；完成后去掉 span，恢复干净 DOM。
+    for wrapper in list(soup.find_all(True, attrs={_LINE_WRAPPER_ATTR: True})):
+        wrapper.unwrap()
     return str(soup)
 
 

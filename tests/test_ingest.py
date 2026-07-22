@@ -712,20 +712,21 @@ class TestEpubIngest(unittest.TestCase):
             "chapter.xhtml",
         )
 
-        self.assertEqual(len(segments), 1)
-        segment = segments[0]
-        self.assertEqual(segment.source, "Avant\nAprès")
-        inline = segment.meta["epub_inline"]
-        self.assertEqual(inline["source_length"], len(segment.source))
+        self.assertEqual([segment.source for segment in segments], ["Avant", "Après"])
+        first_inline = segments[0].meta["epub_inline"]
+        second_inline = segments[1].meta["epub_inline"]
+        self.assertEqual(first_inline["source_length"], len(segments[0].source))
+        self.assertEqual(second_inline["source_length"], len(segments[1].source))
         self.assertEqual(
-            [node["placement"] for node in inline["nodes"]],
-            ["before", "after"],
+            [node["placement"] for node in first_inline["nodes"]],
+            ["before"],
         )
         self.assertEqual(
-            [node["offset"] for node in inline["nodes"]],
-            [0, len(segment.source)],
+            [node["placement"] for node in second_inline["nodes"]],
+            ["after"],
         )
         self.assertEqual(template.count("data-tn-inline-id"), 2)
+        self.assertEqual(template.count("data-tn-line"), 2)
         self.assertIn('<img src="standalone.jpg"/>', template)
 
     def test_epub_chapters_and_anchors(self):
