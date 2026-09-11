@@ -25,3 +25,26 @@ explore/
 *.html
 *.srt
 *.docx
+
+# 工具 / 配置目录
+.codegraph/
+.comet/
+.opencode/
+.superpowers/
+.vscode/
+CLAUDE.md
+docs/superpowers/
+
+# Node.js
+node_modules/
+package-lock.json
+package.json
+
+# 用户本地脚本
+annotate_terms.py
+clear_proofread_issues.py
+fix_review_issues.py
+proofread_book.py
+retranslate_conflicts.py
+rollback_retranslation.py
+scan_glossary_issues.py
