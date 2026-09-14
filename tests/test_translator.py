@@ -105,12 +105,35 @@ class TestTranslatorAlignment(unittest.TestCase):
 
     def test_empty_per_segment_fallback_is_rejected(self):
         client = FakeClient(
-            handler=lambda messages, tier, json_mode: json.dumps({"translations": []})
+            handler=lambda messages, tier, json_mode: json.dumps({"translations": [""]})
         )
         translator = Translator(client, self._config())
 
         with self.assertRaisesRegex(Exception, "failed at paragraph 0"):
             translator.translate_batch(["あ", "い"])
+
+    def test_mineru_allows_empty_string_translations(self):
+        """MinerU may persist blank targets when the model returns empty OCR-junk refusals."""
+
+        def handler(messages, tier, json_mode):
+            n = _count_segments(messages[-1]["content"])
+            return json.dumps({"translations": [""] * n})
+
+        translator = Translator(FakeClient(handler=handler), self._config())
+        out = translator.translate_batch(
+            ["The OCR result should be empty according to Rule 2.", "正文"],
+            allow_empty_translations=True,
+        )
+        self.assertEqual(out, ["", ""])
+
+    def test_mineru_empty_allowance_still_rejects_non_string(self):
+        client = FakeClient(
+            handler=lambda messages, tier, json_mode: json.dumps({"translations": [None]})
+        )
+        translator = Translator(client, self._config())
+
+        with self.assertRaisesRegex(Exception, "failed at paragraph 0"):
+            translator.translate_batch(["あ"], allow_empty_translations=True)
 
     def test_non_string_translation_is_rejected(self):
         client = FakeClient(
@@ -135,6 +158,25 @@ class TestTranslatorAlignment(unittest.TestCase):
             translator.translate_batch(["あ", "い"])
 
         self.assertEqual(len(client.calls), 1)
+
+
+class TestMinerUEmptyTargetResume(unittest.TestCase):
+    def test_blank_target_counts_as_translated_for_resume_batches(self):
+        from trans_novel.ingest.models import Segment
+        from trans_novel.pipeline.translation import _is_mineru_pdf
+        from trans_novel.pipeline.translation_batch import resume_batches
+
+        self.assertTrue(_is_mineru_pdf({"fmt": "pdf", "meta": {}}))
+        self.assertFalse(_is_mineru_pdf({"fmt": "pdf", "meta": {"babeldoc": True}}))
+        self.assertFalse(_is_mineru_pdf({"fmt": "epub", "meta": {}}))
+
+        segments = [
+            Segment(index=0, kind="p", source="a", target="译"),
+            Segment(index=1, kind="p", source="junk", target=""),
+            Segment(index=2, kind="p", source="b", target=None),
+        ]
+        batches = resume_batches(segments, max_tokens=10_000)
+        self.assertEqual([[s.index for s in batch] for batch in batches], [[0, 1], [2]])
 
 
 class TestTranslatorPromptOrder(unittest.TestCase):

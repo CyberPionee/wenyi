@@ -38,6 +38,7 @@
 - [文档](#文档)
 - [憧憬与不足](#憧憬与不足)
 - [社区](#社区)
+- [支持项目](#支持项目)
 - [星标历史](#星标历史)
 - [许可证](#许可证)
 
@@ -240,6 +241,20 @@ Review Fixer 同样会获得风格指南、全书概览、本章梗概、相关�
 - QQ 群：1055065098
 - [GitHub Issues](https://github.com/BigDawnGhost/wenyi/issues) — 问题反馈
 - [GitHub Discussions](https://github.com/BigDawnGhost/wenyi/discussions) — 想法与讨论
+
+---
+
+## 支持项目
+
+如果项目对你有帮助，欢迎打赏。
+
+<p align="center">
+  <img src="../images/tip-wechat.jpg" alt="微信收款码" width="220">
+  &nbsp;&nbsp;
+  <img src="../images/tip-alipay.jpg" alt="支付宝收款码" width="220">
+  <br>
+  <sub>微信 · 支付宝</sub>
+</p>
 
 ---
 

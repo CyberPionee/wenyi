@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 import re
 
+from trans_novel.llm.providers.fake import FakeClient
+from trans_novel.llm.usage import UsageSample
+
+METERED_TOTAL_TOKENS = 8  # prompt 5 + completion 3, recorded by MeteredFakeClient per call.
+
 
 def _count_numbered(text: str) -> int:
     return len(re.findall(r"^\[(\d+)\]", text, re.MULTILINE))
@@ -34,10 +39,27 @@ def routing_handler(messages, tier, json_mode):
         return json.dumps({"titles": [f"标题{i}" for i in range(n)]}, ensure_ascii=False)
 
     if "literary translator" in system:
+        # Polish may append a user turn to the same translation conversation.
+        if "Polish the translations from your previous JSON response" in user:
+            n = None
+            for message in reversed(messages[:-1]):
+                if message.get("role") == "assistant":
+                    try:
+                        payload = json.loads(message["content"])
+                    except json.JSONDecodeError:
+                        payload = {}
+                    translations = payload.get("translations")
+                    if isinstance(translations, list):
+                        n = len(translations)
+                    break
+            if n is None:
+                match = re.search(r"exactly (\d+) items", user)
+                n = int(match.group(1)) if match else 0
+            return json.dumps({"polished": [f"润{i}" for i in range(n)]}, ensure_ascii=False)
         n = _count_numbered(user)
         return json.dumps({"translations": [f"译{i}" for i in range(n)]}, ensure_ascii=False)
 
-    if "Simplified Chinese prose editor" in system:
+    if "prose editor" in system:
         n = _count_numbered(user)
         return json.dumps({"polished": [f"润{i}" for i in range(n)]}, ensure_ascii=False)
 
@@ -65,3 +87,32 @@ def routing_handler(messages, tier, json_mode):
         return "全书概览：主线与人物关系，整体基调。"
 
     return "{}" if json_mode else ""
+
+
+class MeteredFakeClient(FakeClient):
+    """Record fixed small usage per offline call so tests can assert stage-level accounting."""
+
+    def complete(
+        self,
+        messages,
+        *,
+        operation,
+        json_mode=False,
+        max_tokens=None,
+    ):
+        self.usage.record(
+            self.routes[operation].tier or "direct",
+            UsageSample(
+                prompt_tokens=5,
+                completion_tokens=3,
+                total_tokens=8,
+                cache_miss_tokens=5,
+            ),
+            operation,
+        )
+        return super().complete(
+            messages,
+            operation=operation,
+            json_mode=json_mode,
+            max_tokens=max_tokens,
+        )

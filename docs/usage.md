@@ -101,8 +101,8 @@ checksum, approve it in **System Settings → Privacy & Security** if prompted.
 ## Input and output
 
 - Input formats: EPUB, FB2, TXT, Markdown, HTML, PDF, DOCX, and SRT.
-- Default book output: a monolingual `<book-name>.zh.epub` under the source file's `output/` directory (`.docx` inputs default to `<book-name>.zh.docx` instead). The bilingual `*.zh-bi.*` edition is optional.
-- `--format epub|txt|html|markdown|pdf|docx`: export the selected format for book inputs. When omitted, `.docx` → `docx` and other books → `epub`. This flag does not apply to SRT.
+- Default book output: a monolingual `<book-name>.zh.epub` under the source file's `output/` directory (`.docx` inputs default to `<book-name>.zh.docx`, and BabelDOC PDF state defaults to `<book-name>.zh.pdf`). The bilingual `*.zh-bi.*` edition is optional.
+- `--format epub|txt|html|markdown|pdf|docx`: export the selected format for book inputs. When omitted, BabelDOC PDF state → `pdf`, `.docx` → `docx`, and other books (including MinerU PDF state) → `epub`. An explicit format always takes precedence; PDF defaults follow the saved backend, even if the current `pdf_backend` setting has changed. This flag does not apply to SRT.
 - For EPUB input, Wenyi attempts to write translated text back into the original XHTML templates while preserving styles, images, the table of contents, and anchors.
 - The bilingual edition displays the translation and source text together. The source is visually subdued by default; set `output.bilingual_preserve_source_style: true` to inherit the book's normal text style. Their order is controlled by `output.bilingual_order`.
 - EPUB output includes an “About this translation” page by default. Set `output.about_page: false` to disable it.
@@ -127,7 +127,7 @@ pipeline:
   # babeldoc_pages: "15"   # optional, 1-based
 ```
 
-3. After `translate book.pdf`, `assemble --format pdf` calls bridge `/fillback`.
+3. `translate book.pdf` automatically exports PDF through bridge `/fillback`. Later, `assemble book.pdf` also defaults to PDF for that saved BabelDOC state; `--format pdf` is optional. Use an explicit `--format` to select another format.
    The fillback PDF omits BabelDOC layout overlay boxes and role labels
    such as ``plain text`` / ``title`` by default.
    The bridge freezes the post-extraction IL as a durable session snapshot. It can
@@ -232,6 +232,7 @@ state/srt/<slug>/targets/<target-language>/
   cues.jsonl       # one cue per line: index, timestamp, source, target, status
   batches/         # raw model results for resume
   usage.json       # cumulative token usage across resumes
+  timing.json      # cumulative execution time and individual invocation durations
   events.jsonl     # run events and LLM retry observations
 ```
 
@@ -243,7 +244,25 @@ There is no `glossary.db` or `reviews/` tree for subtitles. Package code lives i
 
 Each target directory stores cumulative token usage in `usage.json` and appends stage events and retries to `events.jsonl`. Review directories also record session usage; each increment is merged into the cumulative ledger once.
 
-The disabled experimental `run_metrics/` ledger and its timing wrappers have been removed.
+The progress-bar clock measures the entire current workflow, including parsing, model
+waits, translation, polishing, review and export. Switching stages, chapters or review
+rounds does not reset it; completing one stage does not stop it while subsequent work
+is pending. Concurrent model requests contribute wall time, not the sum of request durations.
+
+After `prepare`, `translate` (including `--chapter` and SRT), `review` or `assemble`,
+the CLI prints the last run's duration and cumulative execution time. Each target's
+`timing.json` stores `total_seconds` and a `runs` list with invocation IDs, operations,
+timestamps, durations and completion statuses. Repeating a command adds only that
+invocation's execution time, excluding downtime between runs; nested pipeline stages
+are counted once. Separately launched commands contribute their own durations, even
+when they overlap. Book timing can also be inspected with `trans-novel status book.epub`;
+inspection and report regeneration do not add time.
+
+Once book state has been initialized or validated, failures and normal Ctrl+C exits
+also save the invocation's elapsed time. Timing is committed atomically under its own
+lock, independently of token usage. Older runs have no timing history to recover;
+time is accumulated from this version onward. A forced kill or a failure before state
+initialization cannot save the current invocation's duration.
 
 Manifests bind input content with `source_sha256`. A different file with the same name, or state without a valid hash, cannot resume; create new translation state.
 

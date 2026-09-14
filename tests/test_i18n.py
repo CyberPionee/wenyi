@@ -297,7 +297,7 @@ def test_language_list_needs_no_api_and_reads_packaged_templates():
     runner = CliRunner()
     with (
         tempfile.TemporaryDirectory() as directory,
-        patch("trans_novel.cli._validate_api_configuration") as validate,
+        patch("trans_novel.commands.context.CommandContext.validate_api_configuration") as validate,
     ):
         result = runner.invoke(app, ["--config", str(Path(directory) / "config.yaml"), "languages"])
         assert result.exit_code == 0, result.output
@@ -329,7 +329,7 @@ def test_partial_non_chinese_run_resumes_without_retranslating_saved_batch():
             {
                 "language": {"source": "zh", "target": "en"},
                 "paths": {"state_dir": str(root / "state")},
-                "segment": {"max_chars_per_batch": 10},
+                "segment": {"max_tokens_per_batch": 10},
                 "pipeline": {"polish": False, "book_understanding": False},
             }
         )

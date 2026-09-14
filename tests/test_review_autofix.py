@@ -9,12 +9,16 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
+from tests.fake_llm import METERED_TOTAL_TOKENS, MeteredFakeClient
 from trans_novel.config import Config
 from trans_novel.ingest.models import Chapter, Segment
 from trans_novel.llm.providers.fake import FakeClient
 from trans_novel.pipeline.orchestrator import Orchestrator
 from trans_novel.pipeline.runstore import STATUS_DONE, RunStore
-from trans_novel.review.run_store import ReviewOutcome, ReviewRunStore
+from trans_novel.review.models import ReviewOutcome
+from trans_novel.review.run_store import ReviewRunStore
 
 
 def _config(state_dir: str) -> Config:
@@ -177,8 +181,10 @@ class TestReviewAutofix(unittest.TestCase):
             orch = Orchestrator(_config(str(Path(directory, "state"))), client=FakeClient())
             annotation_align = Mock()
             style_align = Mock()
-            orch._review_autofix._annotations.align_annotations_after_batch = annotation_align
-            orch._review_autofix._docx_styles.align_styles_after_batch = style_align
+            orch._review_autofix._publisher._annotations.align_annotations_after_batch = (
+                annotation_align
+            )
+            orch._review_autofix._publisher._docx_styles.align_styles_after_batch = style_align
 
             fixed = orch._review_autofix.run(store, outcome, [])
 
@@ -366,6 +372,82 @@ class TestReviewAutofix(unittest.TestCase):
             assert isinstance(saved_index, dict)
             self.assertEqual(saved_index["status"], "completed")
 
+    def test_interrupt_flushes_usage_and_resume_does_not_recount(self):
+        """A KeyboardInterrupt inside the autofix fixer must still flush the usage delta,
+        leave a resumable fixer trace, and let a re-run finish publication without
+        counting any call twice.
+        """
+        fixer_calls = 0
+
+        def handler(messages, tier, json_mode):
+            system = messages[0]["content"]
+            user = messages[-1]["content"]
+            if "evidence-based review agent" in system:
+                return _agent_final(user)
+            if "cautious revision editor" in system:
+                nonlocal fixer_calls
+                fixer_calls += 1
+                if fixer_calls == 1:
+                    raise KeyboardInterrupt
+                return _fix_json(user, "Agent 终局译文。")
+            return "{}"
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = _store(directory)
+            issue = {
+                "issue_id": "review-00001",
+                "issue_key": "issue-1",
+                "chapter": 0,
+                "index": 0,
+                "type": "mistranslation",
+                "detail": "信息不完整",
+                "suggestion": "补全信息",
+                "evidence_refs": [],
+            }
+            outcome = _outcome(store, issues=[issue])
+            service = Orchestrator(
+                _config(str(Path(directory, "state"))),
+                client=MeteredFakeClient(handler=handler),
+            )._review_autofix
+
+            with self.assertRaises(KeyboardInterrupt):
+                service.run(store, outcome, [])
+
+            # The finally block must have persisted both model calls, including the
+            # interrupted one, into the review and book ledgers.
+            self.assertEqual(fixer_calls, 1)
+            self.assertEqual(store.load_chapter(0).text_segments[0].target, "正式译文。")
+            trace = json.loads(
+                Path(outcome.run_dir, "autofix/fixers/ch0-text0.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(trace["status"], "running")
+            self.assertFalse(Path(outcome.run_dir, "autofix/index.json").exists())
+            debug = ReviewRunStore.open_existing(outcome.run_dir)
+            interrupted_usage = debug.load_usage()
+            assert interrupted_usage is not None
+            self.assertEqual(interrupted_usage["totals"]["calls"], 2)
+            book_usage = store.load_usage()
+            assert book_usage is not None
+            self.assertEqual(book_usage["totals"]["calls"], 2)
+
+            fixed = service.run(store, outcome, [])
+
+            self.assertEqual(store.load_chapter(0).text_segments[0].target, "Agent 终局译文。")
+            self.assertEqual(fixed.result["autofix"]["status"], "completed")
+            index = json.loads(
+                Path(outcome.run_dir, "autofix/index.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(index["status"], "completed")
+            # The finished agent trace is reused; only the interrupted fixer is retried.
+            self.assertEqual(fixer_calls, 2)
+            resumed_usage = debug.load_usage()
+            assert resumed_usage is not None
+            self.assertEqual(resumed_usage["totals"]["calls"], 3)
+            self.assertEqual(resumed_usage["totals"]["total_tokens"], 3 * METERED_TOTAL_TOKENS)
+            book_usage = store.load_usage()
+            assert book_usage is not None
+            self.assertEqual(book_usage["totals"]["calls"], 3)
+
     def test_newer_review_prevents_publishing_an_older_pending_index(self):
         with tempfile.TemporaryDirectory() as directory:
             store = _store(directory)
@@ -406,3 +488,103 @@ class TestReviewAutofix(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@pytest.mark.parametrize("boundary", ["index", "chapter", "alignment", "result"])
+def test_indexed_publication_recovers_between_writes(tmp_path, monkeypatch, boundary):
+    store = _store(str(tmp_path))
+    manifest = Path(store.manifest_path).read_bytes()
+    outcome = _outcome(
+        store,
+        changes=[
+            {"chapter": 0, "index": 0, "suggested_target": "First revision."},
+            {"chapter": 0, "index": 0, "suggested_target": "Final revision."},
+            {"chapter": 99, "index": 0, "suggested_target": "Invalid location."},
+        ],
+    )
+    config = _config(str(tmp_path / "state"))
+    first = Orchestrator(config, client=FakeClient())
+    original_write = ReviewRunStore.write_json
+    original_save = store.save_chapter
+    original_align = first._review_autofix._publisher._annotations.align_annotations_after_batch
+    interrupted = False
+
+    def interrupt():
+        nonlocal interrupted
+        if not interrupted:
+            interrupted = True
+            raise KeyboardInterrupt("publication boundary")
+
+    def write(debug, name, data):
+        if boundary == "result" and name == "result.json" and "autofix" in data:
+            interrupt()
+        original_write(debug, name, data)
+        if boundary == "index" and name == "autofix/index.json":
+            interrupt()
+
+    def save(chapter):
+        original_save(chapter)
+        if boundary == "chapter":
+            interrupt()
+
+    def align(*args, **kwargs):
+        if boundary == "alignment":
+            interrupt()
+        return original_align(*args, **kwargs)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(ReviewRunStore, "write_json", write)
+        patcher.setattr(store, "save_chapter", save)
+        patcher.setattr(
+            first._review_autofix._publisher._annotations, "align_annotations_after_batch", align
+        )
+        with pytest.raises(KeyboardInterrupt, match="publication boundary"):
+            first._review_autofix.run(store, outcome, [])
+    resumed_client = FakeClient()
+    resumed = Orchestrator(config, client=resumed_client)._review_autofix
+    result = resumed.resume_pending(store)
+    assert result is not None
+    assert result.result["autofix"]["status"] == "partial"
+    assert result.result["autofix"]["applied_change_count"] == 2
+    debug = ReviewRunStore.open_existing(outcome.run_dir)
+    index = debug.load_json("autofix/index.json")
+    assert index is not None
+    assert [r["status"] for r in index["records"]] == ["applied", "applied", "failed"]
+    assert index["locations"][0]["alignment_status"] == "completed"
+    chapter_bytes = Path(store.chapter_path(0)).read_bytes()
+    usage = store.load_usage()
+    assert resumed.resume_pending(store) is None
+    assert Path(store.chapter_path(0)).read_bytes() == chapter_bytes
+    assert store.load_usage() == usage
+    assert store.load_chapter(0).text_segments[0].target == "Final revision."
+    assert Path(store.manifest_path).read_bytes() == manifest
+    assert resumed_client.calls == []
+
+
+def test_indexed_publication_preserves_external_edit(tmp_path, monkeypatch):
+    store = _store(str(tmp_path))
+    outcome = _outcome(
+        store,
+        changes=[
+            {"chapter": 0, "index": 0, "suggested_target": "Proposed revision."},
+        ],
+    )
+    config = _config(str(tmp_path / "state"))
+    original_write = ReviewRunStore.write_json
+
+    def write(debug, name, data):
+        original_write(debug, name, data)
+        if name == "autofix/index.json":
+            raise KeyboardInterrupt()
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(ReviewRunStore, "write_json", write)
+        with pytest.raises(KeyboardInterrupt):
+            Orchestrator(config, client=FakeClient())._review_autofix.run(store, outcome, [])
+    chapter = store.load_chapter(0)
+    chapter.text_segments[0].target = "External edit."
+    store.save_chapter(chapter)
+    result = Orchestrator(config, client=FakeClient())._review_autofix.resume_pending(store)
+    assert result is not None
+    assert result.result["autofix"]["status"] == "partial"
+    assert store.load_chapter(0).text_segments[0].target == "External edit."

@@ -6,42 +6,12 @@ import json
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime
 from threading import Lock
 from typing import Any
 
 from ..llm.usage import merge_usage_summaries
-
-
-def review_candidate_id(
-    chapter: int,
-    chunk_base: int,
-    ordinal: int,
-    review_round: int | None = None,
-) -> str:
-    """Generate deterministic candidate IDs shared by initial snapshots and the agent protocol."""
-    prefix = f"r{review_round}-" if review_round is not None else ""
-    return f"{prefix}ch{chapter}-base{chunk_base}-candidate{ordinal}"
-
-
-@dataclass(frozen=True)
-class ReviewOutcome:
-    """A completed review's result and directory."""
-
-    run_dir: str
-    result: dict[str, Any]
-    usage: dict[str, Any]
-
-    @property
-    def issues(self) -> list[dict[str, Any]]:
-        """Return issues remaining after blind rechecks."""
-        return list(self.result.get("issues") or [])
-
-    @property
-    def changes(self) -> list[dict[str, Any]]:
-        """Return collapsed final shadow-change recommendations."""
-        return list(self.result.get("changes") or [])
+from .models import review_candidate_id
 
 
 class ReviewRunStore:
@@ -212,10 +182,15 @@ class ReviewRunStore:
 
         return sorted(initial, key=position), sorted(dismissed, key=position)
 
+    @staticmethod
+    def is_resumable_status(status: object) -> bool:
+        """Return True for Review statuses that may continue from saved caches."""
+        return status in {"running", "interrupted"}
+
     def start(self, *, reviewed_content_digest: str, metadata: dict[str, Any]) -> None:
         """Create a running result and save parameters before the first model call.
-        On resume with status=running, preserve existing results and metadata instead of
-        overwriting them.
+        On resume with status=running/interrupted, preserve existing results and metadata
+        instead of overwriting them.
         """
         self._reviewed_content_digest = reviewed_content_digest
         result_path = os.path.join(self.run_dir, "result.json")
@@ -223,11 +198,16 @@ class ReviewRunStore:
             try:
                 with open(result_path, "r", encoding="utf-8") as f:
                     existing = json.load(f)
-                if existing.get("status") == "running":
+                if self.is_resumable_status(existing.get("status")):
                     # Resume: preserve results and metadata, updating only the timestamp.
+                    existing["status"] = "running"
+                    existing["termination"] = "running"
                     existing["resumed_at"] = (
                         datetime.now().astimezone().isoformat(timespec="microseconds")
                     )
+                    existing.pop("finished_at", None)
+                    existing.pop("interrupted_at", None)
+                    existing.pop("last_error", None)
                     self._atomic_json(result_path, existing)
                     self.log_event("review_resumed", review_id=self.review_id)
                     return
@@ -284,6 +264,54 @@ class ReviewRunStore:
             termination=termination,
             issue_count=len(issues),
             change_count=len(changes),
+        )
+        return result
+
+    def mark_interrupted(
+        self,
+        *,
+        error: dict[str, str] | None = None,
+        summary: dict[str, Any] | None = None,
+        issues: list[dict[str, Any]] | None = None,
+        changes: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Persist a recoverable pause while remaining eligible for find_resumable."""
+        result_path = os.path.join(self.run_dir, "result.json")
+        existing: dict[str, Any] = {}
+        if os.path.isfile(result_path):
+            try:
+                with open(result_path, encoding="utf-8") as handle:
+                    loaded = json.load(handle)
+                if isinstance(loaded, dict):
+                    existing = loaded
+            except (json.JSONDecodeError, OSError):
+                existing = {}
+        now = datetime.now().astimezone().isoformat(timespec="microseconds")
+        result: dict[str, Any] = {
+            "review_id": self.review_id,
+            "status": "interrupted",
+            "termination": "interrupted",
+            "reviewed_content_digest": existing.get(
+                "reviewed_content_digest", self._reviewed_content_digest
+            ),
+            "started_at": existing.get("started_at", self.started_at),
+            "interrupted_at": now,
+            "summary": dict(summary if summary is not None else existing.get("summary") or {}),
+            "issues": list(issues if issues is not None else existing.get("issues") or []),
+            "changes": list(changes if changes is not None else existing.get("changes") or []),
+        }
+        if error is not None:
+            result["last_error"] = dict(error)
+        elif isinstance(existing.get("last_error"), dict):
+            result["last_error"] = dict(existing["last_error"])
+        self._atomic_json(result_path, result)
+        self.log_event(
+            "review_interrupted",
+            review_id=self.review_id,
+            status="interrupted",
+            error_type=(error or {}).get("type"),
+            issue_count=len(result["issues"]),
+            change_count=len(result["changes"]),
         )
         return result
 
@@ -427,7 +455,7 @@ class ReviewRunStore:
                     result = json.load(f)
             except (json.JSONDecodeError, OSError):
                 continue
-            if result.get("status") != "running":
+            if not ReviewRunStore.is_resumable_status(result.get("status")):
                 continue
             need_meta = (
                 content_digest is not None or config is not None or glossary_fingerprint is not None

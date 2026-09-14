@@ -12,7 +12,7 @@ from ..i18n import languages
 from ..i18n.prompts import render
 from ..llm.json_parser import JsonParseError
 from . import prompts
-from .base import Agent
+from .base import Agent, Messages
 
 
 class AlignmentError(Exception):
@@ -20,6 +20,19 @@ class AlignmentError(Exception):
 
 
 class Translator(Agent):
+    """Body translator.
+
+    After a successful single-shot batch call, ``last_batch_turn`` holds the
+    ``system`` / ``user`` / ``assistant`` messages so polishing can append another
+    user turn instead of opening a new conversation. Per-paragraph fallback clears
+    that transcript.
+    """
+
+    def __init__(self, client, config):
+        super().__init__(client, config)
+        self.last_batch_turn: Messages | None = None
+        self.last_batch_indices: list[int] | None = None
+
     @staticmethod
     def _needs_translation(source: str) -> bool:
         """Send only nonempty paragraphs containing language characters to the model.
@@ -81,8 +94,16 @@ class Translator(Agent):
         book_synopsis: str = "",
         chapter_digest: str = "",
         annotation_contexts: list[list[dict[str, str]]] | None = None,
-    ) -> list[str]:
-        """Translate one batch and strictly validate output types, count and nonempty content."""
+        next_source: str = "",
+        *,
+        allow_empty_translations: bool = False,
+    ) -> tuple[list[str], Messages]:
+        """Translate one batch and validate output types, count and (by default) nonempty content.
+
+        When ``allow_empty_translations`` is true (MinerU PDF path), blank strings are kept as
+        formal targets so VLM OCR junk that the model refuses to translate does not abort the run.
+        Returns the translations and the three-turn transcript for optional polish continuation.
+        """
         n = len(sources)
         system = render(
             "translator_system",
@@ -107,24 +128,36 @@ class Translator(Agent):
             n=n,
             n_minus_1=n - 1,
             numbered_source=prompts.numbered(sources),
+            next_source=prompts.render_source_reference(next_source),
         )
+        messages: Messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
         # Transient provider errors are retried only by the transport. Only JSON protocol errors in
         # successful responses enter alignment recovery, avoiding duplicate retries for 401/403/5xx errors.
         try:
-            items = self._ask_json(system, user, operation="translation.body", key="translations")
+            data, raw = self._complete_json_turn(messages, operation="translation.body")
         except JsonParseError as error:
             raise AlignmentError(
                 "Cannot parse the translation JSON returned by the model"
             ) from error
+        items = data.get("translations") if isinstance(data, dict) else data
         if not isinstance(items, list):
             raise AlignmentError("The model did not return a translation array")
         if len(items) != n:
             raise AlignmentError(
                 f"Translation count mismatch: expected {n} paragraphs, got {len(items)}"
             )
-        if any(not isinstance(item, str) or not item.strip() for item in items):
+        if any(not isinstance(item, str) for item in items):
+            raise AlignmentError("The model returned a non-string translation")
+        if not allow_empty_translations and any(not item.strip() for item in items):
             raise AlignmentError("The model returned an empty or non-string translation")
-        return items
+        turn = [
+            *messages,
+            {"role": "assistant", "content": raw},
+        ]
+        return items, turn
 
     def _translate_one(
         self,
@@ -135,9 +168,12 @@ class Translator(Agent):
         book_synopsis,
         chapter_digest,
         annotation_context,
+        next_source: str,
+        *,
+        allow_empty_translations: bool = False,
     ) -> str:
         """Use the batch protocol for one paragraph as the final alignment fallback."""
-        out = self._call_batch(
+        out, _turn = self._call_batch(
             [source],
             glossary_terms,
             style,
@@ -145,6 +181,8 @@ class Translator(Agent):
             book_synopsis,
             chapter_digest,
             [annotation_context],
+            next_source=next_source,
+            allow_empty_translations=allow_empty_translations,
         )
         return out[0]
 
@@ -158,8 +196,12 @@ class Translator(Agent):
         book_synopsis: str = "",
         chapter_digest: str = "",
         annotation_contexts: list[list[dict[str, str]]] | None = None,
+        next_source: str = "",
+        allow_empty_translations: bool = False,
     ) -> list[str]:
-        """Translate a batch and return the same number of target paragraphs."""
+        """Translate aligned paragraphs with one following source segment as reference only."""
+        self.last_batch_turn = None
+        self.last_batch_indices = None
         glossary_terms = glossary_terms or []
         n = len(sources)
         annotation_contexts = self._validate_annotation_contexts(sources, annotation_contexts)
@@ -175,11 +217,14 @@ class Translator(Agent):
         translated_annotation_contexts = [
             annotation_contexts[index] for index in translated_indices
         ]
+        # A filtered trailing number or symbol remains the immediate source neighbor.
+        following_index = translated_indices[-1] + 1
+        batch_next_source = sources[following_index] if following_index < n else next_source
 
         attempts = self.config.pipeline.align_retry_limit + 1
         for _ in range(attempts):
             try:
-                translated = self._call_batch(
+                translated, turn = self._call_batch(
                     translated_sources,
                     glossary_terms,
                     style,
@@ -187,17 +232,24 @@ class Translator(Agent):
                     book_synopsis,
                     chapter_digest,
                     translated_annotation_contexts,
+                    next_source=batch_next_source,
+                    allow_empty_translations=allow_empty_translations,
                 )
                 targets = list(sources)
                 for index, target in zip(translated_indices, translated):
                     targets[index] = target
+                self.last_batch_turn = turn
+                self.last_batch_indices = list(translated_indices)
                 return targets
             except AlignmentError:
                 # Recover only output protocol/alignment errors; the provider handles transport retries.
                 continue
 
         # Fall back to individual paragraphs. If any still fails, stop explicitly and preserve saved
-        # batches for resume. Empty placeholders would incorrectly mark the chapter complete.
+        # batches for resume. Without allow_empty_translations, empty placeholders must not mark
+        # the chapter complete; MinerU may persist "" when the model returns a blank string.
+        self.last_batch_turn = None
+        self.last_batch_indices = None
         targets = list(sources)
         for index, source, annotation_context in zip(
             translated_indices,
@@ -213,6 +265,8 @@ class Translator(Agent):
                     book_synopsis,
                     chapter_digest,
                     annotation_context,
+                    next_source=sources[index + 1] if index + 1 < n else next_source,
+                    allow_empty_translations=allow_empty_translations,
                 )
             except Exception as error:
                 raise AlignmentError(

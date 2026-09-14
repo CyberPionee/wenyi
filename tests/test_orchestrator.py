@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from tests.fake_llm import routing_handler
+from tests.fake_llm import MeteredFakeClient, routing_handler
 from tests.sample_data import write_sample_epub, write_sample_txt
 from trans_novel.agents.reviewer import ReviewOutputError
 from trans_novel.config import Config
@@ -21,7 +21,7 @@ from trans_novel.llm.usage import UsageSample
 from trans_novel.pipeline.annotations import AnnotationService
 from trans_novel.pipeline.context import RollingContext
 from trans_novel.pipeline.orchestrator import Orchestrator
-from trans_novel.pipeline.review_workflow import ReviewService
+from trans_novel.pipeline.review_chunks import ReviewChunkService
 from trans_novel.pipeline.runstore import (
     STATUS_DONE,
     STATUS_PENDING,
@@ -87,7 +87,7 @@ def _config(state_dir: str):
                     "default_cheap": {"provider": "default", "model": "f"},
                 },
             },
-            "segment": {"max_chars_per_batch": 1800},
+            "segment": {"max_tokens_per_batch": 1800},
             "pipeline": {
                 "review": True,
                 "review_autofix": False,
@@ -96,35 +96,6 @@ def _config(state_dir: str):
             "paths": {"state_dir": state_dir},
         }
     )
-
-
-class MeteredFakeClient(FakeClient):
-    """Record small usage per offline call to verify review accounting isolation."""
-
-    def complete(
-        self,
-        messages,
-        *,
-        operation,
-        json_mode=False,
-        max_tokens=None,
-    ):
-        self.usage.record(
-            self.routes[operation].tier or "direct",
-            UsageSample(
-                prompt_tokens=5,
-                completion_tokens=3,
-                total_tokens=8,
-                cache_miss_tokens=5,
-            ),
-            operation,
-        )
-        return super().complete(
-            messages,
-            operation=operation,
-            json_mode=json_mode,
-            max_tokens=max_tokens,
-        )
 
 
 class TestOrchestrator(unittest.TestCase):
@@ -263,7 +234,7 @@ class TestOrchestrator(unittest.TestCase):
             cfg = _config(os.path.join(directory, "state"))
             cfg.pipeline.polish = False
             cfg.pipeline.annotation_alignment = False
-            cfg.segment.max_chars_per_batch = 6
+            cfg.segment.max_tokens_per_batch = 6
             chapter = Chapter(
                 index=0,
                 segments=[
@@ -323,13 +294,17 @@ class TestOrchestrator(unittest.TestCase):
             orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
             captured: list[list[list[dict[str, str]]]] = []
 
-            def process(batch, *args, annotation_contexts=None, **kwargs):
-                captured.append(annotation_contexts or [])
-                return [f"译{segment.source}" for segment in batch]
+            def process(plan, **kwargs):
+                from trans_novel.pipeline.translation_batch import BatchResult
+
+                captured.append(plan.annotation_contexts)
+                return BatchResult(
+                    tuple(f"译{source}" for source in plan.sources), (None,) * len(plan.sources)
+                )
 
             try:
                 with (
-                    patch.object(orch._translation, "process_batch", side_effect=process),
+                    patch.object(orch._translation._batches, "execute", side_effect=process),
                     patch.object(
                         orch._translation,
                         "extract_batch_glossary",
@@ -795,7 +770,7 @@ class TestSegmentLevelResume(unittest.TestCase):
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(d, "state"))
-            cfg.segment.max_chars_per_batch = (
+            cfg.segment.max_tokens_per_batch = (
                 8  # Use roughly one paragraph per batch for precise resume assertions.
             )
             cfg.pipeline.polish = False  # Preserve translation tags for assertions; this setting is unrelated to resume behavior.
@@ -806,8 +781,8 @@ class TestSegmentLevelResume(unittest.TestCase):
             ch = store.load_chapter(0)
             self.assertTrue(all(s.target and s.target.startswith("R1") for s in ch.text_segments))
 
-            # Simulate interruption by clearing the last target and resetting the chapter to pending.
-            ch.segments[-1].target = ""
+            # Simulate interruption by unsetting the last target (None = pending; "" would count as done).
+            ch.segments[-1].target = None
             store.save_chapter(ch)
             store.set_chapter_status(0, STATUS_PENDING)
 
@@ -837,18 +812,18 @@ class TestSegmentLevelResume(unittest.TestCase):
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(d, "state"))
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
             cfg.pipeline.polish = False
 
             first_client = FakeClient(handler=self._tr_handler("R1"))
             store = Orchestrator(cfg, client=first_client).run(txt, only_chapter=0)
             chapter = store.load_chapter(0)
-            chapter.text_segments[-1].target = ""
+            chapter.text_segments[-1].target = None
             store.save_chapter(chapter)
             store.set_chapter_status(0, STATUS_PENDING)
 
-            # Changing the budget can still group completed and empty targets together.
-            cfg.segment.max_chars_per_batch = 50_000
+            # Changing the budget can still group completed and unset targets together.
+            cfg.segment.max_tokens_per_batch = 50_000
             second_client = FakeClient(handler=self._tr_handler("R2"))
             Orchestrator(cfg, client=second_client).run(txt, only_chapter=0)
 
@@ -870,7 +845,7 @@ class TestSegmentLevelResume(unittest.TestCase):
             cfg.pipeline.polish = False
             cfg.pipeline.review = False
             cfg.pipeline.book_understanding = False
-            cfg.segment.max_chars_per_batch = 8
+            cfg.segment.max_tokens_per_batch = 8
 
             store = Orchestrator(cfg, client=FakeClient(handler=self._tr_handler("R1"))).run(
                 txt, only_chapter=0
@@ -878,8 +853,8 @@ class TestSegmentLevelResume(unittest.TestCase):
             chapter = store.load_chapter(0)
             segments = chapter.text_segments
             self.assertGreater(len(segments), 2)
-            # Leave the last paragraph pending and remove the first extraction checkpoint, retaining the others.
-            segments[-1].target = ""
+            # Leave the last paragraph pending (None) and remove the first extraction checkpoint.
+            segments[-1].target = None
             store.save_chapter(chapter)
             store.set_chapter_status(0, STATUS_PENDING)
             first_key = store.batch_glossary_key(0, 1)
@@ -942,9 +917,14 @@ class TestSegmentLevelResume(unittest.TestCase):
 
 class TestBookUnderstanding(unittest.TestCase):
     def _translate_user(self, calls) -> str:
-        """Return user text from the last translation call."""
+        """Return user text from the last translation.body call (not a polish continuation)."""
         for c in reversed(calls):
-            if "literary translator" in c["messages"][0]["content"]:
+            if c.get("operation") == "translation.body":
+                return c["messages"][-1]["content"]
+            if "literary translator" in c["messages"][0]["content"] and (
+                "Polish the translations from your previous JSON response"
+                not in c["messages"][-1]["content"]
+            ):
                 return c["messages"][-1]["content"]
         return ""
 
@@ -1282,7 +1262,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(d, "state"))
-            cfg.segment.max_chars_per_batch = (
+            cfg.segment.max_tokens_per_batch = (
                 8  # A review budget of 24 gives each paragraph its own block.
             )
             cfg.pipeline.review_agent_loop = False
@@ -1306,7 +1286,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(d, "state"))
-            cfg.segment.max_chars_per_batch = (
+            cfg.segment.max_tokens_per_batch = (
                 8  # Split each chapter into multiple top-level review blocks.
             )
             cfg.pipeline.review_agent_loop = False
@@ -1398,7 +1378,7 @@ class TestReviewReporting(unittest.TestCase):
             cfg = _config(os.path.join(d, "state"))
             cfg.pipeline.review_agent_loop = False
             cfg.pipeline.review_output_retries = 0
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
 
             orch = Orchestrator(cfg, client=FakeClient(handler=handler))
             orch.run(txt)
@@ -1457,6 +1437,68 @@ class TestReviewReporting(unittest.TestCase):
             self.assertGreater(second_count, first_count)  # Run review again.
             self.assertNotEqual(first["review_dir"], second["review_dir"])
 
+    def test_review_balance_error_stays_resumable(self):
+        """Provider balance/quota stops must keep Review interrupted and resumable."""
+
+        class BalanceError(Exception):
+            def __init__(self) -> None:
+                super().__init__("Error code: 402 - Insufficient Balance")
+                self.status_code = 402
+
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review_autofix = False
+            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
+            orch.run(txt)
+
+            with patch.object(orch._review._chunks, "review_chapter", side_effect=BalanceError()):
+                with self.assertRaises(BalanceError):
+                    orch.run_review(txt)
+
+            book_root = Path(cfg.state_dir)
+            review_dirs = sorted(book_root.glob("*/targets/*/reviews/review-*"))
+            self.assertEqual(len(review_dirs), 1)
+            result_path = review_dirs[0] / "result.json"
+            with open(result_path, encoding="utf-8") as handle:
+                state = json.load(handle)
+            self.assertEqual(state["status"], "interrupted")
+            self.assertEqual(state["termination"], "interrupted")
+            self.assertEqual(state["last_error"]["type"], "BalanceError")
+
+            resumed = orch.run_review(txt)
+            self.assertEqual(Path(resumed["review_dir"]).resolve(), review_dirs[0].resolve())
+            with open(result_path, encoding="utf-8") as handle:
+                finished = json.load(handle)
+            self.assertEqual(finished["status"], "completed")
+
+    def test_review_permanent_error_still_finishes_failed(self):
+        """Local permanent failures remain failed and do not resume the same directory."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review_autofix = False
+            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
+            orch.run(txt)
+
+            with patch.object(
+                orch._review._chunks, "review_chapter", side_effect=ValueError("bad block")
+            ):
+                with self.assertRaises(ValueError):
+                    orch.run_review(txt)
+
+            book_root = Path(cfg.state_dir)
+            first_dirs = sorted(book_root.glob("*/targets/*/reviews/review-*"))
+            self.assertEqual(len(first_dirs), 1)
+            with open(first_dirs[0] / "result.json", encoding="utf-8") as handle:
+                state = json.load(handle)
+            self.assertEqual(state["status"], "failed")
+
+            second = orch.run_review(txt)
+            self.assertNotEqual(Path(second["review_dir"]).resolve(), first_dirs[0].resolve())
+
     def test_review_running_resume_rejects_config_change(self):
         """Changed configuration must start a new review directory instead of resuming stale
         running state.
@@ -1509,7 +1551,7 @@ class TestReviewReporting(unittest.TestCase):
             )
             pieces = [object(), object(), object(), object()]
             with debug.round_scope(1):
-                missed = ReviewService._try_cached_subchunks(0, pieces, debug, "r1-", 0)
+                missed = ReviewChunkService.try_cached_subchunks(0, pieces, debug, "r1-", 0)
             self.assertIsNone(missed)
             initial, dismissed = debug.result_snapshots(1)
             self.assertEqual(initial, [])
@@ -1524,7 +1566,7 @@ class TestReviewReporting(unittest.TestCase):
                 },
             )
             with debug.round_scope(1):
-                hit = ReviewService._try_cached_subchunks(0, pieces, debug, "r1-", 0)
+                hit = ReviewChunkService.try_cached_subchunks(0, pieces, debug, "r1-", 0)
             self.assertIsNotNone(hit)
             assert hit is not None
             self.assertEqual(len(hit), 2)
@@ -1651,7 +1693,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(d, "state"))
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
             client = MeteredFakeClient(handler=handler)
             orch = Orchestrator(cfg, client=client)
             store = orch.run(txt)
@@ -1692,6 +1734,84 @@ class TestReviewReporting(unittest.TestCase):
             self.assertNotEqual(Path(store.event_log_path).read_bytes(), events_before)
             self.assertEqual((store.load_usage() or {})["by_stage"]["review.scan"]["calls"], 1)
             self.assertEqual(client.usage_summary()["by_stage"]["review.scan"]["calls"], 1)
+
+    def test_review_interrupt_saves_usage_and_resumes_without_recounting(self):
+        """A KeyboardInterrupt after one completed reviewer response must flush the review
+        usage ledger and review_interrupted event, and a fresh orchestrator must resume
+        the same run dir without counting any call twice.
+        """
+
+        def interrupting_handler(messages, tier, json_mode):
+            if "translation reviewer" in messages[0]["content"]:
+                if reviewer_calls:
+                    raise KeyboardInterrupt
+                reviewer_calls.append("answered")
+                return _review_json(
+                    messages[-1]["content"],
+                    [
+                        {
+                            "index": 0,
+                            "type": "missing",
+                            "detail": "漏了一句",
+                            "suggestion": "补上",
+                        }
+                    ],
+                )
+            return routing_handler(messages, tier, json_mode)
+
+        reviewer_calls: list[str] = []
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            client1 = MeteredFakeClient(handler=interrupting_handler)
+            orch1 = Orchestrator(cfg, client=client1)
+            store = orch1.run(txt)
+            translated_calls = len(client1.calls)
+
+            with self.assertRaises(KeyboardInterrupt):
+                orch1.run_review(txt)
+
+            review_dir = os.path.join(store.reviews_dir, sorted(os.listdir(store.reviews_dir))[-1])
+            run1_review_stages = [
+                call["stage"]
+                for call in client1.calls[translated_calls:]
+                if call["stage"].startswith("review.")
+            ]
+            # scan issue → verify → second scan (KeyboardInterrupt after transport billed it).
+            self.assertEqual(
+                run1_review_stages,
+                ["review.scan", "review.verify", "review.scan"],
+            )
+            run1_review_calls = len(run1_review_stages)
+            with open(os.path.join(review_dir, "usage.json"), encoding="utf-8") as file:
+                interrupted_usage = json.load(file)
+            self.assertEqual(interrupted_usage["totals"]["calls"], run1_review_calls)
+            with open(os.path.join(review_dir, "events.jsonl"), encoding="utf-8") as file:
+                events = [json.loads(line)["event"] for line in file if line.strip()]
+            self.assertIn("review_interrupted", events)
+
+            client2 = MeteredFakeClient(handler=self._handler())
+            result = Orchestrator(cfg, client=client2).run_review(txt)
+
+            self.assertEqual(result["review_dir"], review_dir)
+            self.assertEqual(result["review_result"]["status"], "completed")
+            with open(os.path.join(review_dir, "events.jsonl"), encoding="utf-8") as file:
+                events = [json.loads(line)["event"] for line in file if line.strip()]
+            self.assertIn("review_resumed_from_checkpoint", events)
+            run2_review_calls = sum(call["stage"].startswith("review.") for call in client2.calls)
+            with open(os.path.join(review_dir, "usage.json"), encoding="utf-8") as file:
+                resumed_usage = json.load(file)
+            self.assertEqual(
+                resumed_usage["totals"]["calls"],
+                run1_review_calls + run2_review_calls,
+            )
+            book_usage = store.load_usage()
+            assert book_usage is not None
+            self.assertEqual(
+                book_usage["totals"]["calls"],
+                len(client1.calls) + len(client2.calls),
+            )
 
     def test_run_steps_records_review_usage_on_success_and_failure(self):
         """Combined workflows persist pre-review and review usage at their respective stage
@@ -1811,9 +1931,9 @@ class TestReviewReporting(unittest.TestCase):
                 }
 
             with (
-                patch.object(orch._review, "review_chapter", side_effect=fake_review),
+                patch.object(orch._review._chunks, "review_chapter", side_effect=fake_review),
                 patch(
-                    "trans_novel.pipeline.review_workflow.ReviewConflictArbiter.arbitrate",
+                    "trans_novel.pipeline.review_rounds.ReviewConflictArbiter.arbitrate",
                     new=fake_arbitrate,
                 ),
             ):
@@ -2246,7 +2366,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(directory, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(directory, "state"))
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
             cfg.pipeline.review_agent_loop = False
             cfg.pipeline.review_conflict_arbitration = False
             cfg.pipeline.review_fix_loop = True
@@ -2311,7 +2431,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(directory, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(directory, "state"))
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
             cfg.pipeline.review_agent_loop = False
             cfg.pipeline.review_conflict_arbitration = False
             cfg.pipeline.review_fix_loop = True
@@ -2377,7 +2497,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(directory, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(directory, "state"))
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
             cfg.pipeline.review_agent_loop = False
             cfg.pipeline.review_conflict_arbitration = False
             cfg.pipeline.review_fix_loop = True
@@ -2469,7 +2589,7 @@ class TestReviewReporting(unittest.TestCase):
             txt = os.path.join(directory, "novel.txt")
             write_sample_txt(txt)
             cfg = _config(os.path.join(directory, "state"))
-            cfg.segment.max_chars_per_batch = 100_000
+            cfg.segment.max_tokens_per_batch = 100_000
             cfg.pipeline.review_agent_loop = False
             cfg.pipeline.review_conflict_arbitration = False
             cfg.pipeline.review_fix_loop = True
@@ -2574,7 +2694,7 @@ class TestReviewReporting(unittest.TestCase):
                     }
                 ]
 
-            with patch.object(orch._review, "review_chapter", side_effect=fake_review):
+            with patch.object(orch._review._chunks, "review_chapter", side_effect=fake_review):
                 result = orch.run_review(txt)
 
             review_dir = Path(result["review_dir"])
@@ -2775,7 +2895,7 @@ class TestGlossaryScope(unittest.TestCase):
             cfg.pipeline.polish = False
             cfg.pipeline.review = False
             cfg.pipeline.book_understanding = False
-            cfg.segment.max_chars_per_batch = 10
+            cfg.segment.max_tokens_per_batch = 10
 
             client = FakeClient(handler=handler)
             Orchestrator(cfg, client=client).run(txt)
@@ -2799,7 +2919,7 @@ class TestGlossaryScope(unittest.TestCase):
             cfg.pipeline.polish = False
             cfg.pipeline.review = False
             cfg.pipeline.book_understanding = False
-            cfg.segment.max_chars_per_batch = 8
+            cfg.segment.max_tokens_per_batch = 8
 
             store = Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(
                 txt, only_chapter=0
@@ -2889,7 +3009,7 @@ class TestGlossaryScope(unittest.TestCase):
             cfg = _config(os.path.join(d, "state"))
             cfg.pipeline.polish = False
             cfg.pipeline.book_understanding = False
-            cfg.segment.max_chars_per_batch = 200
+            cfg.segment.max_tokens_per_batch = 200
 
             orch = Orchestrator(cfg, client=FakeClient(handler=handler))
             orch.run(txt)

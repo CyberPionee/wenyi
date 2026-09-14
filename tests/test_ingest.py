@@ -21,15 +21,9 @@ from tests.sample_data import (
 )
 from trans_novel.assemble.html_renderer import _render_chapter_html
 from trans_novel.glossary.store import source_matches_text
-from trans_novel.ingest.epub_reader import (
-    _decode_markup,
-    _find_opf_path,
-    _parse_opf,
-    annotate_epub_resource,
-    peek_epub_title,
-    strip_ruby_markers,
-)
-from trans_novel.ingest.epub_toc import parse_toc_entries, resolve_epub_href
+from trans_novel.ingest.epub_package import _decode_markup, _find_opf_path, _parse_opf
+from trans_novel.ingest.epub_reader import peek_epub_title
+from trans_novel.ingest.epub_toc import parse_toc_entries
 from trans_novel.ingest.fb2_reader import read_fb2_binaries
 from trans_novel.ingest.models import KIND_HEADING, KIND_TEXT, Chapter, Segment
 from trans_novel.ingest.segmenter import (
@@ -38,6 +32,24 @@ from trans_novel.ingest.segmenter import (
     load_document,
     split_long_segments,
 )
+from trans_novel.ingest.tokens import count_tokens
+from trans_novel.markup.anchors import resolve_epub_href
+from trans_novel.markup.ruby import strip_ruby_markers
+from trans_novel.markup.segments import annotate_epub_resource
+
+
+class TestTokenBudget(unittest.TestCase):
+    def test_batch_segments_uses_token_counts_not_characters(self):
+        # Under cl100k_base these are 2 + 2 + 1 tokens. A 4-token budget packs the
+        # first pair together; a 4-character budget would have split after "hell".
+        segments = [
+            Segment(index=0, source="hello world", kind=KIND_TEXT),
+            Segment(index=1, source="foo bar", kind=KIND_TEXT),
+            Segment(index=2, source="x", kind=KIND_TEXT),
+        ]
+        self.assertEqual([count_tokens(s.source) for s in segments], [2, 2, 1])
+        batches = batch_segments(segments, max_tokens=4)
+        self.assertEqual([[s.index for s in batch] for batch in batches], [[0, 1], [2]])
 
 
 class TestTextIngest(unittest.TestCase):
@@ -93,11 +105,11 @@ class TestTextIngest(unittest.TestCase):
             p = os.path.join(d, "novel.txt")
             write_sample_txt(p)
             doc = load_document(p, "ja", "zh")
-        batches = batch_segments(doc.chapters[0].text_segments, max_chars=60)
+        batches = batch_segments(doc.chapters[0].text_segments, max_tokens=60)
         # Preserve total segment count.
         total = sum(len(b) for b in batches)
         self.assertEqual(total, len(doc.chapters[0].text_segments))
-        self.assertGreater(len(batches), 1)  # A 60-character budget should produce several batches.
+        self.assertGreater(len(batches), 1)  # A 60-token budget should produce several batches.
 
 
 _FB2_FLAT = """\
@@ -315,7 +327,7 @@ class TestFb2Ingest(unittest.TestCase):
 
 class TestSplitLongSegments(unittest.TestCase):
     def test_split_by_sentence_and_cont_flag(self):
-        long_src = "第一句。" * 10  # Forty characters.
+        long_src = "第一句。" * 10  # Fifty tokens under cl100k_base.
         ch = Chapter(
             index=0,
             title="章",
@@ -325,7 +337,7 @@ class TestSplitLongSegments(unittest.TestCase):
                 Segment(index=2, source="短。", kind=KIND_TEXT, anchor="a2"),
             ],
         )
-        split_long_segments([ch], max_chars=30)
+        split_long_segments([ch], max_tokens=30)
         # Split a long paragraph, retaining the first anchor and marking unanchored continuations.
         conts = [s.cont for s in ch.segments]
         self.assertIn(True, conts)
@@ -355,7 +367,7 @@ class TestSplitLongSegments(unittest.TestCase):
         )
         ch = Chapter(index=0, segments=[original])
 
-        split_long_segments([ch], max_chars=20)
+        split_long_segments([ch], max_tokens=20)
 
         self.assertGreater(len(ch.segments), 1)
         self.assertEqual(ch.segments[0].meta, original.meta)
@@ -368,7 +380,7 @@ class TestSplitLongSegments(unittest.TestCase):
             title="章",
             segments=[Segment(index=0, source="短句。", kind=KIND_TEXT, anchor="a0")],
         )
-        split_long_segments([ch], max_chars=100)
+        split_long_segments([ch], max_tokens=100)
         self.assertEqual(len(ch.segments), 1)
         self.assertFalse(ch.segments[0].cont)
 
@@ -376,18 +388,19 @@ class TestSplitLongSegments(unittest.TestCase):
         chunks = _split_text(
             "あ" * 50, 20
         )  # An oversized string without sentence-ending punctuation.
-        self.assertTrue(all(len(c) <= 20 for c in chunks))
+        self.assertTrue(all(count_tokens(c) <= 20 for c in chunks))
         self.assertEqual("".join(chunks), "あ" * 50)
 
     def test_english_splits_on_sentence_punctuation(self):
         text = "Alpha beta gamma. Delta epsilon zeta! Eta theta iota?"
-        chunks = _split_text(text, 25)
+        # Budget 8 tokens: each sentence fits alone, but pairs exceed the budget.
+        chunks = _split_text(text, 8)
         self.assertEqual(chunks, ["Alpha beta gamma.", " Delta epsilon zeta!", " Eta theta iota?"])
         self.assertEqual("".join(chunks), text)
 
     def test_oversized_english_sentence_does_not_split_words(self):
         text = "alphabet bravo charlie delta"
-        chunks = _split_text(text, 18)
+        chunks = _split_text(text, 4)
         self.assertEqual(chunks, ["alphabet bravo", " charlie delta"])
         self.assertEqual("".join(chunks), text)
         self.assertNotIn("char", chunks[0])

@@ -151,7 +151,7 @@ class TestReviewer(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             debug = ReviewRunStore(d)
-            issues = orch._review.review_chapter(
+            issues = orch._review._chunks.review_chapter(
                 [
                     Segment(index=0, source="源文0", target="译文0"),
                     Segment(index=1, source="源文1", target="译文1"),
@@ -229,7 +229,7 @@ class TestReviewer(unittest.TestCase):
             )
 
         cfg = _cfg()
-        cfg.segment.max_chars_per_batch = 100_000
+        cfg.segment.max_tokens_per_batch = 100_000
         cfg.pipeline.review_concurrency = 1
         client = FakeClient(handler=handler)
         orch = Orchestrator(cfg, client=client)
@@ -237,7 +237,7 @@ class TestReviewer(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             debug = ReviewRunStore(d)
-            issues = orch._review.review_chapter(
+            issues = orch._review._chunks.review_chapter(
                 segments,
                 [],
                 chapter_index=7,
@@ -270,7 +270,7 @@ class TestReviewer(unittest.TestCase):
         cfg.pipeline.review_output_retries = 2
         client = FakeClient(handler=handler)
 
-        issues = Orchestrator(cfg, client=client)._review.review_chapter(
+        issues = Orchestrator(cfg, client=client)._review._chunks.review_chapter(
             [Segment(index=0, source="源文", target="译文")],
             [],
         )
@@ -284,7 +284,7 @@ class TestReviewer(unittest.TestCase):
         client = FakeClient(handler=lambda m, t, j: "")
 
         with self.assertRaisesRegex(ReviewOutputError, "malformed_json"):
-            Orchestrator(cfg, client=client)._review.review_chapter(
+            Orchestrator(cfg, client=client)._review._chunks.review_chapter(
                 [Segment(index=0, source="源文", target="译文")],
                 [],
             )
@@ -311,8 +311,8 @@ class TestReviewer(unittest.TestCase):
             )
 
         cfg = _cfg()
-        cfg.segment.max_chars_per_batch = (
-            1  # A budget of three gives each three-character paragraph its own review block.
+        cfg.segment.max_tokens_per_batch = (
+            1  # Review packs at batch*3 tokens; each 4-token paragraph exceeds that alone.
         )
         cfg.pipeline.review_concurrency = 2
         orch = Orchestrator(cfg, client=FakeClient(handler=handler))
@@ -321,7 +321,7 @@ class TestReviewer(unittest.TestCase):
             Segment(index=1, source="源文乙", target="译文乙"),
         ]
 
-        issues = orch._review.review_chapter(segments, [])
+        issues = orch._review._chunks.review_chapter(segments, [])
 
         self.assertEqual([it["index"] for it in issues], [0, 1])
         self.assertEqual([it["detail"] for it in issues], ["甲", "乙"])
@@ -332,7 +332,7 @@ class TestReviewer(unittest.TestCase):
             for cache_first in (False, True):
                 with self.subTest(scope=scope, cache_first=cache_first):
                     cfg = _cfg()
-                    cfg.segment.max_chars_per_batch = 1
+                    cfg.segment.max_tokens_per_batch = 1
                     cfg.pipeline.review_concurrency = 2
                     cfg.pipeline.glossary_scope = scope
                     expected_calls = 1 if cache_first else 2
@@ -343,9 +343,10 @@ class TestReviewer(unittest.TestCase):
                         return _review_response([], 1)
 
                     orch = Orchestrator(cfg, client=FakeClient(handler=handler))
+                    # Each source is >3 tokens so review's batch*3 budget keeps them in separate blocks.
                     segments = [
-                        Segment(index=0, source="Ann", target="Anne"),
-                        Segment(index=1, source="Bob", target="Robert"),
+                        Segment(index=0, source="Ann meets the council today", target="Anne"),
+                        Segment(index=1, source="Bob leaves before sunrise", target="Robert"),
                     ]
                     terms = [GlossaryTerm(source=s, target=s) for s in ("Ann", "Bob", "Unused")]
                     completed = []
@@ -365,7 +366,7 @@ class TestReviewer(unittest.TestCase):
                                 reviewer, "review_result", wraps=reviewer.review_result
                             ) as reviewing,
                         ):
-                            issues = orch._review.review_chapter(
+                            issues = orch._review._chunks.review_chapter(
                                 segments,
                                 terms,
                                 chapter_index=0,
@@ -404,6 +405,29 @@ class TestPolisher(unittest.TestCase):
         self.assertEqual(
             out, ["甲", "乙"]
         )  # Preserve the original translation on paragraph-count mismatch.
+
+    def test_polish_continue_appends_user_turn_to_translation_transcript(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps(
+                {"polished": ["润色甲", "润色乙"]}, ensure_ascii=False
+            )
+        )
+        turn = [
+            {"role": "system", "content": "You are an experienced literary translator"},
+            {"role": "user", "content": "translate these"},
+            {
+                "role": "assistant",
+                "content": json.dumps({"translations": ["甲", "乙"]}, ensure_ascii=False),
+            },
+        ]
+        out = Polisher(client, _cfg()).polish_continue(turn, n=2, next_source="next")
+        self.assertEqual(out, ["润色甲", "润色乙"])
+        messages = client.calls[-1]["messages"]
+        self.assertEqual([row["role"] for row in messages], ["system", "user", "assistant", "user"])
+        self.assertIn(
+            "Polish the translations from your previous JSON response", messages[-1]["content"]
+        )
+        self.assertEqual(client.calls[-1]["operation"], "polish.body")
 
 
 if __name__ == "__main__":

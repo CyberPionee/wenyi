@@ -210,7 +210,7 @@ pipeline:
 
 - `review`: enabled by default; automatically run the evidence-driven whole-book review after the complete book has been translated. Pass `--no-review` or set this to `false` to skip it in the one-command workflow. The explicit `trans-novel review` command remains available.
 - `polish`: run the strong model over translated batches again for style. This may improve quality but significantly increases runtime and cost.
-- `rolling_context_segments`: number of recent translated segments included with each translation batch.
+- `rolling_context_segments`: number of recent translated segments included with each translation batch. Translation and polishing also receive one following source segment from the same chapter as a read-only reference, including when this setting is zero. This built-in lookahead does not change output counts or saved translation context; see [whole-book context](pipeline.md#whole-book-understanding-and-context).
 - `book_understanding`: prescan the book to create chapter digests and a whole-book synopsis.
 - `prescan_concurrency`: number of chapter-digest requests that may run concurrently.
 - `annotation_alignment`: enabled by default. After each annotated logical paragraph has been fully translated and polished, immediately locate EPUB footnote/endnote links with one sequential model call against the formal target. If export punctuation normalization is enabled, the export layer remaps the persisted offsets together with the normalized in-memory copy. Split continuations are rejoined first, and segments without internal links do not call the model. When disabled, translated links remain clickable but fall back to end-of-paragraph markers; untranslated text and the source side of bilingual output retain the original link positions. This option controls link placement only; resolved source-language note content is supplied to translation automatically.
@@ -225,7 +225,7 @@ pipeline:
 - `review_clean_confirmations`: consecutive issue-free whole-book Review passes required after shadow fixing, from `1` to `2`; the default is `2`.
 - `review_autofix`: enabled by default. After the read-only Review engine finishes, publish its folded `changes` to a working translation, run the existing bounded Review Agent Loop once more over each remaining issue against that updated text, and pass confirmed issues to the existing Review Fixer. Pass `--no-autofix` or set this to `false` to keep Review from writing formal `target` values. The resulting complete segments replace only the formal chapter `target`; the manifest and glossary remain unchanged. Full before/after chains, issue IDs, decisions, failures, and write status are kept in the Review run's `autofix/index.json` instead of adding history fields to chapter JSON.
 - `glossary_scope`: `chapter` includes terms relevant to the current chapter; `full` includes the complete glossary.
-- `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge.
+- `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.
 - `babeldoc_timeout`: HTTP timeout in seconds for bridge extract and fillback.
 - `babeldoc_pages`: optional 1-based page selection such as `"15"` or `"6-8"`; omit it to process the whole file.
@@ -255,8 +255,8 @@ output:
   punctuation_normalize: true
 ```
 
-- `mono`: produce a monolingual edition as `<book-name>.<target-language>.epub` (`.zh.epub` by default).
-- `bilingual`: produce a source-and-translation edition as `<book-name>.<target-language>-bi.epub`.
+- `mono`: produce a monolingual edition as `<book-name>.<target-language>.<extension>` (`.zh.epub` normally; `.zh.pdf` for BabelDOC PDF state and `.zh.docx` for DOCX input).
+- `bilingual`: request a source-and-translation edition as `<book-name>.<target-language>-bi.<extension>`, using the same selected format as monolingual output.
 - `bilingual_order`: `target_first` places the translation before the source; `source_first` reverses the order.
 - `bilingual_preserve_source_style`: when `true`, source blocks inherit the book's normal text style instead of using the subdued gray style. This affects EPUB and HTML output only.
 - `about_page`: append an “About this translation” project page to the book; set it to `false` to disable it.
@@ -270,8 +270,8 @@ Only the monolingual edition is enabled by default. `--bilingual` enables both e
 
 ```yaml
 segment:
-  max_chars_per_batch: 1800
-  max_chars_per_segment: 1200
+  max_tokens_per_batch: 1800
+  max_tokens_per_segment: 1200
 
 honorific:
   strategy: keep_style
@@ -280,8 +280,8 @@ paths:
   state_dir: state
 ```
 
-- `max_chars_per_batch`: approximate source-character budget for one model translation request.
-- `max_chars_per_segment`: threshold for splitting an exceptionally long source paragraph.
+- `max_tokens_per_batch`: source-token budget for one model translation request, counted with tiktoken `cl100k_base` (a universal estimator, not the live provider tokenizer).
+- `max_tokens_per_segment`: token threshold for splitting an exceptionally long source paragraph at sentence boundaries.
 - `honorific.strategy`: Japanese-source honorific policy: `keep_style`, `normalize`, or `drop`.
 - `state_dir`: location of book checkpoints, chapter files, the glossary database, usage data, and reports. Subtitle runs store a separate tree at `<state_dir>/srt/<slug>/targets/<target-language>/` (manifest, cues, batches, usage, events) and never create a glossary or review directory.
 

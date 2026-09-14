@@ -29,9 +29,13 @@ All targets, including `zh`, own separate state under `state/<book>/targets/<tar
 
 ## Whole-book understanding and context
 
-The prescan creates a digest for each chapter and a synopsis of the complete book. For every translation batch, the prompt presents stable information first: style guidance, the whole-book synopsis, the current chapter digest, relevant glossary terms, any source-language notes referenced by the current segments, recent translated context, and finally the source text to translate. Recent translation therefore remains immediately adjacent to the new source passage.
+The prescan creates a digest for each chapter and a synopsis of the complete book. For every translation batch, the prompt presents stable information first: style guidance, the whole-book synopsis, the current chapter digest, relevant glossary terms, any source-language notes referenced by the current segments, recent translated context, the source text to translate, and one following source segment. Recent translation therefore remains immediately adjacent to the new source passage.
 
 This lets early chapters benefit from knowledge of later events while helping adjacent batches preserve pronouns, forms of address, tone, and sentences that span multiple source segments.
+
+The following segment is a quoted, read-only reference from the same chapter. It helps the translator recognize a sentence or dialogue that continues beyond the batch, including fragments split from a long paragraph, and avoid inventing an ending or forcing final punctuation. The reference is excluded from the numbered inputs and output count; its content must not be translated early or borrowed to complete the current paragraph. It is also supplied to polishing. At a chapter end there is no following reference; the workflow does not cross into the next chapter. This is built in and remains enabled when `rolling_context_segments` is zero, which disables only preceding translations.
+
+Alignment retries retain the reference. Single-paragraph fallback uses that paragraph's immediate source neighbor, including an unchanged number or symbol. Resume recomputes the neighbor from source order after splitting completed and pending batches, preserving completed targets and stable segment identities. Lookahead is never added to the saved rolling translation context. It adds at most one source segment to each translation or polishing request, with no extra model call. This supplies continuity evidence; actual wording and sentence endings still depend on the model.
 
 ## Glossary
 
@@ -42,7 +46,7 @@ The glossary constrains later translation and supplies evidence to the final rev
 ## Quality controls
 
 - **Segment alignment:** the model must return a JSON array with the same number of items as the input. Wenyi retries mismatched batches and falls back to translating one segment at a time.
-- **Polishing:** improves target-language fluency while preserving meaning and segment count.
+- **Polishing:** improves target-language fluency while preserving meaning and segment count. After a successful single-shot translation batch, polishing appends one more user turn to that same conversation (shared system/user prefix for cache hits) instead of opening a fresh dialogue; alignment fallback still uses a standalone polish call.
 - **Punctuation normalization:** optionally converts punctuation to common Simplified Chinese full-width conventions on an export-only copy for Simplified Chinese targets; other targets skip this conversion. It never rewrites formal chapter `target` values, so changing this output option does not alter translation, Review, or resume state.
 - **EPUB annotation context:** during preparation, Wenyi resolves high-confidence footnote and endnote references to their source-language note bodies, deduplicates shared targets, and stores an auxiliary copy separately from chapter text. Translation batches automatically receive that copy only for the numbered segments that reference it. Backlinks, chapter jumps, external links, and other ordinary hyperlinks are excluded. The borrowed copy is never appended to the referencing segment or rolling context; note resources already present in the EPUB spine remain ordinary translatable book content.
 - **EPUB annotation alignment:** removes recognized footnote markers from translatable source text while retaining semantic superscripts/subscripts. As soon as an annotated logical paragraph has been fully translated and polished, Wenyi makes one sequential alignment call against the formal target and immediately persists the restored `a/sup/href/id/class` positions. When export punctuation normalization is enabled, the export layer remaps those offsets together with the normalized in-memory copy. Split continuations are rejoined first; unrelated paragraphs make no call. Failures degrade to clickable end markers instead of dropping links. Untranslated text and bilingual source copies keep the source EPUB's original annotation positions. EPUB state created before this metadata format must be prepared again from the source book.
@@ -62,12 +66,18 @@ uv run trans-novel review book.epub --autofix
 
 The explicit command runs even when `pipeline.review` is disabled. Matching completed
 results are reused; an interrupted Review resumes its saved rounds, chunks, and agent
-traces when content, configuration, and glossary fingerprints match. Otherwise, a new
-whole-book Review starts. Cached chunks and completed initial screening skip chapter
-glossary matching; pending reviewer requests share one chapter-wide glossary snapshot.
+traces when content, configuration, and glossary fingerprints match. Recoverable stops
+such as Ctrl+C, timeouts, transport failures, HTTP 429/5xx, and provider balance/quota
+errors (for example HTTP 402) leave the run as `interrupted` so the next `review`
+command can continue instead of starting a new directory. Permanent local failures still
+finish as `failed`. Otherwise, a new whole-book Review starts. Cached chunks and
+completed initial screening skip chapter glossary matching; pending reviewer requests
+share one chapter-wide glossary snapshot. A finished shadow-fixer trace is also reused after an interrupted round commit when the round, segment, issue IDs and current-target hash still match; that completed revision is not requested or charged again. Resume also restores earlier rounds’ issue summaries and reconnects active patches to their history records, keeping final counts consistent with an uninterrupted run.
 The CLI shows chapter loading and checkpoint preparation before reviewing paragraphs.
-Elapsed time measures the current stage of this invocation and continues advancing
-while model requests are pending; paragraph counts advance when a top-level chunk
+Elapsed time measures the entire current workflow and never resets at stage or round
+boundaries. It continues advancing while model requests are pending, even after a stage
+reaches its final count. Each invocation's duration is saved in the target's `timing.json`
+and accumulated across resumes, excluding downtime. Paragraph counts advance when a top-level chunk
 finishes, including chunks restored from cache.
 
 The Review engine first updates a run-local shadow translation. Publishing is enabled by default;

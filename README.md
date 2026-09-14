@@ -38,6 +38,7 @@ Whole-book understanding · Consistent terminology · Evidence-based review
 - [Documentation](#documentation)
 - [Limitations](#limitations)
 - [Community](#community)
+- [Support](#support)
 - [Star history](#star-history)
 - [License](#license)
 
@@ -249,6 +250,20 @@ Translated state directories for public-domain books may be shared through [weny
 - QQ group: 1055065098
 - [GitHub Issues](https://github.com/BigDawnGhost/wenyi/issues) — bug reports and feature requests
 - [GitHub Discussions](https://github.com/BigDawnGhost/wenyi/discussions) — ideas and questions
+
+---
+
+## Support
+
+If this project has been helpful, tips are welcome.
+
+<p align="center">
+  <img src="docs/images/tip-wechat.jpg" alt="WeChat Pay tip QR code" width="220">
+  &nbsp;&nbsp;
+  <img src="docs/images/tip-alipay.jpg" alt="Alipay tip QR code" width="220">
+  <br>
+  <sub>WeChat Pay · Alipay</sub>
+</p>
 
 ---
 

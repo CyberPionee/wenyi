@@ -20,6 +20,15 @@ _OUT_EXT = {
 }
 
 
+def default_output_format(manifest: dict) -> str:
+    """Select the export format from the backend recorded in the same state snapshot."""
+    raw_meta = manifest.get("meta")
+    meta = raw_meta if isinstance(raw_meta, dict) else {}
+    if meta.get("pdf_export") == "babeldoc" or meta.get("babeldoc"):
+        return "pdf"
+    return "epub"
+
+
 def _sanitize_filename(name: str, fallback: str = "translated") -> str:
     """Remove characters invalid in cross-platform filenames and limit name length."""
     name = _ILLEGAL_FN.sub(" ", name or "").strip().strip(".")
@@ -121,7 +130,7 @@ def _bilingual_source(source: str, target: str) -> str:
     Strip pronunciation hint markers from Segment.source in plain-text fallbacks. Preserve
     actual ruby from template DOM through _bilingual_source_markup.
     """
-    from ..ingest.epub_reader import strip_ruby_markers
+    from trans_novel.markup.ruby import strip_ruby_markers
 
     source = strip_ruby_markers(source)
     return source if (source.strip() and source != target) else ""

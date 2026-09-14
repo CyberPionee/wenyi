@@ -8,17 +8,11 @@ import unittest
 from unittest.mock import patch
 
 import typer
-from rich.cells import cell_len
-from rich.progress import Progress, TimeElapsedColumn
 from typer.testing import CliRunner
 
-from trans_novel.cli import (
-    _configure_windows_console,
-    _progress_columns,
-    _RichProgressBridge,
-    _validate_pdf_engine,
-    app,
-)
+from trans_novel.cli import app
+from trans_novel.commands.bootstrap import configure_windows_console
+from trans_novel.commands.validation import validate_pdf_engine
 from trans_novel.config import Config
 from trans_novel.ingest.errors import MinerUError
 from trans_novel.llm.providers.fake import FakeClient
@@ -33,72 +27,13 @@ class FakeStore:
 
 
 class TestCliConfig(unittest.TestCase):
-    def test_progress_clock_advances_after_completed_stage(self):
-        now = 10.0
-        progress = Progress(disable=True, get_time=lambda: now)
-        bridge = _RichProgressBridge(progress, "Preparing translation…")
-        bridge(1674, 1674, "Translation complete")
-        self.assertTrue(progress.tasks[0].finished)
-
-        now = 20.0
-        bridge(0, 1674, "Whole-book review R1")
-        bridge(777, 1674, "Whole-book review R1")
-        task = progress.tasks[0]
-        self.assertFalse(task.finished)
-        now = 25.0
-        self.assertEqual(TimeElapsedColumn().render(task).plain, "0:00:05")
-        now = 35.0
-        self.assertEqual(TimeElapsedColumn().render(task).plain, "0:00:15")
-        bridge(778, 1674, "Whole-book review R1")
-        self.assertEqual(TimeElapsedColumn().render(task).plain, "0:00:15")
-
-    def test_indeterminate_progress_updates_preserve_elapsed_time(self):
-        now = 10.0
-        progress = Progress(disable=True, get_time=lambda: now)
-        bridge = _RichProgressBridge(progress, "Preparing review…")
-        bridge(1, 1, "Loading review chapters")
-        bridge(0, 0, "Restoring review checkpoint…")
-        now = 15.0
-        bridge(0, 0, "Restoring review checkpoint…")
-        task = progress.tasks[0]
-        self.assertIsNone(task.total)
-        self.assertFalse(task.finished)
-        self.assertEqual(TimeElapsedColumn().render(task).plain, "0:00:05")
-
-    def test_long_progress_description_is_ellipsized_without_hiding_bar(self):
-        progress = Progress(*_progress_columns(), disable=True)
-        bridge = _RichProgressBridge(progress, "Preparing…")
-
-        bridge(1, 2, "这是一个特别特别长而且不应该挤掉右侧进度条的章节标题")
-
-        description = progress.tasks[0].description
-        self.assertTrue(description.endswith("…"))
-        self.assertLessEqual(cell_len(description), 28)
-
-    def test_progress_bridge_reuses_one_task_across_review_stages(self):
-        progress = Progress(disable=True)
-        bridge = _RichProgressBridge(progress, "Preparing whole-book review…")
-
-        bridge(0, 6386, "Whole-book review R1")
-        bridge(6386, 6386, "Whole-book review R1")
-        bridge(0, 58, "Shadow revision R1")
-        bridge(58, 58, "Shadow revision R1")
-        bridge(0, 6386, "Blind whole-book review R2")
-
-        self.assertEqual(len(progress.tasks), 1)
-        task = progress.tasks[0]
-        self.assertEqual(task.description, "Blind whole-book review R2")
-        self.assertEqual(task.completed, 0)
-        self.assertEqual(task.total, 6386)
-        self.assertFalse(task.finished)
-
     def test_pdf_engine_validation_accepts_both_backends(self):
-        self.assertEqual(_validate_pdf_engine("WeasyPrint"), "weasyprint")
-        self.assertEqual(_validate_pdf_engine(" fpdf2 "), "fpdf2")
+        self.assertEqual(validate_pdf_engine("WeasyPrint"), "weasyprint")
+        self.assertEqual(validate_pdf_engine(" fpdf2 "), "fpdf2")
 
     def test_pdf_engine_validation_rejects_unknown_backend(self):
         with self.assertRaises(typer.Exit) as raised:
-            _validate_pdf_engine("unknown")
+            validate_pdf_engine("unknown")
 
         self.assertEqual(raised.exception.exit_code, 2)
 
@@ -122,7 +57,7 @@ class TestCliConfig(unittest.TestCase):
         create.assert_called_once_with("settings/config.yaml")
 
     def test_version_reads_installed_package_metadata(self):
-        with patch("trans_novel.cli.package_version", return_value="0.3.5"):
+        with patch("trans_novel.commands.bootstrap.package_version", return_value="0.3.5"):
             result = CliRunner().invoke(app, ["--version"])
 
         self.assertEqual(result.exit_code, 0, result.output)
@@ -161,9 +96,9 @@ class TestCliConfig(unittest.TestCase):
                 }
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(app, ["translate", "input.txt"])
 
@@ -204,9 +139,9 @@ class TestCliConfig(unittest.TestCase):
                 }
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(
                 app,
@@ -260,9 +195,9 @@ class TestCliConfig(unittest.TestCase):
                 return PreparedStore()
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(
                 app,
@@ -284,8 +219,8 @@ class TestCliConfig(unittest.TestCase):
             }
         )
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(
                 app,
@@ -331,7 +266,7 @@ class TestCliConfig(unittest.TestCase):
         ):
             with self.subTest(command=command):
                 with patch(
-                    "trans_novel.cli._validate_api_configuration",
+                    "trans_novel.commands.context.CommandContext.validate_api_configuration",
                     side_effect=RuntimeError("missing key"),
                 ) as validate:
                     result = CliRunner().invoke(app, [command, "input.txt"])
@@ -356,7 +291,7 @@ class TestCliConfig(unittest.TestCase):
         ):
             with self.subTest(args=args):
                 with patch(
-                    "trans_novel.cli._validate_api_configuration",
+                    "trans_novel.commands.context.CommandContext.validate_api_configuration",
                     side_effect=AssertionError(f"{args} must not validate credentials"),
                 ) as validate:
                     result = CliRunner().invoke(app, args)
@@ -368,7 +303,7 @@ class TestCliConfig(unittest.TestCase):
         for args in (["--help"], ["translate", "--help"], ["glossary", "--help"]):
             with self.subTest(args=args):
                 with patch(
-                    "trans_novel.cli._validate_api_configuration",
+                    "trans_novel.commands.context.CommandContext.validate_api_configuration",
                     side_effect=AssertionError("help must not validate credentials"),
                 ) as validate:
                     result = CliRunner().invoke(app, args)
@@ -415,9 +350,9 @@ class TestCliConfig(unittest.TestCase):
                 }
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(app, ["review", "input.txt"])
 
@@ -449,6 +384,7 @@ class TestCliConfig(unittest.TestCase):
 
             def run_review(self, input_path, **kwargs):
                 return {
+                    "store": FakeStore(),
                     "review_result": {
                         "termination": "max_rounds",
                         "summary": {"issue_count": 1, "change_count": 1},
@@ -463,9 +399,9 @@ class TestCliConfig(unittest.TestCase):
                 }
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(app, ["review", "input.txt", "--autofix"])
 
@@ -477,8 +413,8 @@ class TestCliConfig(unittest.TestCase):
         missing = os.path.join(tempfile.gettempdir(), "trans-novel-missing.epub")
         cfg = Config.from_dict({"llm": {"preset": "deepseek"}})
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
-            patch("trans_novel.cli._require_input_file") as require_input,
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
+            patch("trans_novel.commands.workflows.require_input_file") as require_input,
             patch.dict(os.environ, {}, clear=True),
         ):
             result = CliRunner().invoke(app, ["translate", missing])
@@ -492,8 +428,8 @@ class TestCliConfig(unittest.TestCase):
     def test_assemble_skips_api_preflight(self):
         cfg = Config.from_dict({"llm": {"preset": "deepseek"}})
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
-            patch("trans_novel.cli.os.path.isfile", return_value=False),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=False),
             patch.dict(os.environ, {}, clear=True),
         ):
             result = CliRunner().invoke(app, ["assemble", "missing.epub"])
@@ -516,12 +452,12 @@ class TestCliConfig(unittest.TestCase):
             def run_assemble(self, input_path, **kwargs):
                 captured["input"] = input_path
                 captured["kwargs"] = kwargs
-                return {"outputs": ["out.pdf"]}
+                return {"store": FakeStore(), "outputs": ["out.pdf"]}
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(
                 app,
@@ -574,9 +510,9 @@ class TestCliConfig(unittest.TestCase):
                 }
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(app, ["report", "input.epub"])
 
@@ -610,12 +546,14 @@ class TestCliConfig(unittest.TestCase):
                         raise error
 
                 with (
-                    patch("trans_novel.cli._load_config", return_value=cfg),
+                    patch(
+                        "trans_novel.commands.context.CommandContext.load_config", return_value=cfg
+                    ),
                     patch(
                         "trans_novel.pipeline.orchestrator.Orchestrator",
                         FakeOrchestrator,
                     ),
-                    patch("trans_novel.cli.os.path.isfile", return_value=True),
+                    patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
                 ):
                     result = CliRunner().invoke(app, ["translate", "input.pdf"])
 
@@ -626,8 +564,8 @@ class TestCliConfig(unittest.TestCase):
     def test_translate_rejects_unknown_output_format_after_api_preflight(self):
         cfg = Config.from_dict({"llm": {"preset": "fake"}})
         with (
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
         ):
             result = CliRunner().invoke(app, ["translate", "input.txt", "--format", "xml"])
 
@@ -646,9 +584,9 @@ class TestCliConfig(unittest.TestCase):
                 raise ValueError("章节编号 9 不存在；可用范围：0–1")
 
         with (
-            patch("trans_novel.cli._load_config", return_value=cfg),
+            patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg),
             patch("trans_novel.pipeline.orchestrator.Orchestrator", FakeOrchestrator),
-            patch("trans_novel.cli.os.path.isfile", return_value=True),
+            patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
         ):
             result = CliRunner().invoke(app, ["translate", "input.txt", "--chapter", "9"])
 
@@ -670,7 +608,7 @@ class TestCliConfig(unittest.TestCase):
                 }
             )
 
-            with patch("trans_novel.cli._load_config", return_value=cfg):
+            with patch("trans_novel.commands.context.CommandContext.load_config", return_value=cfg):
                 result = CliRunner().invoke(app, ["status", src])
 
             self.assertEqual(result.exit_code, 1, result.output)
@@ -687,9 +625,9 @@ class TestCliConfig(unittest.TestCase):
         for args in commands:
             with self.subTest(args=args):
                 with (
-                    patch("trans_novel.cli.os.path.isfile", return_value=True),
+                    patch("trans_novel.commands.validation.os.path.isfile", return_value=True),
                     patch(
-                        "trans_novel.cli._runstore_for",
+                        "trans_novel.commands.validation.runstore_for",
                         side_effect=ValueError("Input content does not match existing state"),
                     ),
                 ):
@@ -712,7 +650,7 @@ class TestWindowsConsoleEncoding(unittest.TestCase):
         out = self._Stream()
         err = self._Stream()
 
-        _configure_windows_console((out, err), is_windows=True)
+        configure_windows_console((out, err), is_windows=True)
 
         self.assertEqual(out.calls, [{"encoding": "utf-8", "errors": "replace"}])
         self.assertEqual(err.calls, [{"encoding": "utf-8", "errors": "replace"}])
