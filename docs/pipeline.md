@@ -123,6 +123,9 @@ written before formal targets and allows an interrupted publication to resume
 idempotently. A partial final issue fix does not roll back a valid direct `change`;
 the index and result summary report the failure. The run-local usage delta is also
 merged exactly once into the book's cumulative `usage.json`, while `report.json`
+stores a short Review/Autofix summary plus an `auto_qa` block (empty targets, open
+glossary conflicts, residual deterministic findings, open review issues). Residual
+findings are advisory and do not block export by default.
 receives a compact Review/Autofix summary and sets `read_only: false` for a published
 run.
 

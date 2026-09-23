@@ -6,6 +6,7 @@ from typing import Any
 
 from ..glossary.store import GlossaryStore
 from ..pipeline.runstore import STATUS_DONE
+from ..review.sweep import scan_segment
 from ..storage.protocol import Storage
 
 
@@ -16,6 +17,7 @@ def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str,
     chapters_done = sum(1 for c in m["chapters"] if c["status"] == STATUS_DONE)
 
     empty_targets: list[dict] = []
+    residual_findings: list[dict] = []
 
     for c in m["chapters"]:
         if c["status"] != STATUS_DONE:
@@ -25,6 +27,16 @@ def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str,
             if not (s.target and s.target.strip()):
                 empty_targets.append(
                     {"chapter": c["index"], "index": s.index, "source": s.source[:60]}
+                )
+                continue
+            for finding in scan_segment(s.source, s.target or "", glossary.all_terms()):
+                residual_findings.append(
+                    {
+                        "chapter": c["index"],
+                        "index": s.index,
+                        "source": s.source[:60],
+                        **finding,
+                    }
                 )
 
     conflicts = glossary.open_conflicts()
@@ -40,21 +52,38 @@ def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str,
         },
         "open_conflicts": conflicts,
         "empty_targets": empty_targets,
+        "residual_findings": residual_findings,
     }
     review = store.load_latest_review_result()
+    review_open_issues = 0
     if review is not None:
         review_summary = review.get("summary") or {}
         autofix = review.get("autofix") or {}
         applied_segments = int(autofix.get("applied_segment_count") or 0)
+        review_open_issues = int(review_summary.get("issue_count") or 0)
         report["review"] = {
             "review_id": review.get("review_id"),
             "status": review.get("status"),
             "termination": review.get("termination"),
-            "issue_count": int(review_summary.get("issue_count") or 0),
+            "issue_count": review_open_issues,
             "change_count": int(review_summary.get("change_count") or 0),
             "read_only": applied_segments == 0,
             "autofix_status": autofix.get("status"),
             "autofix_applied_segment_count": applied_segments,
             "autofix_failed_issue_count": int(autofix.get("failed_issue_count") or 0),
         }
+    # Aggregate residual/fixable state without redefining empty_targets/open_conflicts.
+    report["auto_qa"] = {
+        "passed": (
+            not empty_targets
+            and not conflicts
+            and not residual_findings
+            and review_open_issues == 0
+        ),
+        "empty_target_count": len(empty_targets),
+        "open_conflict_count": len(conflicts),
+        "residual_finding_count": len(residual_findings),
+        "open_issue_count": review_open_issues,
+        "blocking": False,
+    }
     return report

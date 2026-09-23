@@ -166,6 +166,7 @@ const LABELS: Record<string, MessageKey> = {
   terms: "common.terms",
   open_conflicts: "data.openConflicts",
   review_issues: "common.reviewIssues",
+  residual_finding_count: "data.residualFindings",
   empty_targets: "data.emptyTranslations",
   output: "data.output",
   results: "data.results",

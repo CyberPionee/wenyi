@@ -90,6 +90,7 @@ const zhCN = {
   "common.terms": "术语",
   "data.openConflicts": "待裁决冲突",
   "common.reviewIssues": "审校问题",
+  "data.residualFindings": "残留问题",
   "data.emptyTranslations": "空译文",
   "data.output": "输出",
   "data.results": "结果",

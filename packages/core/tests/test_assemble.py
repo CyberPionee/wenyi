@@ -1613,6 +1613,47 @@ class TestEpubTocMisdetectRegression(unittest.TestCase):
         self.assertIsNone(rendered.select_one("[data-tn-annotation-id]"))
 
 
+class TestReportAutoQA(unittest.TestCase):
+    def test_auto_qa_aggregates_residuals_without_blocking_export(self):
+        from wenyi_core.assemble.report import build_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "book.txt")
+            write_sample_txt(txt)
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "en",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            chapter = Chapter(
+                index=0,
+                title="c",
+                segments=[
+                    Segment(index=0, source="Chapter 12", target="Chapter"),
+                    Segment(index=1, source="ok", target="fine"),
+                ],
+            )
+            store.save_chapter(chapter)
+            glossary = GlossaryStore(os.path.join(directory, "g.db"))
+            try:
+                report = build_report(store, glossary)
+            finally:
+                glossary.close()
+            self.assertIn("auto_qa", report)
+            qa = report["auto_qa"]
+            self.assertFalse(qa["passed"])
+            self.assertFalse(qa["blocking"])
+            self.assertEqual(qa["empty_target_count"], 0)
+            self.assertEqual(qa["residual_finding_count"], 1)
+            self.assertEqual(report["residual_findings"][0]["kind"], "number_residue")
+
+
 class TestReport(unittest.TestCase):
     def test_report_summary(self):
         with tempfile.TemporaryDirectory() as d:

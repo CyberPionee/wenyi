@@ -89,6 +89,7 @@ const en = {
   "common.terms": "Terms",
   "data.openConflicts": "Open conflicts",
   "common.reviewIssues": "Review issues",
+  "data.residualFindings": "Residual findings",
   "data.emptyTranslations": "Empty translations",
   "data.output": "Output",
   "data.results": "Results",
