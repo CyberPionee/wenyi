@@ -111,6 +111,21 @@ def test_polisher_receives_reference_without_extra_output(config):
     assert _numbered_sources(user) == ["unfinished translation"]
 
 
+def test_polisher_with_sources_pairs_source_and_target(config):
+    client = FakeClient(handler=lambda m, t, j: '{"polished":["polished"]}')
+    result = Polisher(client, config).polish(
+        ["draft"],
+        sources=["source line"],
+        next_source="continuation source",
+    )
+
+    assert result == ["polished"]
+    user = client.calls[0]["messages"][-1]["content"]
+    assert _next_source(user) == "continuation source"
+    assert "[0] Source: source line" in user
+    assert "    Translation: draft" in user
+
+
 def test_polish_continue_reuses_translation_transcript(config):
     def handler(messages, tier, json_mode):
         user = messages[-1]["content"]

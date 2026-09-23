@@ -404,6 +404,35 @@ class TestPolisher(unittest.TestCase):
         out = p.polish(["甲", "乙"])
         self.assertEqual(out, ["润色甲", "润色乙"])
         self.assertEqual(client.calls[-1]["tier"], "strong")
+        user = client.calls[-1]["messages"][-1]["content"]
+        self.assertIn("[0] 甲", user)
+        self.assertNotIn("Source:", user)
+
+    def test_polish_with_sources_renders_source_target_pairs(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps(
+                {"polished": ["润色甲", "润色乙"]}, ensure_ascii=False
+            )
+        )
+        p = Polisher(client, _cfg())
+        out = p.polish(["甲", "乙"], sources=["alpha", "beta"])
+        self.assertEqual(out, ["润色甲", "润色乙"])
+        user = client.calls[-1]["messages"][-1]["content"]
+        self.assertIn("[0] Source: alpha", user)
+        self.assertIn("    Translation: 甲", user)
+        self.assertIn("[1] Source: beta", user)
+        self.assertIn("    Translation: 乙", user)
+
+    def test_polish_system_keeps_role_sentence_and_adds_literary_goals(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps({"polished": ["甲"]}, ensure_ascii=False)
+        )
+        Polisher(client, _cfg()).polish(["甲"])
+        system = client.calls[-1]["messages"][0]["content"]
+        self.assertIn("prose editor", system)
+        self.assertIn("Literary goals:", system)
+        self.assertIn("minimal edits", system)
+        self.assertIn("never merge, split or reorder paragraphs", system)
 
     def test_polish_mismatch_keeps_original(self):
         client = FakeClient(

@@ -106,7 +106,11 @@ class TranslationBatchExecutor:
                         polished[index] = strip_ruby_markers(text)
             if polished is None:
                 polished = self._polisher.polish(
-                    targets, glossary_terms=terms, style=plan.style, next_source=plan.next_source
+                    targets,
+                    sources=plan.sources,
+                    glossary_terms=terms,
+                    style=plan.style,
+                    next_source=plan.next_source,
                 )
             if len(polished) == len(targets):
                 targets = polished

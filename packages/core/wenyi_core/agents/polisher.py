@@ -7,6 +7,8 @@ polishing cannot drop paragraphs.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from ..glossary.store import GlossaryTerm
 from ..i18n.prompts import render
 from . import prompts
@@ -18,15 +20,25 @@ class Polisher(Agent):
         self,
         targets: list[str],
         *,
+        sources: Sequence[str] | None = None,
         glossary_terms: list[GlossaryTerm] | None = None,
         style: str = "",
         next_source: str = "",
     ) -> list[str]:
-        """Polish an aligned list in a fresh conversation; return input unchanged on failure."""
+        """Polish an aligned list in a fresh conversation; return input unchanged on failure.
+
+        When ``sources`` is provided, the user prompt pairs each source paragraph with its
+        target so the editor can keep meaning and register; otherwise only targets are sent.
+        """
         if not targets:
             return []
         n = len(targets)
         system = render("polisher_system", src=self.src, tgt=self.tgt, n=n)
+        pairs = (
+            prompts.numbered_pairs(list(sources), targets)
+            if sources is not None and len(sources) == n
+            else prompts.numbered(targets)
+        )
         user = render(
             "polisher_user",
             src=self.src,
@@ -34,7 +46,7 @@ class Polisher(Agent):
             glossary=prompts.render_glossary(glossary_terms or []),
             style=style or "(none)",
             n=n,
-            numbered_target=prompts.numbered(targets),
+            pairs=pairs,
             next_source=prompts.render_source_reference(next_source),
         )
         items = self._ask_json(system, user, operation="polish.body", key="polished", default=None)
