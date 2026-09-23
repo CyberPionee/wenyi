@@ -446,4 +446,9 @@ class PreparationService:
             analysis["book_synopsis_v"] = self.BOOK_SYNOPSIS_V
             store.save_analysis(analysis)
             store.log_event("book_synopsis_saved", synopsis=synopsis)
+        if self._runtime.config.pipeline.pilot:
+            store.log_event(
+                "pilot_selfcheck_skipped",
+                reason="pilot_enabled_without_trial_batch",
+            )
         return str(analysis.get("book_synopsis", "") or "")

@@ -56,6 +56,7 @@ pipeline:
   glossary_always_types: [person] # Term types kept in chapter-filtered prompts even when absent from the chapter
   glossary_always_min_occurrences: 3 # Minimum book-wide source/alias occurrences for always-on entities
   glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
+  pilot: false # Optional 1-batch trial translation + cheap self-check after preparation (opt-in)
   # PDF backend: mineru (default, supports scans) | babeldoc (optional, preserves layout via external AGPL HTTP bridge)
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
@@ -148,6 +149,7 @@ class PipelineConfig(BaseModel):
     )
     glossary_always_min_occurrences: int = Field(default=3, ge=1)
     glossary_note_chars: int = Field(default=120, ge=0)
+    pilot: bool = False  # Opt-in trial translation and cheap self-check after preparation
     # PDF: mineru=HTML path for scans (default); babeldoc=external AGPL HTTP bridge (no imports)
     pdf_backend: Literal["mineru", "babeldoc"] = "mineru"
     babeldoc_bridge_url: str = "http://127.0.0.1:8765"
