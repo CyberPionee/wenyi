@@ -245,6 +245,9 @@ pipeline:
   review_clean_confirmations: 2
   review_autofix: true
   glossary_scope: chapter
+  glossary_always_types: [person]
+  glossary_always_min_occurrences: 3
+  glossary_note_chars: 120
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
   babeldoc_timeout: 600
@@ -267,6 +270,9 @@ pipeline:
 - `review_clean_confirmations`: consecutive issue-free whole-book Review passes required after shadow fixing, from `1` to `2`; the default is `2`.
 - `review_autofix`: enabled by default. After the read-only Review engine finishes, publish its folded `changes` to a working translation, run the existing bounded Review Agent Loop once more over each remaining issue against that updated text, and pass confirmed issues to the existing Review Fixer. Pass `--no-autofix` or set this to `false` to keep Review from writing formal `target` values. The resulting complete segments replace only the formal chapter `target`; the manifest and glossary remain unchanged. Full before/after chains, issue IDs, decisions, failures, and write status are kept in the Review run's `autofix/index.json` instead of adding history fields to chapter JSON.
 - `glossary_scope`: `chapter` includes terms relevant to the current chapter; `full` includes the complete glossary.
+- `glossary_always_types`: glossary types kept in chapter-filtered prompts even when the chapter does not mention them (default `[person]`).
+- `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
+- `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
 - `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.
 - `babeldoc_timeout`: HTTP timeout in seconds for bridge extract and fillback.

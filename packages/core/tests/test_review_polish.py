@@ -393,6 +393,48 @@ class TestReviewer(unittest.TestCase):
                         self.assertEqual(call.args[2], expected_terms)
 
 
+class TestChapterTermSnapshot(unittest.TestCase):
+    def test_chapter_filter_keeps_always_on_persons(self):
+        cfg = _cfg()
+        cfg.pipeline.glossary_scope = "chapter"
+        cfg.pipeline.glossary_always_min_occurrences = 2
+        orch = Orchestrator(cfg, client=FakeClient(handler=lambda m, t, j: "{}"))
+        hero = GlossaryTerm(source="Ann", target="安", type="person")
+        local = GlossaryTerm(source="Local", target="本地", type="term")
+        rare = GlossaryTerm(source="Zed", target="泽德", type="person")
+
+        class FakeGlossary:
+            def all_terms(self):
+                return [hero, local, rare]
+
+        segments = [Segment(index=0, source="Local place only")]
+        corpus = "Ann and Ann again. Local. Zed."
+        snapshot = orch._translation.chapter_term_snapshot(FakeGlossary(), segments, corpus)
+        self.assertEqual([term.source for term in snapshot], ["Local", "Ann"])
+
+
+class TestGlossaryFingerprint(unittest.TestCase):
+    def test_fingerprint_includes_note_and_aliases(self):
+        from wenyi_core.pipeline.review_workflow import ReviewService
+
+        base = GlossaryTerm(source="Ann", target="安", type="person")
+        with_note = GlossaryTerm(source="Ann", target="安", type="person", note="hero")
+        with_alias = GlossaryTerm(source="Ann", target="安", type="person", aliases=["Annie"])
+        other_target = GlossaryTerm(source="Ann", target="安妮", type="person")
+
+        fingerprints = {
+            ReviewService._review_glossary_fingerprint([term])
+            for term in (base, with_note, with_alias, other_target)
+        }
+        self.assertEqual(len(fingerprints), 4)
+        self.assertEqual(
+            ReviewService._review_glossary_fingerprint([base]),
+            ReviewService._review_glossary_fingerprint(
+                [GlossaryTerm(source="Ann", target="安", type="person")]
+            ),
+        )
+
+
 class TestPolisher(unittest.TestCase):
     def test_polish_ok(self):
         client = FakeClient(

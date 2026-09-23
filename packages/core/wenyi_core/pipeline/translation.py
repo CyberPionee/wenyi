@@ -15,7 +15,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ..glossary.extractor import TranslatedSegmentEvidence
-from ..glossary.store import GlossaryStore
+from ..glossary.store import GlossaryStore, merge_always_on
 from ..ingest.models import Segment
 from ..storage.protocol import Storage
 from .context import RollingContext
@@ -228,7 +228,7 @@ class TranslationService:
         # Refresh lazily only if the glossary may have changed and another batch needs translation.
         # Fully checkpointed skips neither extract nor refresh. Saved translations lacking extraction
         # still extract and mark the snapshot stale, preserving resume completeness without redundant reads.
-        term_snapshot = self.chapter_term_snapshot(glossary, text_segs)
+        term_snapshot = self.chapter_term_snapshot(glossary, text_segs, source_corpus)
         term_snapshot_stale = False
 
         # Process batches serially: render current context, translate and immediately append targets.
@@ -300,7 +300,7 @@ class TranslationService:
                 continue
 
             if term_snapshot_stale:
-                term_snapshot = self.chapter_term_snapshot(glossary, text_segs)
+                term_snapshot = self.chapter_term_snapshot(glossary, text_segs, source_corpus)
                 term_snapshot_stale = False
 
             ctx_text = context.render(self._runtime.config.pipeline.rolling_context_segments)
@@ -411,7 +411,12 @@ class TranslationService:
         )
         return done
 
-    def chapter_term_snapshot(self, glossary: Storage | GlossaryStore, text_segs) -> list:
+    def chapter_term_snapshot(
+        self,
+        glossary: Storage | GlossaryStore,
+        text_segs,
+        source_corpus: str = "",
+    ) -> list:
         """Return the glossary snapshot for this chapter; call again after writes to refresh
         it.
         """
@@ -420,7 +425,15 @@ class TranslationService:
             return terms
         src_text = "\n".join(s.source for s in text_segs)
         hit = {t.source for t in GlossaryStore.terms_in(terms, src_text)}
-        return [t for t in terms if t.source in hit]
+        selected = [t for t in terms if t.source in hit]
+        pipeline = self._runtime.config.pipeline
+        return merge_always_on(
+            selected,
+            terms,
+            source_corpus,
+            always_types=pipeline.glossary_always_types,
+            min_occurrences=pipeline.glossary_always_min_occurrences,
+        )
 
     @staticmethod
     def chapter_progress_label(title: str, index: int) -> str:

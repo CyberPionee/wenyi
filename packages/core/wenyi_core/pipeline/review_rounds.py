@@ -63,6 +63,9 @@ class ReviewRoundService:
         if progress:
             progress(0, total, review_label)
         raw_issues: list[dict[str, Any]] = []
+        source_corpus = "\n".join(
+            segment.source for chapter in loaded for segment in chapter.text_segments
+        )
         for chapter in loaded:
             text_segs = chapter.text_segments
 
@@ -84,6 +87,7 @@ class ReviewRoundService:
                 target_overrides=target_overrides,
                 review_round=review_round,
                 on_chunk_finished=on_chunk_finished,
+                source_corpus=source_corpus,
             )
             for issue in chapter_issues:
                 issue["chapter"] = chapter.index

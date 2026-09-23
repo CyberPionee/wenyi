@@ -102,6 +102,9 @@ class TestConfigFileCreation(unittest.TestCase):
         self.assertEqual(cfg.pipeline.review_clean_confirmations, 2)
         self.assertTrue(cfg.pipeline.review_autofix)
         self.assertEqual(cfg.pipeline.pdf_backend, "mineru")
+        self.assertEqual(cfg.pipeline.glossary_always_types, ["person"])
+        self.assertEqual(cfg.pipeline.glossary_always_min_occurrences, 3)
+        self.assertEqual(cfg.pipeline.glossary_note_chars, 120)
 
     def test_about_page_can_be_disabled(self):
         cfg = Config.from_dict({"output": {"about_page": False}})

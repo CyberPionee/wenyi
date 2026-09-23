@@ -897,9 +897,9 @@ class TestSegmentLevelResume(unittest.TestCase):
             real_snapshot = orch._translation.chapter_term_snapshot
             real_extract = orch._translation.extract_batch_glossary
 
-            def counting_snapshot(glossary, text_segs):
+            def counting_snapshot(glossary, text_segs, source_corpus=""):
                 snapshot_calls["n"] += 1
-                return real_snapshot(glossary, text_segs)
+                return real_snapshot(glossary, text_segs, source_corpus)
 
             def counting_extract(*args, **kwargs):
                 extract_batch_calls["n"] += 1

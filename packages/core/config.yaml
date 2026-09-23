@@ -49,6 +49,9 @@ pipeline:
   prescan_concurrency: 4 # Concurrent chapter-digest workers; 1 runs serially.
   review_concurrency: 4 # Concurrent review workers using fixed text and glossary snapshots.
   glossary_scope: chapter # chapter: relevant chapter terms; full: the entire glossary.
+  glossary_always_types: [person] # Types kept in chapter-filtered prompts even when absent from the chapter
+  glossary_always_min_occurrences: 3 # Minimum book-wide occurrences for always-on entities
+  glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
 
 # Honorific policy, primarily for Japanese source text.
 honorific:

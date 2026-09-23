@@ -7,8 +7,17 @@ import json
 from ..glossary.store import GlossaryTerm
 
 
-def render_glossary(terms: list[GlossaryTerm]) -> str:
-    """Render glossary objects as a line-by-line reference for prompts."""
+def render_glossary(
+    terms: list[GlossaryTerm],
+    *,
+    include_note: bool = True,
+    max_note_chars: int = 120,
+) -> str:
+    """Render glossary objects as a line-by-line reference for prompts.
+
+    Non-empty notes are appended as ``Note:`` fragments when ``include_note`` is true.
+    Empty notes are omitted. Notes longer than ``max_note_chars`` are clipped.
+    """
     if not terms:
         return "(none)"
     lines = []
@@ -20,7 +29,14 @@ def render_glossary(terms: list[GlossaryTerm]) -> str:
             extra.append(f"Pronunciation: {t.reading}")
         tag = f"({t.type}{(', ' + ', '.join(extra)) if extra else ''})"
         alias = f" [Aliases:  {', '.join(t.aliases)}]" if t.aliases else ""
-        lines.append(f"- {t.source} → {t.target}{tag}{alias}")
+        note = ""
+        if include_note:
+            raw_note = (t.note or "").strip()
+            if raw_note:
+                if max_note_chars > 0 and len(raw_note) > max_note_chars:
+                    raw_note = raw_note[:max_note_chars]
+                note = f" Note: {raw_note}"
+        lines.append(f"- {t.source} → {t.target}{tag}{alias}{note}")
     return "\n".join(lines)
 
 

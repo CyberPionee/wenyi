@@ -14,6 +14,7 @@ import sqlite3
 import tempfile
 import time
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -431,3 +432,46 @@ class GlossaryStore:
         g = self.conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
         c = self.conn.execute("SELECT COUNT(*) FROM term_conflicts WHERE resolved=0").fetchone()[0]
         return {"terms": g, "open_conflicts": c}
+
+
+def merge_always_on(
+    selected: list[GlossaryTerm],
+    all_terms: list[GlossaryTerm],
+    source_corpus: str,
+    *,
+    always_types: Sequence[str] = (TYPE_PERSON,),
+    min_occurrences: int = 3,
+    max_always: int = 12,
+) -> list[GlossaryTerm]:
+    """Append locked high-frequency always-on entities missing from a filtered list.
+
+    Always-on entities are status-ok terms of the configured types whose source or aliases
+    occur at least ``min_occurrences`` times in the book corpus. Keep chapter-filtered terms
+    in place and append extras in insertion order so main characters stay visible even when
+    a chapter does not mention them. Conflicting terms are never always-on.
+    """
+    if max_always <= 0:
+        return list(selected)
+    type_set = set(always_types)
+    selected_keys = {term.source for term in selected}
+    candidates = [
+        term
+        for term in all_terms
+        if term.type in type_set and term.status == "ok" and term.source not in selected_keys
+    ]
+    if not candidates:
+        return list(selected)
+    recurring = GlossaryStore.recurring_terms(
+        candidates,
+        source_corpus,
+        min_occurrences=min_occurrences,
+    )
+    extras: list[GlossaryTerm] = []
+    for term in recurring:
+        if len(extras) >= max_always:
+            break
+        if term.source in selected_keys:
+            continue
+        extras.append(term)
+        selected_keys.add(term.source)
+    return [*selected, *extras]

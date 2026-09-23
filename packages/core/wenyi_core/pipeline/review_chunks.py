@@ -10,7 +10,7 @@ from typing import Any
 from ..agents.review_loop import ReviewAgentLoop
 from ..agents.reviewer import Reviewer, ReviewOutputError
 from ..config import Config
-from ..glossary.store import GlossaryStore, GlossaryTerm
+from ..glossary.store import GlossaryStore, GlossaryTerm, merge_always_on
 from ..ingest.tokens import count_tokens
 from ..llm.base import LLMClient
 from ..review.evidence import BookEvidenceIndex
@@ -37,6 +37,7 @@ class ReviewChunkService:
         target_overrides: Mapping[tuple[int, int], str] | None = None,
         review_round: int | None = None,
         on_chunk_finished: Callable[[int], None] | None = None,
+        source_corpus: str = "",
     ) -> list[dict]:
         """Review contiguous chapter blocks in parallel and return chapter-local issue indices.
         Use blocks around three translation batches to reduce calls and repeated context.
@@ -71,7 +72,15 @@ class ReviewChunkService:
             with term_lock:
                 if term_snapshot is None:
                     source_text = "\n".join(segment.source for segment in text_segs)
-                    term_snapshot = GlossaryStore.terms_in(terms, source_text)
+                    selected = GlossaryStore.terms_in(terms, source_text)
+                    pipeline = self._config.pipeline
+                    term_snapshot = merge_always_on(
+                        selected,
+                        terms,
+                        source_corpus,
+                        always_types=pipeline.glossary_always_types,
+                        min_occurrences=pipeline.glossary_always_min_occurrences,
+                    )
                 return term_snapshot
 
         def record_recovery(event: str, **data: Any) -> None:

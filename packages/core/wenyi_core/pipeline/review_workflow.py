@@ -90,8 +90,14 @@ class ReviewService:
 
     @staticmethod
     def _review_glossary_fingerprint(terms: list[GlossaryTerm]) -> str:
-        """Fingerprint glossary content so changed terms invalidate completed review reuse."""
-        ordered = sorted((term.source, term.target, term.type) for term in terms)
+        """Fingerprint glossary content so changed terms invalidate completed review reuse.
+
+        Include note and aliases (previously source, target, type only) so metadata-only
+        glossary edits also force a fresh review scan.
+        """
+        ordered = sorted(
+            (term.source, term.target, term.type, term.note, list(term.aliases)) for term in terms
+        )
         return hashlib.sha256(json.dumps(ordered, ensure_ascii=False).encode("utf-8")).hexdigest()
 
     def _review_skip_eligible(
