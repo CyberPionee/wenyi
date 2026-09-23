@@ -63,6 +63,7 @@ class ReviewRoundService:
         if progress:
             progress(0, total, review_label)
         raw_issues: list[dict[str, Any]] = []
+        soft_findings: list[dict[str, Any]] = []
         source_corpus = "\n".join(
             segment.source for chapter in loaded for segment in chapter.text_segments
         )
@@ -88,6 +89,7 @@ class ReviewRoundService:
                 review_round=review_round,
                 on_chunk_finished=on_chunk_finished,
                 source_corpus=source_corpus,
+                soft_findings_out=soft_findings,
             )
             for issue in chapter_issues:
                 issue["chapter"] = chapter.index
@@ -206,6 +208,7 @@ class ReviewRoundService:
             conflict_groups=conflict_groups,
             residual_conflicts=residual_conflicts,
             fallback_agent_count=fallback_agent_count,
+            soft_findings=soft_findings,
         )
 
     def propose_review_patches(

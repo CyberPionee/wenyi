@@ -38,6 +38,7 @@ class ReviewChunkService:
         review_round: int | None = None,
         on_chunk_finished: Callable[[int], None] | None = None,
         source_corpus: str = "",
+        soft_findings_out: list[dict[str, Any]] | None = None,
     ) -> list[dict]:
         """Review contiguous chapter blocks in parallel and return chapter-local issue indices.
         Use blocks around three translation batches to reduce calls and repeated context.
@@ -183,6 +184,10 @@ class ReviewChunkService:
                 # ordinary source-content changes.
                 local_issues = [dict(issue) for issue in reused_initial["issues"]]
                 repaired = bool(reused_initial.get("json_repaired"))
+                if soft_findings_out is not None:
+                    for finding in reused_initial.get("soft_findings") or []:
+                        if isinstance(finding, dict):
+                            soft_findings_out.append(dict(finding))
                 if repaired:
                     record_recovery(
                         "review_json_repaired",
@@ -213,6 +218,27 @@ class ReviewChunkService:
                         srcs,
                         tgts,
                         reviewer_terms(),
+                        style=(
+                            str(
+                                (evidence.analysis if evidence is not None else {}).get(
+                                    "style_guide"
+                                )
+                                or ""
+                            )
+                        ),
+                        book_synopsis=(
+                            str(
+                                (evidence.analysis if evidence is not None else {}).get(
+                                    "book_synopsis"
+                                )
+                                or ""
+                            )
+                        ),
+                        chapter_digest=(
+                            evidence.chapter_digests.get(chapter_index, "")
+                            if evidence is not None and chapter_index is not None
+                            else ""
+                        ),
                         trace=trace if debug is not None else None,
                     )
                 except Exception as error:
@@ -240,10 +266,20 @@ class ReviewChunkService:
                     else:
                         raise ReviewOutputError("invalid_issue_index")
                 initial_issue_count = len(review_result.issues)
+                if soft_findings_out is not None:
+                    for finding in review_result.soft_findings:
+                        mapped = dict(finding)
+                        local_index = mapped.get("index")
+                        if isinstance(local_index, int) and not isinstance(local_index, bool):
+                            mapped["index"] = chunk_base + local_index
+                        if chapter_index is not None:
+                            mapped["chapter"] = chapter_index
+                        soft_findings_out.append(mapped)
                 if debug is not None and initial_trace is not None:
                     initial_trace["status"] = "finished"
                     initial_trace["json_repaired"] = repaired
                     initial_trace["issues"] = local_issues
+                    initial_trace["soft_findings"] = list(review_result.soft_findings)
                     debug.write_json(initial_path, initial_trace)
                     if chapter_index is not None:
                         debug.record_initial_issues(

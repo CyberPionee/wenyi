@@ -1,7 +1,16 @@
+[Characters / Style guide]
+$style
+
+[Whole-book synopsis]
+$book_synopsis
+
+[Chapter digest]
+$chapter_digest
+
 [Glossary]
 $glossary
 
 [Paragraph pairs] ($n paragraphs)
 $pairs
 
-Review all $n paragraphs and return JSON. The final two fields must be "reviewed_segments":$n followed by "complete":true. They confirm that the batch is complete and must not be emitted early.
+Review all $n paragraphs and return JSON. The final two fields must be "reviewed_segments":$n followed by "complete":true. They confirm that the batch is complete and must not be emitted early. Use issues for definite errors and soft_findings for uncertain notes.

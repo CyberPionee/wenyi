@@ -95,6 +95,7 @@ class ReviewCheckpoint:
                         conflict_groups=_checkpoint.get("latest_conflict_groups", []),
                         residual_conflicts=_checkpoint.get("latest_residual_conflicts", []),
                         fallback_agent_count=_checkpoint.get("latest_fallback_agent_count", 0),
+                        soft_findings=_checkpoint.get("latest_soft_findings", []),
                     )
                 debug.log_event(
                     "review_checkpoint_restored",
@@ -157,6 +158,7 @@ class ReviewCheckpoint:
             payload["latest_conflict_groups"] = latest.conflict_groups
             payload["latest_residual_conflicts"] = latest.residual_conflicts
             payload["latest_fallback_agent_count"] = latest.fallback_agent_count
+            payload["latest_soft_findings"] = latest.soft_findings or []
         self._store.save_checkpoint(payload)
 
 

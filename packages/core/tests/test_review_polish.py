@@ -435,6 +435,76 @@ class TestGlossaryFingerprint(unittest.TestCase):
         )
 
 
+class TestReviewerSoftFindings(unittest.TestCase):
+    def test_voice_and_style_issues_and_soft_findings(self):
+        payload = {
+            "issues": [
+                {
+                    "index": 0,
+                    "type": "voice",
+                    "detail": "文风偏离",
+                    "suggestion": "改回原叙述口吻",
+                },
+                {
+                    "index": 0,
+                    "type": "style",
+                    "detail": "翻译腔",
+                    "suggestion": "改为自然中文",
+                },
+            ],
+            "soft_findings": [
+                {"index": 1, "type": "style", "detail": "可能过译", "suggestion": ""},
+                {"type": "voice", "detail": "全局语气疑虑"},
+            ],
+            "reviewed_segments": 2,
+            "complete": True,
+        }
+        client = FakeClient(handler=lambda m, t, j: json.dumps(payload, ensure_ascii=False))
+        result = Reviewer(client, _cfg()).review_result(["a", "b"], ["甲", "乙"])
+        self.assertEqual([issue["type"] for issue in result.issues], ["voice", "style"])
+        self.assertTrue(all(issue["suggestion"] for issue in result.issues))
+        self.assertEqual(len(result.soft_findings), 2)
+        self.assertEqual(result.soft_findings[0]["index"], 1)
+        self.assertIsNone(result.soft_findings[1]["index"])
+        self.assertEqual(result.soft_findings[1]["suggestion"], "")
+
+    def test_soft_findings_do_not_require_suggestion(self):
+        payload = {
+            "issues": [],
+            "soft_findings": [{"index": 0, "type": "style", "detail": "不确定"}],
+            "reviewed_segments": 1,
+            "complete": True,
+        }
+        client = FakeClient(handler=lambda m, t, j: json.dumps(payload, ensure_ascii=False))
+        result = Reviewer(client, _cfg()).review_result(["a"], ["甲"])
+        self.assertEqual(result.issues, [])
+        self.assertEqual(len(result.soft_findings), 1)
+
+    def test_reviewer_user_injects_truncated_context(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps(
+                {"issues": [], "reviewed_segments": 1, "complete": True}
+            )
+        )
+        Reviewer(client, _cfg()).review_result(
+            ["a"],
+            ["甲"],
+            style="x" * 600,
+            book_synopsis="y" * 700,
+            chapter_digest="z" * 500,
+        )
+        user = client.calls[-1]["messages"][-1]["content"]
+        self.assertIn("[Characters / Style guide]", user)
+        self.assertIn("[Whole-book synopsis]", user)
+        self.assertIn("[Chapter digest]", user)
+        self.assertIn("x" * 500, user)
+        self.assertNotIn("x" * 501, user)
+        self.assertIn("y" * 600, user)
+        self.assertNotIn("y" * 601, user)
+        self.assertIn("z" * 400, user)
+        self.assertNotIn("z" * 401, user)
+
+
 class TestPolisher(unittest.TestCase):
     def test_polish_ok(self):
         client = FakeClient(

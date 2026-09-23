@@ -237,6 +237,7 @@ class ReviewRunStore:
         summary: dict[str, Any],
         issues: list[dict[str, Any]],
         changes: list[dict[str, Any]],
+        soft_findings: list[dict[str, Any]] | None = None,
         error: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Persist the final unified result and return an in-memory copy."""
@@ -250,6 +251,7 @@ class ReviewRunStore:
             "summary": dict(summary),
             "issues": list(issues),
             "changes": list(changes),
+            "soft_findings": list(soft_findings or []),
         }
         if error is not None:
             result["error"] = dict(error)

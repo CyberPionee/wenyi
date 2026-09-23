@@ -39,6 +39,7 @@ def _review_run(storage, rid: str) -> dict:
         "status": result.get("status", "running"),
         "created_at": result.get("started_at"),
         "issues": result.get("issues") or [],
+        "soft_findings": result.get("soft_findings") or [],
         "changes": result.get("changes") or [],
         "autofix": autofix,
         "summary": result.get("summary") or {},

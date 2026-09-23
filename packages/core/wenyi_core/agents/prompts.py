@@ -92,3 +92,13 @@ def numbered_pairs_with_refs(
         ref = refs[index] if index < len(refs) else ""
         out.append(f"[{index}] ref={ref or '(none)'} Source: {source}\n    Translation: {target}")
     return "\n".join(out)
+
+
+def clip_context_block(value: str, max_chars: int) -> str:
+    """Clip long style/synopsis/digest blocks for review prompts; empty becomes (none)."""
+    text = (value or "").strip()
+    if not text:
+        return "(none)"
+    if max_chars > 0 and len(text) > max_chars:
+        return text[:max_chars]
+    return text

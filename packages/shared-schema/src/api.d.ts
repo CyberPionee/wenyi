@@ -1326,7 +1326,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "issue" | "change" | "publication";
+            kind: "issue" | "change" | "publication" | "soft_finding";
             /**
              * Type
              * @default
@@ -1390,6 +1390,10 @@ export interface components {
             created_at?: string | null;
             /** Issues */
             issues?: {
+                [key: string]: unknown;
+            }[];
+            /** Soft Findings */
+            soft_findings?: {
                 [key: string]: unknown;
             }[];
             /** Changes */

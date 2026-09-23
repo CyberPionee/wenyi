@@ -410,6 +410,12 @@ const en = {
   "review.typeMeaning": "Meaning",
   "review.typeTerm": "Terminology",
   "review.typeStyle": "Style",
+  "review.typeVoice": "Voice",
+  "review.softFinding": "Soft finding",
+  "review.softFindings": "Soft findings",
+  "review.softFindingsHint": "Reference only · not auto-fixed",
+  "review.softFindingNoAutofix":
+    "Soft findings are advisory only and never enter Autofix or write-back.",
   "review.typeReference": "Reference",
   "review.typeOther": "Review issue",
   "review.wholeBookReviewSubmitted": "Whole-book review submitted",

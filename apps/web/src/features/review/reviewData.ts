@@ -57,6 +57,7 @@ const issueTypes: Record<string, MessageKey> = {
   terminology: "review.typeTerm",
   term: "review.typeTerm",
   style: "review.typeStyle",
+  voice: "review.typeVoice",
   pronoun: "review.typeReference",
   reference: "review.typeReference",
 };
@@ -64,7 +65,12 @@ const issueTypes: Record<string, MessageKey> = {
 export function itemType(item: ReviewItem): MessageKey {
   if (item.kind === "change") return "review.itemChange";
   if (item.kind === "publication") return "review.itemPublication";
+  if (item.kind === "soft_finding") return "review.softFinding";
   return issueTypes[item.type || ""] || "review.typeOther";
+}
+
+export function isSoftFinding(item: ReviewItem): boolean {
+  return item.kind === "soft_finding";
 }
 
 export function text(value: unknown): string {

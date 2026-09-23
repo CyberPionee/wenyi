@@ -278,7 +278,7 @@ class ReviewLocation(BaseModel):
 
 class ReviewItem(BaseModel):
     id: str
-    kind: Literal["issue", "change", "publication"]
+    kind: Literal["issue", "change", "publication", "soft_finding"]
     type: str = ""
     detail: str = ""
     suggestion: str = ""
@@ -296,6 +296,7 @@ class ReviewRun(BaseModel):
     status: str
     created_at: str | None = None
     issues: list[dict[str, Any]] = Field(default_factory=list)
+    soft_findings: list[dict[str, Any]] = Field(default_factory=list)
     changes: list[dict[str, Any]] = Field(default_factory=list)
     autofix: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any] = Field(default_factory=dict)
