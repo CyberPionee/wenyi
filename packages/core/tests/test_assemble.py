@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
@@ -938,6 +939,32 @@ data-tn-annotation-id="ann-0" href="chapter.xhtml#part">Chapter
         self.assertEqual(image_data, b"inline-image")
         self.assertIsNotNone(rendered.find(id="kobo.1.1"))
         self.assertIsNone(rendered.select_one("[data-tn-inline-id]"))
+
+    def test_assemble_rejects_out_path_same_as_source(self):
+        """F02: export must refuse to overwrite the source book."""
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "book.txt")
+            write_sample_txt(txt)
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "zh",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            original = Path(txt).read_text(encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "source book"):
+                assemble(store, txt, txt, out_format="txt")
+            self.assertEqual(Path(txt).read_text(encoding="utf-8"), original)
+
+            with self.assertRaisesRegex(ValueError, "source book"):
+                assemble(store, txt, os.path.join(directory, ".", "book.txt"), out_format="txt")
+            self.assertEqual(Path(txt).read_text(encoding="utf-8"), original)
 
     def test_epub_export_rejects_source_state_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:

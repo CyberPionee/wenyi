@@ -381,6 +381,49 @@ class TestReviewAutofix(unittest.TestCase):
             assert isinstance(saved_index, dict)
             self.assertEqual(saved_index["status"], "completed")
 
+    def test_resume_pending_does_not_publish_when_autofix_disabled(self):
+        """F01: resume_pending must not apply an index while review_autofix is off."""
+        with tempfile.TemporaryDirectory() as directory:
+            store = _store(directory)
+            outcome = _outcome(
+                store,
+                changes=[
+                    {
+                        "chapter": 0,
+                        "index": 0,
+                        "suggested_target": "不应写回。",
+                        "issue_keys": [],
+                        "review_result": "not_rereported",
+                    }
+                ],
+            )
+            cfg = _config(str(Path(directory, "state")))
+            first = Orchestrator(cfg, client=FakeClient())
+            first._review_autofix.run(store, outcome, [])
+
+            debug = ReviewRunStore.open_existing(outcome.run_dir)
+            index = debug.load_json("autofix/index.json")
+            assert isinstance(index, dict)
+            index["status"] = "applying"
+            index["records"][0]["status"] = "planned"
+            index["locations"][0]["status"] = "pending"
+            index["locations"][0]["alignment_status"] = "pending"
+            debug.write_json("autofix/index.json", index)
+            chapter = store.load_chapter(0)
+            chapter.text_segments[0].target = "正式译文。"
+            store.save_chapter(chapter)
+
+            cfg.pipeline.review_autofix = False
+            client = FakeClient(handler=lambda *_args, **_kwargs: "model must not run")
+            resumed = Orchestrator(cfg, client=client)._review_autofix.resume_pending(store)
+
+            self.assertIsNone(resumed)
+            self.assertEqual(client.calls, [])
+            self.assertEqual(store.load_chapter(0).text_segments[0].target, "正式译文。")
+            saved_index = debug.load_json("autofix/index.json")
+            assert isinstance(saved_index, dict)
+            self.assertEqual(saved_index["status"], "applying")
+
     def test_interrupt_flushes_usage_and_resume_does_not_recount(self):
         """A KeyboardInterrupt inside the autofix fixer must still flush the usage delta,
         leave a resumable fixer trace, and let a re-run finish publication without

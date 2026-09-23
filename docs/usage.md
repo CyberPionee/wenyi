@@ -199,6 +199,7 @@ TTC font file. This option also works on Windows.
 
 - Paragraphs and heading styles (`Heading 1`–`9` / outline levels); level-1 headings start chapters.
 - Simple tables are rebuilt cell-by-cell (no merged cells / nested tables in v1).
+- Export refuses to overwrite the source book: if `--out` resolves to the same path as the input (including aliases), assembly fails with a clear error and leaves the source intact.
 - Word automatic lists (`numPr`) become List Number / List Bullet groups (restart per source list id).
 - Documents without the optional numbering part are also accepted; ordinary paragraphs do not require list definitions.
 - Contents-style lines that already include a visible prefix such as `1. Title` are **not** auto-numbered again (avoids double numbering).
