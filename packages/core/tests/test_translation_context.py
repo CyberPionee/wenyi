@@ -60,8 +60,8 @@ def test_following_source_is_quoted_reference_outside_translation_count(
     user = client.calls[0]["messages"][-1]["content"]
     assert _next_source(user) == reference
     assert _numbered_sources(user) == ["unfinished source"]
-    assert "[Recent translations]\nprevious translation" in user
-    assert user.index("[Recent translations]") < user.index("[0] unfinished source")
+    assert "[Recent source–target pairs]\nprevious translation" in user
+    assert user.index("[Recent source–target pairs]") < user.index("[0] unfinished source")
     assert user.index("[0] unfinished source") < user.index("[Following source paragraph]")
 
 
@@ -205,6 +205,8 @@ def test_split_fragments_and_chapter_ends_supply_one_reference_to_both_stages(
     context = store.load_context()
     assert context is not None
     assert set(context["recent_targets"]) == {"润0"}
+    assert context.get("recent_pairs")
+    assert all(pair.get("target") == "润0" for pair in context["recent_pairs"])
 
 
 def test_resume_rebuilds_reference_after_batch_budget_change_without_saving_it_early(
@@ -248,7 +250,10 @@ def test_resume_rebuilds_reference_after_batch_budget_change_without_saving_it_e
         sources[2:],
     ]
     assert [_next_source(call["messages"][-1]["content"]) for call in calls] == [sources[2], ""]
-    assert "[Recent translations]\n译0" in calls[0]["messages"][-1]["content"]
+    assert (
+        "[Recent source–target pairs]\nSource: First unfinished part\nTranslation: 译0"
+        in (calls[0]["messages"][-1]["content"])
+    )
     assert store.load_chapter(0).text_segments[0].target == "译0"
     assert all(segment.target for segment in store.load_chapter(0).text_segments)
 

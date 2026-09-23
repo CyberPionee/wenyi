@@ -426,11 +426,52 @@ class TestRollingContext(unittest.TestCase):
         self.assertIn("e", rendered)
         self.assertNotIn("c", rendered)
 
+    def test_add_pairs_skips_empty_targets_and_renders_source_translation(self):
+        ctx = RollingContext(max_recent_keep=3)
+        ctx.add_pairs(
+            ["s1", "s2", "s3", "s4"],
+            ["t1", "", "  ", "t4"],
+        )
+        self.assertEqual(
+            ctx.recent_pairs, [{"source": "s1", "target": "t1"}, {"source": "s4", "target": "t4"}]
+        )
+        self.assertEqual(ctx.recent_targets, ["t1", "t4"])
+        rendered = ctx.render(2, with_source=True)
+        self.assertIn("Source: s1", rendered)
+        self.assertIn("Translation: t1", rendered)
+        self.assertIn("Source: s4", rendered)
+        self.assertIn("Translation: t4", rendered)
+        targets_only = ctx.render(2, with_source=False)
+        self.assertEqual(targets_only, "t1\nt4")
+
     def test_roundtrip(self):
         ctx = RollingContext(recent_targets=["x", "y"], max_recent_keep=75)
         ctx2 = RollingContext.from_dict(ctx.to_dict())
         self.assertEqual(ctx2.recent_targets, ["x", "y"])
         self.assertEqual(ctx2.max_recent_keep, 75)
+
+    def test_pairs_roundtrip_writes_recent_targets_for_compat(self):
+        ctx = RollingContext(max_recent_keep=75)
+        ctx.add_pairs(["s1", "s2"], ["t1", "t2"])
+        payload = ctx.to_dict()
+        self.assertEqual(payload["recent_targets"], ["t1", "t2"])
+        self.assertEqual(
+            payload["recent_pairs"],
+            [{"source": "s1", "target": "t1"}, {"source": "s2", "target": "t2"}],
+        )
+        restored = RollingContext.from_dict(payload)
+        self.assertEqual(restored.recent_pairs, ctx.recent_pairs)
+        self.assertEqual(restored.recent_targets, ["t1", "t2"])
+
+    def test_legacy_recent_targets_json_loads_as_target_only(self):
+        restored = RollingContext.from_dict(
+            {"recent_targets": ["旧译A", "旧译B"], "max_recent_keep": 40}
+        )
+        self.assertEqual(restored.recent_pairs, [])
+        self.assertEqual(restored.recent_targets, ["旧译A", "旧译B"])
+        rendered = restored.render(2, with_source=True)
+        self.assertEqual(rendered, "旧译A\n旧译B")
+        self.assertNotIn("Source:", rendered)
 
     def test_configured_minimum_expands_saved_context_limit(self):
         ctx = RollingContext.from_dict(
@@ -438,6 +479,28 @@ class TestRollingContext(unittest.TestCase):
             min_recent_keep=100,
         )
         self.assertEqual(ctx.max_recent_keep, 100)
+
+    def test_sync_context_chapter_prefix_overrides_trailing_pairs(self):
+        from wenyi_core.ingest.models import Segment
+        from wenyi_core.pipeline.translation import TranslationService
+
+        ctx = RollingContext(max_recent_keep=10)
+        ctx.add_pairs(["old1", "old2", "old3"], ["译1", "译2", "译3"])
+        segments = [
+            Segment(index=0, source="新源0", target="新译0"),
+            Segment(index=1, source="新源1", target="新译1"),
+            Segment(index=2, source="新源2", target="新译2"),
+        ]
+        TranslationService.sync_context_chapter_prefix(ctx, segments, 3)
+        self.assertEqual(
+            ctx.recent_pairs,
+            [
+                {"source": "新源0", "target": "新译0"},
+                {"source": "新源1", "target": "新译1"},
+                {"source": "新源2", "target": "新译2"},
+            ],
+        )
+        self.assertEqual(ctx.recent_targets, ["新译0", "新译1", "新译2"])
 
 
 if __name__ == "__main__":

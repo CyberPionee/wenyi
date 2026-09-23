@@ -18,7 +18,7 @@ def _count_segments(user_content: str) -> int:
 
 def _annotation_payload(user_content: str):
     marker = "[Paragraph-specific annotation references] (JSON; only for paragraphs in applies_to, not text to translate)\n"
-    payload = user_content.split(marker, 1)[1].split("\n\n[Recent translations]", 1)[0]
+    payload = user_content.split(marker, 1)[1].split("\n\n[Recent source–target pairs]", 1)[0]
     return json.loads(payload)
 
 
@@ -195,10 +195,10 @@ class TestTranslatorPromptOrder(unittest.TestCase):
             template("translator_user").template.index(
                 "[Paragraph-specific annotation references]"
             ),
-            template("translator_user").template.index("[Recent translations]"),
+            template("translator_user").template.index("[Recent source–target pairs]"),
         )
         self.assertLess(
-            template("translator_user").template.index("[Recent translations]"),
+            template("translator_user").template.index("[Recent source–target pairs]"),
             template("translator_user").template.index("[$src_label paragraphs to translate]"),
         )
 

@@ -255,7 +255,7 @@ class TranslationService:
                     len(b),
                     store,
                 )
-                context.add_targets([s.target or "" for s in b])
+                context.add_pairs([s.source for s in b], [s.target or "" for s in b])
                 self.sync_context_chapter_prefix(
                     context,
                     text_segs,
@@ -303,7 +303,10 @@ class TranslationService:
                 term_snapshot = self.chapter_term_snapshot(glossary, text_segs, source_corpus)
                 term_snapshot_stale = False
 
-            ctx_text = context.render(self._runtime.config.pipeline.rolling_context_segments)
+            ctx_text = context.render(
+                self._runtime.config.pipeline.rolling_context_segments,
+                with_source=self._runtime.config.pipeline.rolling_context_with_source,
+            )
             next_index = batch_start + len(b)
             # Read the immediate source neighbor without changing batches or saved context.
             next_source = text_segs[next_index].source if next_index < len(text_segs) else ""
@@ -343,7 +346,7 @@ class TranslationService:
                 len(b),
                 store,
             )
-            context.add_targets([s.target or "" for s in b])
+            context.add_pairs([s.source for s in b], [s.target or "" for s in b])
             self.sync_context_chapter_prefix(
                 context,
                 text_segs,
@@ -485,10 +488,22 @@ class TranslationService:
         """Refresh recent context from the chapter's completed prefix.
         When an annotated logical paragraph spans batches, completing its final continuation
         can finalize earlier targets too. Copy those updates into context so the next batch
-        sees current formal text.
+        sees current formal text. Overwrite trailing source-target pairs together; legacy
+        target-only history keeps the previous target override.
         """
         prefix = segments[: max(0, min(end, len(segments)))]
         if not prefix or any(segment.target is None for segment in prefix):
+            return
+        if context.recent_pairs:
+            pairs = [
+                {"source": segment.source, "target": segment.target or ""}
+                for segment in prefix
+                if (segment.target or "").strip()
+            ]
+            retained = min(len(pairs), len(context.recent_pairs))
+            if retained:
+                context.recent_pairs[-retained:] = pairs[-retained:]
+                context.recent_targets = [pair["target"] for pair in context.recent_pairs]
             return
         targets = [segment.target or "" for segment in prefix]
         retained = min(len(targets), len(context.recent_targets))

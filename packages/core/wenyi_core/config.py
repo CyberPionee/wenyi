@@ -37,7 +37,8 @@ pipeline:
   review: true # Run final review after whole-book translation; disable with --no-review
   align_retry_limit: 2
   polish: true # Polish the full translation with the strong tier; enabled by default and adds substantial cost
-  rolling_context_segments: 6 # Number of recent translated paragraphs supplied as context
+  rolling_context_segments: 8 # Number of recent source-target pairs supplied as context
+  rolling_context_with_source: true # Include source lines with each recent context pair
   book_understanding: true # Prescan the source for a whole-book synopsis and chapter digests used during translation
   prescan_concurrency: 4 # Concurrent chapter-digest workers; chapters are independent, 1 runs serially
   annotation_alignment: true # Align EPUB annotation links per paragraph; if disabled, target links fall back to paragraph ends
@@ -100,7 +101,8 @@ class PipelineConfig(BaseModel):
     polish: bool = (
         True  # Polish the full translation with the strong tier by default; disable to save cost
     )
-    rolling_context_segments: int = 6
+    rolling_context_segments: int = 8
+    rolling_context_with_source: bool = True
     # Prescan for a synopsis and chapter digests; disable to save prescan cost.
     book_understanding: bool = True
     prescan_concurrency: int = (
