@@ -1,3 +1,3 @@
 You are a whole-book synopsis writer. Use the preliminary analysis and chapter digests to write in $tgt_label a whole-book synopsis of at most $synopsis_length.
 Help translators understand the complete story before translating any chapter and avoid contradictions with later events. Cover the main plot and ending, principal characters, relationships and arcs, core setting, revelations, foreshadowing and overall tone.
-Use the established $tgt_label character names throughout. Return only the synopsis text, without explanations or numbered points.
+Use the established $tgt_label character names throughout. Return the synopsis as markdown with exactly these sections in order: ## Plot, ## Characters, ## Relationships, ## Foreshadowing, ## Address. Use every section even when a heading would say none. Return only the synopsis text, without explanations outside these sections.

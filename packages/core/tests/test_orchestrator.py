@@ -1036,6 +1036,8 @@ class TestBookUnderstanding(unittest.TestCase):
                 for c in c2.calls
                 if "梗概员" in c["messages"][0]["content"]
                 or "概览员" in c["messages"][0]["content"]
+                or "chapter digest writer" in c["messages"][0]["content"]
+                or "whole-book synopsis writer" in c["messages"][0]["content"]
             ]
             self.assertEqual(len(prepass), 0)
 
@@ -1057,8 +1059,66 @@ class TestBookUnderstanding(unittest.TestCase):
                 for c in client.calls
                 if "梗概员" in c["messages"][0]["content"]
                 or "概览员" in c["messages"][0]["content"]
+                or "chapter digest writer" in c["messages"][0]["content"]
+                or "whole-book synopsis writer" in c["messages"][0]["content"]
             ]
             self.assertEqual(len(prepass), 0)
+
+    def test_v1_digest_and_synopsis_regenerate_without_retranslation(self):
+        """Legacy v1 digests/synopses regenerate on the next understanding pass only."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review = False
+            store = require_file_storage(
+                Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(txt)
+            )
+            # Simulate legacy v1 free-form understanding metadata.
+            chapter = store.load_chapter(0)
+            chapter.meta["source_digest"] = "旧梗概"
+            chapter.meta.pop("source_digest_v", None)
+            store.save_chapter(chapter)
+            analysis = store.load_analysis() or {}
+            analysis["book_synopsis"] = "旧概览"
+            analysis.pop("book_synopsis_v", None)
+            store.save_analysis(analysis)
+
+            client = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=client)._preparation.ensure_understanding(store)
+            digest_calls = [
+                c for c in client.calls if "chapter digest writer" in c["messages"][0]["content"]
+            ]
+            synopsis_calls = [
+                c
+                for c in client.calls
+                if "whole-book synopsis writer" in c["messages"][0]["content"]
+            ]
+            self.assertEqual(len(digest_calls), 1)
+            self.assertEqual(len(synopsis_calls), 1)
+            self.assertEqual(store.load_chapter(0).meta.get("source_digest_v"), 2)
+            self.assertEqual((store.load_analysis() or {}).get("book_synopsis_v"), 2)
+            self.assertNotEqual(store.load_chapter(0).meta.get("source_digest"), "旧梗概")
+            translate_calls = [
+                c for c in client.calls if "literary translator" in c["messages"][0]["content"]
+            ]
+            self.assertEqual(len(translate_calls), 0)
+
+            # v2 results are reused on the next pass.
+            again = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=again)._preparation.ensure_understanding(store)
+            self.assertEqual(
+                [c for c in again.calls if "chapter digest writer" in c["messages"][0]["content"]],
+                [],
+            )
+            self.assertEqual(
+                [
+                    c
+                    for c in again.calls
+                    if "whole-book synopsis writer" in c["messages"][0]["content"]
+                ],
+                [],
+            )
 
 
 class TestRunSteps(unittest.TestCase):

@@ -247,6 +247,26 @@ def test_every_profile_renders_all_tasks_without_missing_fields(target):
             assert "中文译" not in rendered
 
 
+def test_zh_digest_and_synopsis_use_moderate_structured_lengths():
+    lang_profile = profile("zh")
+    assert lang_profile["digest_length"] == "400–600 characters"
+    assert lang_profile["synopsis_length"] == "800–1200 characters"
+    digest_system = render("chapter_digest_system", src="ja", tgt="zh")
+    assert "chapter digest writer" in digest_system
+    for heading in ("## Plot", "## Characters", "## Foreshadowing", "## Address"):
+        assert heading in digest_system
+    synopsis_system = render("book_synopsis_system", src="ja", tgt="zh")
+    assert "whole-book synopsis writer" in synopsis_system
+    for heading in (
+        "## Plot",
+        "## Characters",
+        "## Relationships",
+        "## Foreshadowing",
+        "## Address",
+    ):
+        assert heading in synopsis_system
+
+
 def test_strict_template_and_literal_source_payload():
     with pytest.raises(ValueError, match="missing argument"):
         render("translator_user", src="en", tgt="ja")

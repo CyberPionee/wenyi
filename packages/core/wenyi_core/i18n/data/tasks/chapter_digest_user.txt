@@ -1,4 +1,4 @@
 [Chapter source ($src_label)]
 $source
 
-Return the chapter digest in $tgt_label, at most $digest_length.
+Return the chapter digest in $tgt_label, at most $digest_length, as markdown with sections ## Plot, ## Characters, ## Foreshadowing and ## Address in that order.

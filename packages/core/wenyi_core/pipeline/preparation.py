@@ -358,6 +358,22 @@ class PreparationService:
         return "\n\n".join(parts)
 
     # Book-understanding prescan: chapter digests and whole-book synopsis.
+    # Structured digests/synopses are version 2; missing or v1 free-form results regenerate.
+    SOURCE_DIGEST_V = 2
+    BOOK_SYNOPSIS_V = 2
+
+    @staticmethod
+    def _digest_is_current(meta: dict) -> bool:
+        digest = meta.get("source_digest") or ""
+        version = meta.get("source_digest_v", 1)
+        return bool(str(digest).strip()) and isinstance(version, int) and version >= 2
+
+    @staticmethod
+    def _synopsis_is_current(analysis: dict) -> bool:
+        synopsis = analysis.get("book_synopsis") or ""
+        version = analysis.get("book_synopsis_v", 1)
+        return bool(str(synopsis).strip()) and isinstance(version, int) and version >= 2
+
     def ensure_understanding(
         self,
         store: Storage,
@@ -381,7 +397,7 @@ class PreparationService:
         todo = [
             (ci, "\n".join(s.source for s in ch.text_segments))
             for ci, ch in loaded.items()
-            if not ch.meta.get("source_digest")
+            if not self._digest_is_current(ch.meta)
         ]
         if todo:
             store.log_event(
@@ -401,6 +417,7 @@ class PreparationService:
                     loaded[ci].meta["source_digest"] = (
                         fut.result()
                     )  # _ask_text already returns an empty fallback on failure.
+                    loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
                     store.save_chapter(loaded[ci])
                     store.log_event(
                         "book_understanding_chapter_digest_saved",
@@ -418,7 +435,7 @@ class PreparationService:
 
         analysis = store.load_analysis() or {}
         synopsis = analysis.get("book_synopsis", "")
-        if not synopsis and any(d.strip() for d in digests):
+        if not self._synopsis_is_current(analysis) and any(d.strip() for d in digests):
             if progress:
                 progress(0, 0, "Generating whole-book synopsis…")
             synopsis = self._runtime.synopsizer.book_synopsis(
@@ -426,6 +443,7 @@ class PreparationService:
                 self._runtime.analyzer.style_brief(analysis),
             )
             analysis["book_synopsis"] = synopsis
+            analysis["book_synopsis_v"] = self.BOOK_SYNOPSIS_V
             store.save_analysis(analysis)
             store.log_event("book_synopsis_saved", synopsis=synopsis)
-        return synopsis
+        return str(analysis.get("book_synopsis", "") or "")
