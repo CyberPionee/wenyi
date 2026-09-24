@@ -200,6 +200,7 @@ class ReviewChunkService:
                         if chapter_index is not None:
                             mapped["chapter"] = chapter_index
                         soft_findings_out.append(mapped)
+                        chunk_soft_findings.append(dict(mapped))
                 else:
                     chunk_soft_findings = []
                 if repaired:
