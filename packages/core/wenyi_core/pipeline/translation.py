@@ -390,6 +390,11 @@ class TranslationService:
         # Final review reads the stable glossary after the entire book finishes translating.
         src_text = "\n".join(s.source for s in text_segs)
         tgt_text = "\n".join(s.target or "" for s in text_segs)
+        locked: list[tuple[str, str]] = []
+
+        def _on_auto_lock(source: str, target: str) -> None:
+            locked.append((source, target))
+
         chapter_glossary_summary = self._runtime.extractor.extract_and_store(
             glossary,
             src_text,
@@ -398,7 +403,10 @@ class TranslationService:
             history=translation_history.values(),
             before=(ci, len(text_segs)),
             source_corpus=source_corpus,
+            on_auto_lock=_on_auto_lock,
         )
+        for source, target in locked:
+            store.log_event("term_auto_locked", chapter=ci, source=source, target=target)
         store.log_event(
             "chapter_glossary_extracted",
             chapter=ci,
@@ -461,6 +469,11 @@ class TranslationService:
         """
         src_text = "\n".join(s.source for s in batch)
         tgt_text = "\n".join(s.target or "" for s in batch)
+        locked: list[tuple[str, str]] = []
+
+        def _on_auto_lock(source: str, target: str) -> None:
+            locked.append((source, target))
+
         summary = self._runtime.extractor.extract_and_store(
             glossary,
             src_text,
@@ -469,7 +482,16 @@ class TranslationService:
             history=translation_history.values(),
             before=(chapter, start_index),
             source_corpus=source_corpus,
+            on_auto_lock=_on_auto_lock,
         )
+        for source, target in locked:
+            store.log_event(
+                "term_auto_locked",
+                chapter=chapter,
+                start_index=start_index,
+                source=source,
+                target=target,
+            )
         store.log_event(
             "batch_glossary_extracted",
             chapter=chapter,

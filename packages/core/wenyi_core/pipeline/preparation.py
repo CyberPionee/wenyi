@@ -447,8 +447,74 @@ class PreparationService:
             store.save_analysis(analysis)
             store.log_event("book_synopsis_saved", synopsis=synopsis)
         if self._runtime.config.pipeline.pilot:
-            store.log_event(
-                "pilot_selfcheck_skipped",
-                reason="pilot_enabled_without_trial_batch",
-            )
+            self.run_pilot(store, synopsis=str(analysis.get("book_synopsis", "") or ""))
         return str(analysis.get("book_synopsis", "") or "")
+
+    def run_pilot(self, store: Storage, *, synopsis: str = "") -> None:
+        """Opt-in trial batch plus cheap residual self-check after preparation.
+
+        Writes only analysis/events. Never saves chapter targets, so the default
+        one-click translate path is unchanged unless ``pipeline.pilot`` is true.
+        """
+        from ..ingest.segmenter import batch_segments
+        from ..review.sweep import scan_segment
+
+        manifest = store.load_manifest()
+        chapters = manifest.get("chapters", [])
+        if not chapters:
+            store.log_event("pilot_selfcheck_skipped", reason="no_chapters")
+            return
+        chapter_index = chapters[0].get("index", 0)
+        chapter = store.load_chapter(chapter_index)
+        text_segs = chapter.text_segments
+        if not text_segs:
+            store.log_event("pilot_selfcheck_skipped", reason="no_segments")
+            return
+        batches = batch_segments(text_segs, self._runtime.config.segment.max_tokens_per_batch)
+        batch = batches[0] if batches else text_segs[:1]
+        sources = [s.source for s in batch]
+        style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
+        terms = store.all_terms()
+        store.log_event("pilot_selfcheck_started", chapter=chapter_index, count=len(sources))
+        try:
+            targets = self._runtime.translator.translate_batch(
+                sources,
+                glossary_terms=terms,
+                style=style,
+                book_synopsis=synopsis,
+                chapter_digest=str(chapter.meta.get("source_digest") or ""),
+            )
+        except Exception as error:
+            store.log_event(
+                "pilot_selfcheck_failed",
+                chapter=chapter_index,
+                error_type=type(error).__name__,
+            )
+            return
+        findings = []
+        for source, target in zip(sources, targets):
+            for finding in scan_segment(source, target, terms):
+                findings.append(finding)
+        analysis = store.load_analysis() or {}
+        analysis["pilot"] = {
+            "chapter": chapter_index,
+            "source_preview": sources[0][:80] if sources else "",
+            "target_preview": (targets[0][:80] if targets else ""),
+            "finding_count": len(findings),
+            "findings": findings[:20],
+        }
+        store.save_analysis(analysis)
+        degraded = len(findings) >= max(2, len(sources))
+        if degraded:
+            store.log_event(
+                "pilot_selfcheck_degraded",
+                chapter=chapter_index,
+                finding_count=len(findings),
+                suggestion="consider_disable_polish_or_stricter_terms",
+            )
+        else:
+            store.log_event(
+                "pilot_selfcheck_finished",
+                chapter=chapter_index,
+                finding_count=len(findings),
+            )

@@ -15,6 +15,7 @@ from ..config import Config
 from ..i18n.prompts import render
 from ..llm.base import LLMClient
 from ..storage.protocol import Storage
+from .auto_lock import can_auto_lock, should_write_auto_lock
 from .store import (
     TYPE_TERM,
     GlossaryOccurrenceMatcher,
@@ -218,6 +219,7 @@ class GlossaryExtractor(Agent):
         history: Iterable[TranslatedSegmentEvidence] = (),
         before: tuple[int, int] | None = None,
         source_corpus: str | None = None,
+        on_auto_lock=None,
     ) -> dict[str, int]:
         """Extract and store terms, preferring the translation at their first historical
         occurrence.
@@ -228,6 +230,9 @@ class GlossaryExtractor(Agent):
         With source_corpus, inject only existing terms occurring at least twice in the
         source. Low-frequency terms remain stored but do not repeatedly consume extraction
         context.
+        When auto-lock gates pass (history aligned, recurring, no open conflict, whitelist
+        type), lock the mapping without overwriting an established non-empty target and
+        notify ``on_auto_lock(source, target)``.
         """
         all_existing = store.all_terms()
         existing = (
@@ -247,10 +252,39 @@ class GlossaryExtractor(Agent):
             "history_matched": len(occurrences),
             "history_aligned": aligned,
             "history_unresolved": unresolved,
+            "auto_locked": 0,
         }
+        matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
         for t in terms:
             evidence = occurrences.get(t.source)
             t.first_chapter = evidence.chapter if evidence is not None else chapter
+            prior = store.get_term(t.source) if hasattr(store, "get_term") else None
             result = store.upsert_term(t, chapter=chapter)
             summary[result] = summary.get(result, 0) + 1
+            history_aligned = evidence is not None and bool((t.target or "").strip())
+            if matcher is not None:
+                # recurring_terms(min_occurrences=2) is the book-wide recurrence gate.
+                occurrences_n = 2 if matcher.recurring_terms([t], min_occurrences=2) else 1
+            else:
+                occurrences_n = 2
+            has_open_conflict = result == "conflict"
+            if not can_auto_lock(
+                t,
+                history_aligned=history_aligned,
+                occurrences=occurrences_n,
+                has_open_conflict=has_open_conflict,
+            ):
+                continue
+            if result == "conflict":
+                # Restricted resolve: keep the established target; never overwrite it.
+                if isinstance(store, GlossaryStore):
+                    store.mark_conflicts_resolved(t.source)
+                locked_target = (prior.target if prior is not None else t.target) or t.target
+            elif not should_write_auto_lock(prior, t) and result not in {"inserted", "unchanged"}:
+                continue
+            else:
+                locked_target = t.target
+            summary["auto_locked"] = summary.get("auto_locked", 0) + 1
+            if on_auto_lock is not None:
+                on_auto_lock(t.source, locked_target or t.target)
         return summary

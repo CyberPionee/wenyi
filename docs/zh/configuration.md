@@ -264,6 +264,7 @@ pipeline:
 - `glossary_always_types`：章过滤后仍强制保留的术语类型（默认 `[person]`），避免本章未出场的主要人物名被滤掉。
 - `glossary_always_min_occurrences`：always-on 实体在全书源文/别名中的最少出现次数（默认 `3`）。
 - `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
+- `pilot`：默认关闭。开启后在预理解结束后执行 1 批试译与廉价残留自检，只写 `analysis.pilot` 与 `pilot_selfcheck_*` 事件，**不**写正式章节译文。
 - `pdf_backend`：默认 `mineru`，经 MinerU 转 HTML。需要尽量保留版式时改用 `babeldoc`（外部 AGPL HTTP bridge）。经 BabelDOC 创建的 PDF 状态，在 `translate` 和 `assemble` 中均默认导出 PDF；MinerU 状态仍默认导出 EPUB。显式 `--format` 优先，续跑默认格式以已保存的后端为准。
 - `babeldoc_bridge_url`：BabelDOC bridge 地址，默认 `http://127.0.0.1:8765`。
 - `babeldoc_timeout`：bridge extract / fillback 的 HTTP 超时秒数。

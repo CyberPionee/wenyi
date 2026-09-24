@@ -15,9 +15,32 @@ from ..review.autofix_models import AutofixCandidates, integer_index
 from ..review.evidence import BookEvidenceIndex
 from ..review.models import ReviewOutcome
 from ..review.run_store import ReviewRunStore
+from ..review.sweep import scan_segment
 from .autofix_verification import AutofixVerification
 
 ProgressFn = Callable[[int, int, str], None]
+
+_SWEEP_ISSUE_TYPE = {
+    "term_drift": "terminology",
+    "number_residue": "mistranslation",
+    "untranslated_residue": "added",
+}
+
+
+def _sweep_issue(chapter: int, index: int, finding: dict[str, Any]) -> dict[str, Any]:
+    """Map a deterministic residual finding onto the existing issue/fix contract."""
+    kind = str(finding.get("kind") or "")
+    issue_type = _SWEEP_ISSUE_TYPE.get(kind, "mistranslation")
+    suggestion = str(finding.get("expected_target") or finding.get("detail") or kind)
+    return {
+        "chapter": chapter,
+        "index": index,
+        "issue_key": f"sweep:{chapter}:{index}:{kind}",
+        "issue_id": f"sweep-{chapter}-{index}-{kind}",
+        "type": issue_type,
+        "detail": str(finding.get("detail") or kind),
+        "suggestion": suggestion,
+    }
 
 
 class AutofixCandidateService:
@@ -113,6 +136,18 @@ class AutofixCandidateService:
         if not isinstance(raw_issues, list):
             raw_issues = outcome.issues
         issues = [dict(issue) for issue in raw_issues if isinstance(issue, dict)]
+        # Deterministic residual sweeps enter the same fix → verify → publish chain.
+        # Empty targets stay in auto_qa and are never auto-filled here.
+        sweep_count = 0
+        for chapter in chapters:
+            for text_index, segment in enumerate(chapter.text_segments):
+                if not (segment.target or "").strip():
+                    continue
+                for finding in scan_segment(segment.source, segment.target or "", all_terms):
+                    issues.append(_sweep_issue(chapter.index, text_index, finding))
+                    sweep_count += 1
+        if sweep_count:
+            debug.log_event("sweep_applied", count=sweep_count)
         grouped: dict[tuple[int, int], list[dict[str, Any]]] = {}
         for issue in issues:
             chapter_index = issue.get("chapter")
