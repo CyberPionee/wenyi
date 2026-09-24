@@ -495,6 +495,13 @@ class PreparationService:
         for source, target in zip(sources, targets):
             for finding in scan_segment(source, target, terms):
                 findings.append(finding)
+        if len(targets) < len(sources):
+            store.log_event(
+                "pilot_selfcheck_short_result",
+                chapter=chapter_index,
+                expected=len(sources),
+                actual=len(targets),
+            )
         analysis = store.load_analysis() or {}
         analysis["pilot"] = {
             "chapter": chapter_index,

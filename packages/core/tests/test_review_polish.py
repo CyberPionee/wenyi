@@ -475,6 +475,37 @@ class TestSoftFindingsResumeMapping(unittest.TestCase):
         self.assertEqual([item["index"] for item in mapped], [10, 11])
         self.assertTrue(all(item["chapter"] == 7 for item in mapped))
 
+    def test_chunk_cache_restores_mapped_soft_findings(self):
+        """mark_chunk_done must persist soft_findings so resume does not drop them."""
+        from wenyi_core.review.run_store import ReviewRunStore
+
+        with tempfile.TemporaryDirectory() as directory:
+            debug = ReviewRunStore(directory)
+            debug.start(reviewed_content_digest="d", metadata={})
+            debug.mark_chunk_done(
+                "ch0-base0-n1",
+                {
+                    "issues": [],
+                    "initial_issues": [],
+                    "dismissed": [],
+                    "soft_findings": [
+                        {
+                            "index": 5,
+                            "chapter": 0,
+                            "type": "style",
+                            "detail": "kept",
+                            "suggestion": "",
+                        }
+                    ],
+                },
+            )
+            cached = debug.load_chunk_result("ch0-base0-n1")
+            assert isinstance(cached, dict)
+            findings = cached.get("soft_findings") or []
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0]["index"], 5)
+            self.assertEqual(findings[0]["chapter"], 0)
+
 
 class TestReviewerSoftFindings(unittest.TestCase):
     def test_voice_and_style_issues_and_soft_findings(self):

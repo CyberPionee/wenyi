@@ -144,6 +144,20 @@ class TestGlossary(unittest.TestCase):
             [cyrillic],
         )
 
+    def test_upsert_fills_empty_target_without_conflict(self):
+        self.store.upsert_term(GlossaryTerm(source="Ann", target=""), chapter=0)
+        result = self.store.upsert_term(GlossaryTerm(source="Ann", target="安"), chapter=1)
+        self.assertEqual(result, "updated")
+        term = self.store.get_term("Ann")
+        assert term is not None
+        self.assertEqual(term.target, "安")
+        self.assertEqual(term.status, "ok")
+        self.assertEqual(len(self.store.open_conflicts()), 0)
+        # A different non-empty target remains a conflict and does not overwrite.
+        result = self.store.upsert_term(GlossaryTerm(source="Ann", target="安娜"), chapter=2)
+        self.assertEqual(result, "conflict")
+        self.assertEqual(self.store.get_term("Ann").target, "安")
+
     def test_conflict_keeps_current_until_resolved(self):
         self.store.upsert_term(GlossaryTerm(source="堀北", target="堀北"), chapter=0)
         # An alternate translation preserves the established mapping and records a candidate.

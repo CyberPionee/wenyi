@@ -110,6 +110,14 @@ class ExportViewStore(RunStore):
                 segment.target = target
         return chapter
 
+    def save_chapter(self, chapter) -> None:
+        """Export overlays must never write formal chapter state."""
+        raise RuntimeError("Export view is read-only; refusing to save chapter state")
+
+    def save_chapter_with_status(self, chapter, status) -> None:
+        """Export overlays must never write formal chapter state."""
+        raise RuntimeError("Export view is read-only; refusing to save chapter state")
+
     def __getattr__(self, name: str) -> Any:
         return getattr(self._store, name)
 

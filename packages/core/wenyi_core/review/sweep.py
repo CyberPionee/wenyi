@@ -23,7 +23,8 @@ def scan_number_residue(source: str, target: str) -> dict[str, Any] | None:
     """Report digits present in source but missing from target (deterministic)."""
     if not (source or "").strip() or not (target or "").strip():
         return None
-    missing = [n for n in _numbers(source) if n not in target]
+    target_numbers = set(_numbers(target))
+    missing = [n for n in _numbers(source) if n not in target_numbers]
     if not missing:
         return None
     return {

@@ -321,6 +321,24 @@ class GlossaryStore:
                     ),
                 )
                 result = "inserted"
+            elif not (existing.target or "").strip() and (term.target or "").strip():
+                # Fill a missing mapping without treating it as a conflict.
+                merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
+                self.conn.execute(
+                    """UPDATE glossary SET target=?, reading=COALESCE(NULLIF(?,''),reading),
+                       gender=COALESCE(NULLIF(?,''),gender), aliases=?,
+                       note=COALESCE(NULLIF(?,''),note), status='ok', updated_at=? WHERE source=?""",
+                    (
+                        term.target,
+                        term.reading,
+                        term.gender,
+                        json.dumps(merged_aliases, ensure_ascii=False),
+                        term.note,
+                        now,
+                        term.source,
+                    ),
+                )
+                result = "updated"
             elif existing.target == term.target:
                 # Merging aliases or filling missing fields is not a conflict.
                 merged_aliases = sorted(set(existing.aliases) | set(term.aliases))

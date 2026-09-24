@@ -21,6 +21,10 @@ class TestSweep(unittest.TestCase):
         self.assertEqual(finding["kind"], "number_residue")
         self.assertEqual(finding["missing_numbers"], ["12", "2024"])
         self.assertIsNone(scan_number_residue("Chapter 12", "第12章"))
+        # Substring lookalikes must not hide a missing number.
+        self.assertIsNotNone(scan_number_residue("room 12", "room 112"))
+        self.assertIsNotNone(scan_number_residue("room 1", "room 21"))
+        self.assertIsNone(scan_number_residue("room 12", "room 12 done"))
 
     def test_untranslated_residue_flags_cjk_in_latin_target(self):
         finding = scan_untranslated_residue("彼は言った", "He said something 彼は言った here")
