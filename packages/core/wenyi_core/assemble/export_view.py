@@ -70,6 +70,36 @@ def _remap_metadata_offsets(metadata: object, before: str, after: str) -> None:
 class ExportViewStore(RunStore):
     """Overlay read-only export transformations on RunStore and delegate other capabilities."""
 
+    # Mutators inherited from RunStore/FileArtifacts or forwarded via __getattr__.
+    _READ_ONLY_MUTATORS = frozenset(
+        {
+            "begin_initialization",
+            "finish_initialization",
+            "stage_document",
+            "set_chapter_status",
+            "save_manifest",
+            "save_chapter",
+            "save_chapter_with_status",
+            "save_context",
+            "save_annotation_contexts",
+            "save_analysis",
+            "save_report",
+            "save_usage",
+            "prepare_usage_commit",
+            "recover_usage",
+            "record_timing",
+            "log_event",
+            "write_artifact",
+            "delete_artifact",
+            "append_artifact_record",
+            "upsert_term",
+            "resolve_term",
+            "delete_term",
+            "mark_conflicts_resolved",
+            "_write_json",
+        }
+    )
+
     def __init__(
         self, store: Storage | ExportSnapshotStore, *, punctuation_normalize: bool
     ) -> None:
@@ -110,16 +140,34 @@ class ExportViewStore(RunStore):
                 segment.target = target
         return chapter
 
+    def __getattr__(self, name: str) -> Any:
+        if name in ExportViewStore._READ_ONLY_MUTATORS:
+            raise RuntimeError(f"Export view is read-only; refusing to {name}")
+        return getattr(self._store, name)
+
+    def save_manifest(self, manifest: dict) -> None:
+        raise RuntimeError("Export view is read-only; refusing to save_manifest")
+
     def save_chapter(self, chapter) -> None:
-        """Export overlays must never write formal chapter state."""
-        raise RuntimeError("Export view is read-only; refusing to save chapter state")
+        raise RuntimeError("Export view is read-only; refusing to save_chapter")
 
     def save_chapter_with_status(self, chapter, status) -> None:
-        """Export overlays must never write formal chapter state."""
-        raise RuntimeError("Export view is read-only; refusing to save chapter state")
+        raise RuntimeError("Export view is read-only; refusing to save_chapter_with_status")
 
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._store, name)
+    def save_context(self, data: dict) -> None:
+        raise RuntimeError("Export view is read-only; refusing to save_context")
+
+    def save_analysis(self, data: dict) -> None:
+        raise RuntimeError("Export view is read-only; refusing to save_analysis")
+
+    def save_report(self, data: dict) -> None:
+        raise RuntimeError("Export view is read-only; refusing to save_report")
+
+    def save_usage(self, data: dict) -> None:
+        raise RuntimeError("Export view is read-only; refusing to save_usage")
+
+    def log_event(self, event: str, **data: Any) -> None:
+        raise RuntimeError("Export view is read-only; refusing to log_event")
 
 
 AssembleStore: TypeAlias = Storage | ExportViewStore | ExportSnapshotStore
