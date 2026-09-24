@@ -14,6 +14,7 @@ from bs4 import BeautifulSoup
 from bs4.element import Tag
 from wenyi_core.assemble.about import append_about_page
 from wenyi_core.assemble.epub_presentation import _inject_bilingual_style, _rewrite_html_document
+from wenyi_core.assemble.export_view import ExportViewStore
 from wenyi_core.assemble.html_renderer import _render_chapter_html, _render_segments_html
 from wenyi_core.assemble.report import build_report
 from wenyi_core.assemble.writer import assemble
@@ -939,6 +940,34 @@ data-tn-annotation-id="ann-0" href="chapter.xhtml#part">Chapter
         self.assertEqual(image_data, b"inline-image")
         self.assertIsNotNone(rendered.find(id="kobo.1.1"))
         self.assertIsNone(rendered.select_one("[data-tn-inline-id]"))
+
+    def test_export_view_rejects_inherited_writers(self):
+        """Export overlays inherit RunStore writers; those must not touch formal state."""
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "book.txt")
+            write_sample_txt(txt)
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "zh",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            view = ExportViewStore(store, punctuation_normalize=False)
+            for name, call in (
+                ("save_manifest", lambda: view.save_manifest({})),
+                ("save_chapter", lambda: view.save_chapter(None)),
+                ("set_chapter_status", lambda: view.set_chapter_status(0, "done")),
+                ("log_event", lambda: view.log_event("x")),
+                ("_write_json", lambda: view._write_json("x.json", {})),
+            ):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(RuntimeError, "read-only"):
+                        call()
 
     def test_assemble_rejects_out_path_same_as_source(self):
         """F02: export must refuse to overwrite the source book."""

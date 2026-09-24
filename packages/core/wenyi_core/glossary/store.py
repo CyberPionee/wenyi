@@ -291,10 +291,10 @@ class GlossaryStore:
         return GlossaryTerm.from_row(row) if row else None
 
     def upsert_term(self, term: GlossaryTerm, chapter: int | None = None) -> str:
-        """Insert or update a term; return inserted, unchanged or conflict.
+        """Insert or update a term; return inserted, updated, unchanged or conflict.
         For an existing source with a different target, retain the established translation
         and record the candidate. Automatic extraction must not replace confirmed mappings
-        without human resolution.
+        without human resolution. An empty existing target is filled without conflict.
         """
         try:
             # Acquire the lock before reading existing so two connections cannot decide from the same old view.

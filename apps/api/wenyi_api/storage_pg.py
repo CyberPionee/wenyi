@@ -733,6 +733,24 @@ class PostgresStorage:
                     ),
                 )
                 return "inserted"
+            if not (existing.target or "").strip() and (term.target or "").strip():
+                aliases = sorted(set(existing.aliases) | set(term.aliases))
+                conn.execute(
+                    """UPDATE glossary SET target=%s,reading=COALESCE(NULLIF(%s,''),reading),
+                    gender=COALESCE(NULLIF(%s,''),gender),aliases=%s,note=COALESCE(NULLIF(%s,''),note),
+                    status='ok',updated_at=%s WHERE project_id=%s AND source=%s""",
+                    (
+                        term.target,
+                        term.reading,
+                        term.gender,
+                        Jsonb(aliases),
+                        term.note,
+                        now,
+                        self.project_id,
+                        term.source,
+                    ),
+                )
+                return "updated"
             if existing.target == term.target:
                 aliases = sorted(set(existing.aliases) | set(term.aliases))
                 conn.execute(

@@ -145,29 +145,85 @@ class ExportViewStore(RunStore):
             raise RuntimeError(f"Export view is read-only; refusing to {name}")
         return getattr(self._store, name)
 
+    def _deny_write(self, name: str) -> None:
+        raise RuntimeError(f"Export view is read-only; refusing to {name}")
+
+    def begin_initialization(self, source_hash: str) -> None:
+        self._deny_write("begin_initialization")
+
+    def finish_initialization(self) -> None:
+        self._deny_write("finish_initialization")
+
+    def stage_document(self, *args: Any, **kwargs: Any) -> dict:
+        self._deny_write("stage_document")
+        raise AssertionError("unreachable")
+
+    def set_chapter_status(self, ci: int, status: str) -> None:
+        self._deny_write("set_chapter_status")
+
     def save_manifest(self, manifest: dict) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_manifest")
+        self._deny_write("save_manifest")
 
     def save_chapter(self, chapter) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_chapter")
+        self._deny_write("save_chapter")
 
     def save_chapter_with_status(self, chapter, status) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_chapter_with_status")
+        self._deny_write("save_chapter_with_status")
 
     def save_context(self, data: dict) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_context")
+        self._deny_write("save_context")
+
+    def save_annotation_contexts(self, data: dict) -> None:
+        self._deny_write("save_annotation_contexts")
 
     def save_analysis(self, data: dict) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_analysis")
+        self._deny_write("save_analysis")
 
     def save_report(self, data: dict) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_report")
+        self._deny_write("save_report")
 
     def save_usage(self, data: dict) -> None:
-        raise RuntimeError("Export view is read-only; refusing to save_usage")
+        self._deny_write("save_usage")
+
+    def prepare_usage_commit(self, ledgers: dict) -> None:
+        self._deny_write("prepare_usage_commit")
+
+    def recover_usage(self) -> None:
+        self._deny_write("recover_usage")
+
+    def record_timing(self, record: dict) -> dict:
+        self._deny_write("record_timing")
+        raise AssertionError("unreachable")
 
     def log_event(self, event: str, **data: Any) -> None:
-        raise RuntimeError("Export view is read-only; refusing to log_event")
+        self._deny_write("log_event")
+
+    def write_artifact(self, key: str, value: Any) -> None:
+        self._deny_write("write_artifact")
+
+    def delete_artifact(self, key: str) -> None:
+        self._deny_write("delete_artifact")
+
+    def append_artifact_record(self, key: str, record: dict) -> None:
+        self._deny_write("append_artifact_record")
+
+    def upsert_term(self, term, chapter: int | None = None) -> str:
+        self._deny_write("upsert_term")
+        raise AssertionError("unreachable")
+
+    def resolve_term(self, source: str, target: str) -> bool:
+        self._deny_write("resolve_term")
+        raise AssertionError("unreachable")
+
+    def delete_term(self, source: str) -> bool:
+        self._deny_write("delete_term")
+        raise AssertionError("unreachable")
+
+    def mark_conflicts_resolved(self, source: str) -> None:
+        self._deny_write("mark_conflicts_resolved")
+
+    def _write_json(self, path: str, data) -> None:
+        self._deny_write("_write_json")
 
 
 AssembleStore: TypeAlias = Storage | ExportViewStore | ExportSnapshotStore

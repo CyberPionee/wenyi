@@ -143,6 +143,7 @@ class ReviewChunkService:
                     debug,
                     round_prefix,
                     chapter_index,
+                    soft_findings_out=soft_findings_out,
                 )
                 if cached_sub is not None:
                     return cached_sub
@@ -188,21 +189,19 @@ class ReviewChunkService:
                 # ordinary source-content changes.
                 local_issues = [dict(issue) for issue in reused_initial["issues"]]
                 repaired = bool(reused_initial.get("json_repaired"))
-                if soft_findings_out is not None:
-                    chunk_soft_findings = []
-                    for finding in reused_initial.get("soft_findings") or []:
-                        if not isinstance(finding, dict):
-                            continue
-                        mapped = dict(finding)
-                        local_index = mapped.get("index")
-                        if isinstance(local_index, int) and not isinstance(local_index, bool):
-                            mapped["index"] = chunk_base + local_index
-                        if chapter_index is not None:
-                            mapped["chapter"] = chapter_index
+                chunk_soft_findings = []
+                for finding in reused_initial.get("soft_findings") or []:
+                    if not isinstance(finding, dict):
+                        continue
+                    mapped = dict(finding)
+                    local_index = mapped.get("index")
+                    if isinstance(local_index, int) and not isinstance(local_index, bool):
+                        mapped["index"] = chunk_base + local_index
+                    if chapter_index is not None:
+                        mapped["chapter"] = chapter_index
+                    if soft_findings_out is not None:
                         soft_findings_out.append(mapped)
-                        chunk_soft_findings.append(dict(mapped))
-                else:
-                    chunk_soft_findings = []
+                    chunk_soft_findings.append(dict(mapped))
                 if repaired:
                     record_recovery(
                         "review_json_repaired",
@@ -281,19 +280,17 @@ class ReviewChunkService:
                     else:
                         raise ReviewOutputError("invalid_issue_index")
                 initial_issue_count = len(review_result.issues)
-                if soft_findings_out is not None:
-                    chunk_soft_findings: list[dict[str, Any]] = []
-                    for finding in review_result.soft_findings:
-                        mapped = dict(finding)
-                        local_index = mapped.get("index")
-                        if isinstance(local_index, int) and not isinstance(local_index, bool):
-                            mapped["index"] = chunk_base + local_index
-                        if chapter_index is not None:
-                            mapped["chapter"] = chapter_index
+                chunk_soft_findings = []
+                for finding in review_result.soft_findings:
+                    mapped = dict(finding)
+                    local_index = mapped.get("index")
+                    if isinstance(local_index, int) and not isinstance(local_index, bool):
+                        mapped["index"] = chunk_base + local_index
+                    if chapter_index is not None:
+                        mapped["chapter"] = chapter_index
+                    if soft_findings_out is not None:
                         soft_findings_out.append(mapped)
-                        chunk_soft_findings.append(dict(mapped))
-                else:
-                    chunk_soft_findings = []
+                    chunk_soft_findings.append(dict(mapped))
                 if debug is not None and initial_trace is not None:
                     initial_trace["status"] = "finished"
                     initial_trace["json_repaired"] = repaired
@@ -496,6 +493,7 @@ class ReviewChunkService:
         debug: ReviewRunStore,
         round_prefix: str,
         chapter_index: int | None,
+        soft_findings_out: list[dict[str, Any]] | None = None,
     ) -> list[dict] | None:
         """Probe child chunk caches recursively using review_adaptive's bisection.
         Like translation resume boundaries, inspect children when a parent cache misses. If
@@ -539,6 +537,11 @@ class ReviewChunkService:
                     chunk_base=base,
                     issues=cached.get("dismissed", []),
                 )
+        if soft_findings_out is not None:
+            for _base, cached in hits:
+                for finding in cached.get("soft_findings") or []:
+                    if isinstance(finding, dict):
+                        soft_findings_out.append(dict(finding))
         return merged
 
     @staticmethod

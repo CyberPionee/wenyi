@@ -287,7 +287,11 @@ class GlossaryExtractor(Agent):
                 if isinstance(store, GlossaryStore):
                     store.mark_conflicts_resolved(t.source)
                 locked_target = (prior.target if prior is not None else t.target) or t.target
-            elif not should_write_auto_lock(prior, t) and result not in {"inserted", "unchanged"}:
+            elif not should_write_auto_lock(prior, t) and result not in {
+                "inserted",
+                "updated",
+                "unchanged",
+            }:
                 continue
             else:
                 locked_target = t.target

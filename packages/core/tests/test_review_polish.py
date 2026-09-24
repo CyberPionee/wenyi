@@ -16,6 +16,7 @@ from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
 from wenyi_core.ingest.models import Segment
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.pipeline.orchestrator import Orchestrator
+from wenyi_core.pipeline.review_chunks import ReviewChunkService
 from wenyi_core.review.run_store import ReviewRunStore
 from wenyi_core.storage.file import FileStorage
 from wenyi_core.storage.protocol import Storage
@@ -505,6 +506,42 @@ class TestSoftFindingsResumeMapping(unittest.TestCase):
             self.assertEqual(len(findings), 1)
             self.assertEqual(findings[0]["index"], 5)
             self.assertEqual(findings[0]["chapter"], 0)
+
+    def test_subchunk_cache_merges_child_soft_findings(self):
+        from wenyi_core.review.run_store import ReviewRunStore
+
+        with tempfile.TemporaryDirectory() as directory:
+            debug = ReviewRunStore(directory)
+            debug.start(reviewed_content_digest="d", metadata={})
+            debug.mark_chunk_done(
+                "r1-ch0-base0-n1",
+                {
+                    "issues": [],
+                    "initial_issues": [],
+                    "dismissed": [],
+                    "soft_findings": [{"index": 0, "chapter": 0, "type": "style", "detail": "a"}],
+                },
+            )
+            debug.mark_chunk_done(
+                "r1-ch0-base1-n1",
+                {
+                    "issues": [],
+                    "initial_issues": [],
+                    "dismissed": [],
+                    "soft_findings": [{"index": 1, "chapter": 0, "type": "voice", "detail": "b"}],
+                },
+            )
+            out: list[dict] = []
+            merged = ReviewChunkService.try_cached_subchunks(
+                0,
+                [object(), object()],
+                debug,
+                "r1-",
+                0,
+                soft_findings_out=out,
+            )
+            self.assertIsNotNone(merged)
+            self.assertEqual([item["detail"] for item in out], ["a", "b"])
 
 
 class TestReviewerSoftFindings(unittest.TestCase):
