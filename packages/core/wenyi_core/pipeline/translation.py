@@ -325,6 +325,9 @@ class TranslationService:
             )
             result = self._batches.execute(plan, polish=self._runtime.config.pipeline.polish)
             for segment, target, before_polish in zip(b, result.targets, result.before_polish):
+                if segment.target is not None:
+                    # Resume grouping should keep complete segments out of this batch.
+                    continue
                 segment.target = target
                 segment.target_before_polish = before_polish
             # Persist translations incrementally so interruption resumes after this batch.

@@ -255,6 +255,10 @@ class GlossaryExtractor(Agent):
             "auto_locked": 0,
         }
         matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
+        open_conflicts = {
+            str(row.get("source") or "")
+            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
+        }
         for t in terms:
             evidence = occurrences.get(t.source)
             t.first_chapter = evidence.chapter if evidence is not None else chapter
@@ -266,8 +270,11 @@ class GlossaryExtractor(Agent):
                 # recurring_terms(min_occurrences=2) is the book-wide recurrence gate.
                 occurrences_n = 2 if matcher.recurring_terms([t], min_occurrences=2) else 1
             else:
-                occurrences_n = 2
-            has_open_conflict = result == "conflict"
+                # Without a corpus the recurrence gate cannot be verified; do not auto-lock.
+                continue
+            # Only pre-existing open conflicts block auto-lock. A same-run "conflict"
+            # result still allows a restricted resolve that keeps the established target.
+            has_open_conflict = t.source in open_conflicts
             if not can_auto_lock(
                 t,
                 history_aligned=history_aligned,

@@ -186,8 +186,15 @@ class ReviewChunkService:
                 repaired = bool(reused_initial.get("json_repaired"))
                 if soft_findings_out is not None:
                     for finding in reused_initial.get("soft_findings") or []:
-                        if isinstance(finding, dict):
-                            soft_findings_out.append(dict(finding))
+                        if not isinstance(finding, dict):
+                            continue
+                        mapped = dict(finding)
+                        local_index = mapped.get("index")
+                        if isinstance(local_index, int) and not isinstance(local_index, bool):
+                            mapped["index"] = chunk_base + local_index
+                        if chapter_index is not None:
+                            mapped["chapter"] = chapter_index
+                        soft_findings_out.append(mapped)
                 if repaired:
                     record_recovery(
                         "review_json_repaired",

@@ -18,6 +18,7 @@ def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str,
 
     empty_targets: list[dict] = []
     residual_findings: list[dict] = []
+    terms = glossary.all_terms()
 
     for c in m["chapters"]:
         if c["status"] != STATUS_DONE:
@@ -29,7 +30,7 @@ def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str,
                     {"chapter": c["index"], "index": s.index, "source": s.source[:60]}
                 )
                 continue
-            for finding in scan_segment(s.source, s.target or "", glossary.all_terms()):
+            for finding in scan_segment(s.source, s.target or "", terms):
                 residual_findings.append(
                     {
                         "chapter": c["index"],

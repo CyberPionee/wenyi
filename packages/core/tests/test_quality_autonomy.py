@@ -122,6 +122,47 @@ class TestTermAutoLock(unittest.TestCase):
         finally:
             store.close()
 
+    def test_auto_lock_requires_source_corpus_for_recurrence(self):
+        def handler(messages, tier, json_mode):
+            system = messages[0]["content"]
+            if "terminology" in system:
+                return json.dumps(
+                    {
+                        "terms": [
+                            {
+                                "source": "Ann",
+                                "target": "安",
+                                "type": "person",
+                                "gender": "female",
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                )
+            return "{}"
+
+        cfg = _cfg(tempfile.mkdtemp())
+        client = FakeClient(handler=handler)
+        store = GlossaryStore(os.path.join(tempfile.mkdtemp(), "g.db"))
+        try:
+            locked: list[tuple[str, str]] = []
+            summary = GlossaryExtractor(client, cfg).extract_and_store(
+                store,
+                "Ann met Ann again",
+                "安又见了安",
+                chapter=0,
+                history=[
+                    TranslatedSegmentEvidence(0, 0, "Ann met Ann again", "安又见了安"),
+                ],
+                before=(0, 1),
+                source_corpus=None,
+                on_auto_lock=lambda source, target: locked.append((source, target)),
+            )
+            self.assertEqual(summary["auto_locked"], 0)
+            self.assertEqual(locked, [])
+        finally:
+            store.close()
+
 
 class TestPilotSelfCheck(unittest.TestCase):
     def test_pilot_writes_analysis_only_and_logs_events(self):

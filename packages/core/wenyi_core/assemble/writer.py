@@ -37,9 +37,9 @@ def _reject_source_out_collision(source_path: str, out_path: str) -> None:
     Compare resolved paths and ``samefile`` so aliases and relative spellings cannot
     destroy the source. Raise before any writer opens the destination.
     """
-    source_abs = os.path.abspath(source_path)
-    out_abs = os.path.abspath(out_path)
-    if source_abs == out_abs:
+    source_abs = os.path.realpath(os.path.abspath(source_path))
+    out_abs = os.path.realpath(os.path.abspath(out_path))
+    if source_abs == out_abs or os.path.normcase(source_abs) == os.path.normcase(out_abs):
         raise ValueError(
             f"Output path must differ from the source book: {source_path} (refusing to overwrite the input)"
         )

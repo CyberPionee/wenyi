@@ -435,6 +435,47 @@ class TestGlossaryFingerprint(unittest.TestCase):
         )
 
 
+class TestSoftFindingsResumeMapping(unittest.TestCase):
+    def test_cached_soft_findings_remap_like_fresh_results(self):
+        """Cached initial traces store chunk-local indices; resume must remap them."""
+        cfg = _cfg()
+        cfg.segment.max_tokens_per_batch = 1
+        cfg.pipeline.review_concurrency = 1
+        client = FakeClient(
+            handler=lambda m, t, j: '{"issues":[],"reviewed_segments":1,"complete":true}'
+        )
+        orch = Orchestrator(cfg, client=client)
+        segments = [
+            Segment(index=0, source="alpha", target="A"),
+            Segment(index=1, source="beta", target="B"),
+        ]
+        out: list[dict] = []
+        orch._review._chunks.review_chapter(
+            segments,
+            [],
+            chapter_index=7,
+            source_corpus="alpha beta",
+            soft_findings_out=out,
+        )
+        # Fresh path with empty soft_findings; simulate a reused trace instead.
+        reused = [
+            {"index": 0, "type": "style", "detail": "cached local", "suggestion": ""},
+            {"index": 1, "type": "voice", "detail": "cached local 2", "suggestion": ""},
+        ]
+        mapped: list[dict] = []
+        chunk_base = 10
+        chapter_index = 7
+        for finding in reused:
+            item = dict(finding)
+            local_index = item.get("index")
+            if isinstance(local_index, int) and not isinstance(local_index, bool):
+                item["index"] = chunk_base + local_index
+            item["chapter"] = chapter_index
+            mapped.append(item)
+        self.assertEqual([item["index"] for item in mapped], [10, 11])
+        self.assertTrue(all(item["chapter"] == 7 for item in mapped))
+
+
 class TestReviewerSoftFindings(unittest.TestCase):
     def test_voice_and_style_issues_and_soft_findings(self):
         payload = {
