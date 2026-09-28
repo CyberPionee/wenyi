@@ -1,0 +1,4903 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Wenyi API",
+    "description": "Web API and background workers for Wenyi's translation engine.",
+    "version": "0.1.dev555+gd99d53be2.d20260923"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/strategies/steps": {
+      "get": {
+        "tags": [
+          "strategies"
+        ],
+        "summary": "List Steps",
+        "operationId": "list_steps_strategies_steps_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StepDef"
+                  },
+                  "type": "array",
+                  "title": "Response List Steps Strategies Steps Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/strategies/templates": {
+      "get": {
+        "tags": [
+          "strategies"
+        ],
+        "summary": "List Templates",
+        "operationId": "list_templates_strategies_templates_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StrategyTemplateOut"
+                  },
+                  "type": "array",
+                  "title": "Response List Templates Strategies Templates Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "List Projects",
+        "operationId": "list_projects_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Project"
+                  },
+                  "type": "array",
+                  "title": "Response List Projects Projects Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Create Project",
+        "operationId": "create_project_projects_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_project_projects_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Get Project",
+        "operationId": "get_project_projects__pid__get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Delete Project",
+        "operationId": "delete_project_projects__pid__delete",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/upload": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Upload Source",
+        "operationId": "upload_source_projects__pid__upload_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_source_projects__pid__upload_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/preview": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Preview",
+        "operationId": "preview_projects__pid__preview_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadPreview"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/translate": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Start Translation",
+        "operationId": "start_translation_projects__pid__translate_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/StartTranslation"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/prepare": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Prepare Only",
+        "operationId": "prepare_only_projects__pid__prepare_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/assemble": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Assemble Output",
+        "operationId": "assemble_output_projects__pid__assemble_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssembleEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/pause": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Pause",
+        "operationId": "pause_projects__pid__pause_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/resume": {
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "summary": "Resume",
+        "operationId": "resume_projects__pid__resume_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/capabilities": {
+      "get": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Capabilities",
+        "operationId": "capabilities_capabilities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Capabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/config": {
+      "get": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Get Config",
+        "operationId": "get_config_projects__pid__config_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Save Config",
+        "operationId": "save_config_projects__pid__config_put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/config/defaults": {
+      "get": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Project Defaults",
+        "operationId": "project_defaults_projects__pid__config_defaults_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/config/validate": {
+      "post": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Validate Config",
+        "operationId": "validate_config_projects__pid__config_validate_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/models": {
+      "get": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Models",
+        "operationId": "models_projects__pid__models_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "title": "Response Models Projects  Pid  Models Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/models/check": {
+      "post": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Check Models",
+        "operationId": "check_models_projects__pid__models_check_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModelCheckRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelCheckResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/stats": {
+      "get": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Project Stats",
+        "operationId": "project_stats_projects__pid__stats_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectStats"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/workflow": {
+      "get": {
+        "tags": [
+          "configuration"
+        ],
+        "summary": "Workflow",
+        "description": "Describe the latest workflow using its frozen configuration, not edited settings.",
+        "operationId": "workflow_projects__pid__workflow_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkflowOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Get Settings",
+        "operationId": "get_settings_settings_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalConfigOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Save",
+        "operationId": "save_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalConfigInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/defaults": {
+      "get": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Default Settings",
+        "operationId": "default_settings_settings_defaults_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalConfigOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/settings/validate": {
+      "post": {
+        "tags": [
+          "settings"
+        ],
+        "summary": "Validate",
+        "operationId": "validate_settings_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlobalConfigInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlobalConfigOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/report": {
+      "get": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Get Report",
+        "operationId": "get_report_projects__pid__report_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "report"
+        ],
+        "summary": "Regenerate Report",
+        "operationId": "regenerate_report_projects__pid__report_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/subtitles": {
+      "get": {
+        "tags": [
+          "subtitles"
+        ],
+        "summary": "Get Subtitles",
+        "operationId": "get_subtitles_projects__pid__subtitles_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubtitleResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/subtitles/{cueid}": {
+      "put": {
+        "tags": [
+          "subtitles"
+        ],
+        "summary": "Edit Subtitle",
+        "operationId": "edit_subtitle_projects__pid__subtitles__cueid__put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "cueid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Cueid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TargetEdit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Edit Subtitle Projects  Pid  Subtitles  Cueid  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/chapters": {
+      "get": {
+        "tags": [
+          "chapters"
+        ],
+        "summary": "List Chapters",
+        "operationId": "list_chapters_projects__pid__chapters_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChapterSummary"
+                  },
+                  "title": "Response List Chapters Projects  Pid  Chapters Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/chapters/{ci}": {
+      "get": {
+        "tags": [
+          "chapters"
+        ],
+        "summary": "Get Chapter",
+        "operationId": "get_chapter_projects__pid__chapters__ci__get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChapterSegments"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/chapters/{ci}/title": {
+      "put": {
+        "tags": [
+          "chapters"
+        ],
+        "summary": "Update Chapter Title",
+        "operationId": "update_chapter_title_projects__pid__chapters__ci__title_put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChapterTitleUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChapterTitleOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/chapters/{ci}/translate": {
+      "post": {
+        "tags": [
+          "chapters"
+        ],
+        "summary": "Translate Chapter",
+        "operationId": "translate_chapter_projects__pid__chapters__ci__translate_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/glossary/terms": {
+      "get": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "List Terms",
+        "operationId": "list_terms_projects__pid__glossary_terms_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TermOut"
+                  },
+                  "title": "Response List Terms Projects  Pid  Glossary Terms Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "Add Term",
+        "operationId": "add_term_projects__pid__glossary_terms_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TermIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TermOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/glossary/terms/{source}": {
+      "put": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "Update Term",
+        "operationId": "update_term_projects__pid__glossary_terms__source__put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TermIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TermOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "Delete Term",
+        "operationId": "delete_term_projects__pid__glossary_terms__source__delete",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "source",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Source"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/glossary/conflicts": {
+      "get": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "List Conflicts",
+        "operationId": "list_conflicts_projects__pid__glossary_conflicts_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ConflictOut"
+                  },
+                  "title": "Response List Conflicts Projects  Pid  Glossary Conflicts Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/glossary/conflicts/{cid}/resolve": {
+      "post": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "Resolve Conflict",
+        "operationId": "resolve_conflict_projects__pid__glossary_conflicts__cid__resolve_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "cid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Cid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveConflict"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Message"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/glossary/export": {
+      "get": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "Export Glossary",
+        "operationId": "export_glossary_projects__pid__glossary_export_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "json",
+                "csv"
+              ],
+              "type": "string",
+              "default": "json",
+              "title": "Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/glossary/import": {
+      "post": {
+        "tags": [
+          "glossary"
+        ],
+        "summary": "Import Glossary",
+        "operationId": "import_glossary_projects__pid__glossary_import_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GlossaryImport"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Import Glossary Projects  Pid  Glossary Import Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/run": {
+      "post": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Run Ai Review",
+        "operationId": "run_ai_review_projects__pid__review_run_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReviewRunRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/runs": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "List Runs",
+        "operationId": "list_runs_projects__pid__review_runs_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ReviewRun"
+                  },
+                  "title": "Response List Runs Projects  Pid  Review Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/runs/{rid}": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Get Run",
+        "operationId": "get_run_projects__pid__review_runs__rid__get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "rid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Rid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewRun"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/{ci}": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Get Chapter For Review",
+        "operationId": "get_chapter_for_review_projects__pid__review__ci__get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChapterSegments"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/{ci}/segments/{seg_idx}": {
+      "put": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Edit Segment",
+        "operationId": "edit_segment_projects__pid__review__ci__segments__seg_idx__put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          },
+          {
+            "name": "seg_idx",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Seg Idx"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SegmentEdit"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Edit Segment Projects  Pid  Review  Ci  Segments  Seg Idx  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/{ci}/segments/{seg_idx}/history": {
+      "get": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Segment History",
+        "operationId": "segment_history_projects__pid__review__ci__segments__seg_idx__history_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          },
+          {
+            "name": "seg_idx",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Seg Idx"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SegmentRevision"
+                  },
+                  "title": "Response Segment History Projects  Pid  Review  Ci  Segments  Seg Idx  History Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/review/{ci}/complete": {
+      "post": {
+        "tags": [
+          "review"
+        ],
+        "summary": "Mark Reviewed",
+        "operationId": "mark_reviewed_projects__pid__review__ci__complete_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Mark Reviewed Projects  Pid  Review  Ci  Complete Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/analysis": {
+      "get": {
+        "tags": [
+          "style"
+        ],
+        "summary": "Get Analysis",
+        "operationId": "get_analysis_projects__pid__analysis_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "style"
+        ],
+        "summary": "Update Analysis",
+        "operationId": "update_analysis_projects__pid__analysis_put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalysisUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Analysis Projects  Pid  Analysis Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/chapter-digests/{ci}": {
+      "put": {
+        "tags": [
+          "style"
+        ],
+        "summary": "Update Chapter Digest",
+        "operationId": "update_chapter_digest_projects__pid__chapter_digests__ci__put",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "ci",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Ci"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DigestUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Update Chapter Digest Projects  Pid  Chapter Digests  Ci  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/exports": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "List Exports",
+        "operationId": "list_exports_projects__pid__exports_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ExportOut"
+                  },
+                  "title": "Response List Exports Projects  Pid  Exports Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Create Export",
+        "operationId": "create_export_projects__pid__exports_post",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssembleEnqueued"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/exports/{export_id}/download": {
+      "get": {
+        "tags": [
+          "export"
+        ],
+        "summary": "Download Export",
+        "operationId": "download_export_projects__pid__exports__export_id__download_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "export_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Export Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/{pid}/events": {
+      "get": {
+        "tags": [
+          "events"
+        ],
+        "summary": "List Events",
+        "operationId": "list_events_projects__pid__events_get",
+        "parameters": [
+          {
+            "name": "pid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Pid"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Type"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 200,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EventOut"
+                  },
+                  "title": "Response List Events Projects  Pid  Events Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalysisOut": {
+        "properties": {
+          "analysis": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Analysis"
+          },
+          "chapter_digests": {
+            "items": {
+              "$ref": "#/components/schemas/ChapterDigest"
+            },
+            "type": "array",
+            "title": "Chapter Digests"
+          }
+        },
+        "type": "object",
+        "required": [
+          "analysis",
+          "chapter_digests"
+        ],
+        "title": "AnalysisOut"
+      },
+      "AnalysisUpdate": {
+        "properties": {
+          "analysis": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Analysis"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "analysis"
+        ],
+        "title": "AnalysisUpdate"
+      },
+      "AssembleEnqueued": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "export_id": {
+            "type": "integer",
+            "title": "Export Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "project_id",
+          "kind",
+          "export_id"
+        ],
+        "title": "AssembleEnqueued"
+      },
+      "AutoQA": {
+        "properties": {
+          "passed": {
+            "type": "boolean",
+            "title": "Passed",
+            "default": false
+          },
+          "empty_target_count": {
+            "type": "integer",
+            "title": "Empty Target Count",
+            "default": 0
+          },
+          "open_conflict_count": {
+            "type": "integer",
+            "title": "Open Conflict Count",
+            "default": 0
+          },
+          "residual_finding_count": {
+            "type": "integer",
+            "title": "Residual Finding Count",
+            "default": 0
+          },
+          "open_issue_count": {
+            "type": "integer",
+            "title": "Open Issue Count",
+            "default": 0
+          },
+          "blocking": {
+            "type": "boolean",
+            "title": "Blocking",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "AutoQA"
+      },
+      "Body_create_project_projects_post": {
+        "properties": {
+          "project": {
+            "type": "string",
+            "contentMediaType": "application/json",
+            "contentSchema": {
+              "$ref": "#/components/schemas/ProjectCreate"
+            },
+            "title": "Project"
+          },
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "project",
+          "file"
+        ],
+        "title": "Body_create_project_projects_post"
+      },
+      "Body_upload_source_projects__pid__upload_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          },
+          "fmt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fmt"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_source_projects__pid__upload_post"
+      },
+      "Capabilities": {
+        "properties": {
+          "languages": {
+            "items": {
+              "$ref": "#/components/schemas/LanguageOption"
+            },
+            "type": "array",
+            "title": "Languages"
+          },
+          "input_formats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Input Formats"
+          },
+          "output_formats": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Output Formats"
+          },
+          "pdf": {
+            "$ref": "#/components/schemas/PDFCapabilities"
+          },
+          "providers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Providers"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Operations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "languages",
+          "input_formats",
+          "output_formats",
+          "pdf",
+          "providers",
+          "operations"
+        ],
+        "title": "Capabilities"
+      },
+      "ChapterDigest": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "title",
+          "digest"
+        ],
+        "title": "ChapterDigest"
+      },
+      "ChapterSegments": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "default": ""
+          },
+          "title_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Translated"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentOut"
+            },
+            "type": "array",
+            "title": "Segments"
+          },
+          "review_issues": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Review Issues",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "segments"
+        ],
+        "title": "ChapterSegments"
+      },
+      "ChapterSummary": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title",
+            "default": ""
+          },
+          "title_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Translated"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "pending"
+          },
+          "word_count": {
+            "type": "integer",
+            "title": "Word Count",
+            "default": 0
+          },
+          "target_word_count": {
+            "type": "integer",
+            "title": "Target Word Count",
+            "default": 0
+          },
+          "review_issue_count": {
+            "type": "integer",
+            "title": "Review Issue Count",
+            "default": 0
+          },
+          "review_status": {
+            "type": "string",
+            "title": "Review Status",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index"
+        ],
+        "title": "ChapterSummary"
+      },
+      "ChapterTitleOut": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "title_translated": {
+            "type": "string",
+            "title": "Title Translated"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "title_translated"
+        ],
+        "title": "ChapterTitleOut"
+      },
+      "ChapterTitleUpdate": {
+        "properties": {
+          "title_translated": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Title Translated"
+          },
+          "expected_title_translated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Title Translated"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title_translated",
+          "expected_title_translated"
+        ],
+        "title": "ChapterTitleUpdate"
+      },
+      "ConfigInput": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "maxLength": 2000000,
+            "title": "Yaml"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "yaml"
+        ],
+        "title": "ConfigInput"
+      },
+      "ConflictOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "existing_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Existing Target"
+          },
+          "proposed_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposed Target"
+          },
+          "chapter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chapter"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "existing_target",
+          "proposed_target",
+          "chapter"
+        ],
+        "title": "ConflictOut"
+      },
+      "DigestUpdate": {
+        "properties": {
+          "digest": {
+            "type": "string",
+            "title": "Digest"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "digest"
+        ],
+        "title": "DigestUpdate"
+      },
+      "EventOut": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Payload",
+            "default": {}
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type"
+        ],
+        "title": "EventOut"
+      },
+      "ExportOut": {
+        "properties": {
+          "options": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Options"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "format": {
+            "type": "string",
+            "title": "Format"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "format",
+          "status"
+        ],
+        "title": "ExportOut"
+      },
+      "ExportRequest": {
+        "properties": {
+          "format": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "epub",
+                  "txt",
+                  "html",
+                  "markdown",
+                  "pdf",
+                  "docx",
+                  "srt"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format"
+          },
+          "bilingual": {
+            "type": "boolean",
+            "title": "Bilingual",
+            "default": false
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "target_first",
+              "source_first"
+            ],
+            "title": "Order",
+            "default": "target_first"
+          },
+          "about_page": {
+            "type": "boolean",
+            "title": "About Page",
+            "default": true
+          },
+          "preserve_source_style": {
+            "type": "boolean",
+            "title": "Preserve Source Style",
+            "default": false
+          },
+          "punctuation_normalize": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Punctuation Normalize"
+          },
+          "pdf_engine": {
+            "type": "string",
+            "enum": [
+              "weasyprint",
+              "fpdf2"
+            ],
+            "title": "Pdf Engine",
+            "default": "weasyprint"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ExportRequest"
+      },
+      "GlobalConfigInput": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "maxLength": 2000000,
+            "title": "Yaml"
+          },
+          "default_template": {
+            "type": "string",
+            "title": "Default Template"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Revision"
+          },
+          "model_renames": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Model Renames"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "yaml",
+          "default_template",
+          "revision"
+        ],
+        "title": "GlobalConfigInput"
+      },
+      "GlobalConfigOut": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "title": "Yaml"
+          },
+          "effective": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Effective"
+          },
+          "default_template": {
+            "type": "string",
+            "title": "Default Template"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "yaml",
+          "effective",
+          "default_template",
+          "revision"
+        ],
+        "title": "GlobalConfigOut"
+      },
+      "GlossaryImport": {
+        "properties": {
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/TermIn"
+            },
+            "type": "array",
+            "title": "Terms"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "terms"
+        ],
+        "title": "GlossaryImport"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "JobEnqueued": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "project_id": {
+            "type": "string",
+            "title": "Project Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "project_id",
+          "kind"
+        ],
+        "title": "JobEnqueued"
+      },
+      "LanguageOption": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "name"
+        ],
+        "title": "LanguageOption"
+      },
+      "Message": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "detail": {
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "Message"
+      },
+      "ModelCheckRequest": {
+        "properties": {
+          "workflow": {
+            "type": "string",
+            "enum": [
+              "prepare",
+              "translate",
+              "review",
+              "srt"
+            ],
+            "title": "Workflow",
+            "default": "translate"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelCheckRequest"
+      },
+      "ModelCheckResult": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid"
+          },
+          "operations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Operations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "operations"
+        ],
+        "title": "ModelCheckResult"
+      },
+      "PDFCapabilities": {
+        "properties": {
+          "backends": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Backends"
+          },
+          "engines": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Engines"
+          },
+          "export_backends": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Export Backends"
+          }
+        },
+        "type": "object",
+        "required": [
+          "backends",
+          "engines",
+          "export_backends"
+        ],
+        "title": "PDFCapabilities"
+      },
+      "PreviewChapter": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "word_count": {
+            "type": "integer",
+            "title": "Word Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "title",
+          "word_count"
+        ],
+        "title": "PreviewChapter"
+      },
+      "Project": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "fmt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fmt"
+          },
+          "source_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Lang"
+          },
+          "target_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Lang"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "created"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "initialized": {
+            "type": "boolean",
+            "title": "Initialized",
+            "default": false
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "Project"
+      },
+      "ProjectConfigOut": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "title": "Yaml"
+          },
+          "effective": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Effective"
+          },
+          "routes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Routes"
+          },
+          "editable": {
+            "type": "boolean",
+            "title": "Editable"
+          },
+          "registered_models": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Registered Models"
+          }
+        },
+        "type": "object",
+        "required": [
+          "yaml",
+          "effective",
+          "routes",
+          "editable",
+          "registered_models"
+        ],
+        "title": "ProjectConfigOut"
+      },
+      "ProjectCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "source_lang": {
+            "type": "string",
+            "title": "Source Lang",
+            "default": "auto"
+          },
+          "target_lang": {
+            "type": "string",
+            "title": "Target Lang",
+            "default": "zh"
+          },
+          "strategy": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Strategy"
+          },
+          "prepare": {
+            "type": "boolean",
+            "title": "Prepare",
+            "default": false
+          },
+          "pdf_backend": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "mineru",
+                  "babeldoc"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Backend"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "ProjectCreate"
+      },
+      "ProjectDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "fmt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fmt"
+          },
+          "source_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Lang"
+          },
+          "target_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Lang"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "created"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "initialized": {
+            "type": "boolean",
+            "title": "Initialized",
+            "default": false
+          },
+          "strategy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "book_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Book Title"
+          },
+          "chapter_count": {
+            "type": "integer",
+            "title": "Chapter Count",
+            "default": 0
+          },
+          "total_word_count": {
+            "type": "integer",
+            "title": "Total Word Count",
+            "default": 0
+          },
+          "done_chapters": {
+            "type": "integer",
+            "title": "Done Chapters",
+            "default": 0
+          },
+          "source_meta": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Source Meta"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ProjectDetail"
+      },
+      "ProjectStats": {
+        "properties": {
+          "usage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Usage"
+          },
+          "timing": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Timing"
+          }
+        },
+        "type": "object",
+        "title": "ProjectStats"
+      },
+      "ReportOut": {
+        "properties": {
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "auto_qa": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutoQA"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "residual_findings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Residual Findings"
+          },
+          "open_conflicts": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Open Conflicts"
+          },
+          "empty_targets": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Empty Targets"
+          },
+          "usage": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Usage"
+          },
+          "timing": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Timing"
+          }
+        },
+        "type": "object",
+        "title": "ReportOut"
+      },
+      "ResolveConflict": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "current",
+              "proposed",
+              "custom"
+            ],
+            "title": "Decision"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "ResolveConflict"
+      },
+      "ReviewItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "issue",
+              "change",
+              "publication",
+              "soft_finding"
+            ],
+            "title": "Kind"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": ""
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          },
+          "suggestion": {
+            "type": "string",
+            "title": "Suggestion",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "fixed",
+              "failed",
+              "unchanged"
+            ],
+            "title": "Status"
+          },
+          "location": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReviewLocation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewLocation"
+            },
+            "type": "array",
+            "title": "Evidence"
+          },
+          "issue": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Issue"
+          },
+          "changes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "publications": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Publications"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status"
+        ],
+        "title": "ReviewItem"
+      },
+      "ReviewLocation": {
+        "properties": {
+          "chapter": {
+            "type": "integer",
+            "title": "Chapter"
+          },
+          "text_index": {
+            "type": "integer",
+            "title": "Text Index"
+          },
+          "segment_index": {
+            "type": "integer",
+            "title": "Segment Index"
+          },
+          "chapter_title": {
+            "type": "string",
+            "title": "Chapter Title"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "current_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "chapter",
+          "text_index",
+          "segment_index",
+          "chapter_title",
+          "source",
+          "current_target"
+        ],
+        "title": "ReviewLocation"
+      },
+      "ReviewRun": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "review_id": {
+            "type": "string",
+            "title": "Review Id"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "issues": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Issues"
+          },
+          "soft_findings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Soft Findings"
+          },
+          "changes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Changes"
+          },
+          "autofix": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Autofix"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "result": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Result"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "review_id",
+          "status"
+        ],
+        "title": "ReviewRun"
+      },
+      "ReviewRunRequest": {
+        "properties": {
+          "autofix": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Autofix"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ReviewRunRequest"
+      },
+      "SegmentEdit": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "expected_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target",
+          "expected_target"
+        ],
+        "title": "SegmentEdit"
+      },
+      "SegmentOut": {
+        "properties": {
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "target_before_polish": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Before Polish"
+          },
+          "anchor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anchor"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "default": "text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "index",
+          "source"
+        ],
+        "title": "SegmentOut"
+      },
+      "SegmentRevision": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "translation",
+              "polish",
+              "manual",
+              "update",
+              "snapshot",
+              "before_polish"
+            ],
+            "title": "Kind"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "before",
+          "after",
+          "created_at"
+        ],
+        "title": "SegmentRevision"
+      },
+      "StartTranslation": {
+        "properties": {
+          "strategy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Strategy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StartTranslation"
+      },
+      "StepDef": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "always_on": {
+            "type": "boolean",
+            "title": "Always On",
+            "default": false
+          },
+          "locked": {
+            "type": "boolean",
+            "title": "Locked",
+            "default": false
+          },
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "depends_on": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Depends On",
+            "default": []
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "options": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Options"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "category"
+        ],
+        "title": "StepDef"
+      },
+      "StrategyTemplateOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description",
+            "default": ""
+          },
+          "time_factor": {
+            "type": "integer",
+            "title": "Time Factor",
+            "default": 1
+          },
+          "recommended": {
+            "type": "boolean",
+            "title": "Recommended",
+            "default": false
+          },
+          "steps": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Steps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "steps"
+        ],
+        "title": "StrategyTemplateOut"
+      },
+      "SubtitleCue": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "index": {
+            "type": "integer",
+            "title": "Index"
+          },
+          "timestamp": {
+            "type": "string",
+            "title": "Timestamp"
+          },
+          "start": {
+            "type": "string",
+            "title": "Start"
+          },
+          "end": {
+            "type": "string",
+            "title": "End"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "index",
+          "timestamp",
+          "start",
+          "end",
+          "source"
+        ],
+        "title": "SubtitleCue"
+      },
+      "SubtitleResult": {
+        "properties": {
+          "cues": {
+            "items": {
+              "$ref": "#/components/schemas/SubtitleCue"
+            },
+            "type": "array",
+            "title": "Cues"
+          },
+          "completed": {
+            "type": "integer",
+            "title": "Completed"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cues",
+          "completed",
+          "total"
+        ],
+        "title": "SubtitleResult"
+      },
+      "TargetEdit": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "target"
+        ],
+        "title": "TargetEdit"
+      },
+      "TermIn": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "reading": {
+            "type": "string",
+            "title": "Reading",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "term"
+          },
+          "gender": {
+            "type": "string",
+            "title": "Gender",
+            "default": ""
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases",
+            "default": []
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "TermIn"
+      },
+      "TermOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "reading": {
+            "type": "string",
+            "title": "Reading",
+            "default": ""
+          },
+          "type": {
+            "type": "string",
+            "title": "Type",
+            "default": "term"
+          },
+          "gender": {
+            "type": "string",
+            "title": "Gender",
+            "default": ""
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases",
+            "default": []
+          },
+          "first_chapter": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Chapter"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": "ok"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "TermOut"
+      },
+      "UploadPreview": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "fmt": {
+            "type": "string",
+            "title": "Fmt"
+          },
+          "chapter_count": {
+            "type": "integer",
+            "title": "Chapter Count"
+          },
+          "total_word_count": {
+            "type": "integer",
+            "title": "Total Word Count"
+          },
+          "source_lang": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Lang"
+          },
+          "chapters": {
+            "items": {
+              "$ref": "#/components/schemas/PreviewChapter"
+            },
+            "type": "array",
+            "title": "Chapters"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "fmt",
+          "chapter_count",
+          "total_word_count"
+        ],
+        "title": "UploadPreview"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WorkflowOut": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "review_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Id"
+          },
+          "stages": {
+            "items": {
+              "$ref": "#/components/schemas/WorkflowStage"
+            },
+            "type": "array",
+            "title": "Stages"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Progress"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "kind",
+          "status",
+          "stages"
+        ],
+        "title": "WorkflowOut"
+      },
+      "WorkflowStage": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "enabled": {
+            "type": "boolean",
+            "title": "Enabled",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label"
+        ],
+        "title": "WorkflowStage"
+      }
+    }
+  }
+}

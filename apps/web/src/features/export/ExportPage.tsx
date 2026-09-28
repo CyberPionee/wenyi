@@ -39,6 +39,12 @@ export default function ExportPage() {
     queryKey: ["capabilities"],
     queryFn: api.capabilities,
   });
+  const { data: reportData } = useQuery({
+    queryKey: ["report", pid],
+    queryFn: () => api.getReport(pid),
+    enabled: !!pid,
+  });
+  const autoQa = reportData?.auto_qa;
   const { data: exports, error: exportsError } = useQuery({
     queryKey: ["exports", pid],
     queryFn: () => api.listExports(pid),
@@ -279,8 +285,19 @@ export default function ExportPage() {
             >
               {create.isPending
                 ? tr("common.submitting")
-                : tr("export.generateExport")}
+                : autoQa && !autoQa.passed
+                  ? autoQa.blocking
+                    ? tr("export.checkReport")
+                    : tr("export.exportAnyway")
+                  : tr("export.generateExport")}
             </Button>
+            {autoQa && !autoQa.passed && (
+              <p className="text-xs text-muted-foreground">
+                {autoQa.blocking
+                  ? tr("export.autoQaBlockingHelp")
+                  : tr("export.autoQaResidualHelp")}
+              </p>
+            )}
             <p className="text-xs text-muted-foreground">
               {tr("export.filenameHelp", {
                 language: project?.target_lang || "—",

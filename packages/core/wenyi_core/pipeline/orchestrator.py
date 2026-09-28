@@ -20,6 +20,7 @@ from ..storage.protocol import Storage
 from .annotations import AnnotationService
 from .finalization import AssemblyService, ReportService
 from .preparation import PreparationService
+from .quality_pass import QualityPassService
 from .review_autofix import ReviewAutofixService
 from .review_workflow import ReviewService
 from .runtime import LLMClient, PipelineRuntime
@@ -46,6 +47,7 @@ class Orchestrator:
         self._translation = TranslationService(self._runtime, self._annotations)
         self._review = ReviewService(self._runtime)
         self._review_autofix = ReviewAutofixService(self._runtime, self._annotations)
+        self._quality_pass = QualityPassService(self._runtime)
         self._report = ReportService(self._runtime)
         self._assembly = AssemblyService(self._runtime)
 
@@ -118,12 +120,14 @@ class Orchestrator:
                 f"Chapter index {only_chapter} does not exist; available range: {valid_range}"
             )
         book_synopsis = self._preparation.ensure_understanding(store, progress=progress)
-        return self._translation.run(
+        translated = self._translation.run(
             store,
             book_synopsis=book_synopsis,
             only_chapter=only_chapter,
             progress=progress,
         )
+        self._quality_pass.run_after_translate(translated, progress=progress)
+        return translated
 
     def run_review(
         self,

@@ -55,6 +55,11 @@ pipeline:
   glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
   pilot: false # Optional 1-batch trial translation + cheap self-check after preparation (opt-in)
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
+  self_revision: false # Optional C-batch draft revision notes (analysis/events only)
+  editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
+  final_polish: false # Optional final polish candidates (analysis/events only)
+  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
+  back_translation: false # Optional back-translation QA notes (analysis/events only)
 
 # Honorific policy, primarily for Japanese source text.
 honorific:

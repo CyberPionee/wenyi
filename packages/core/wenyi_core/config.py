@@ -58,6 +58,11 @@ pipeline:
   glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
   pilot: false # Optional 1-batch trial translation + cheap self-check after preparation (opt-in)
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
+  self_revision: false # Optional C-batch draft revision notes (analysis/events only)
+  editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
+  final_polish: false # Optional final polish candidates (analysis/events only)
+  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
+  back_translation: false # Optional back-translation QA notes (analysis/events only)
   # PDF backend: mineru (default, supports scans) | babeldoc (optional, preserves layout via external AGPL HTTP bridge)
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
@@ -152,6 +157,11 @@ class PipelineConfig(BaseModel):
     glossary_note_chars: int = Field(default=120, ge=0)
     pilot: bool = False  # Opt-in trial translation and cheap self-check after preparation
     auto_qa_strict: bool = False  # Block export while auto_qa residuals remain
+    self_revision: bool = False
+    editorial_pass: bool = False
+    final_polish: bool = False
+    chapter_selfcheck: bool = False
+    back_translation: bool = False
     # PDF: mineru=HTML path for scans (default); babeldoc=external AGPL HTTP bridge (no imports)
     pdf_backend: Literal["mineru", "babeldoc"] = "mineru"
     babeldoc_bridge_url: str = "http://127.0.0.1:8765"

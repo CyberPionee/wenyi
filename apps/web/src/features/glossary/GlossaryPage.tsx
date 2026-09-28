@@ -370,6 +370,11 @@ export default function GlossaryPage() {
                     <td className="p-3">
                       <Badge variant="outline">
                         {termTypes()[t.type || ""] || t.type}
+                        {(t.type || "") === "person" && (
+                          <Badge variant="secondary" className="ml-1">
+                            {tr("glossary.autoLockEligible")}
+                          </Badge>
+                        )}
                       </Badge>
                     </td>
                     <td className="p-3 text-right">

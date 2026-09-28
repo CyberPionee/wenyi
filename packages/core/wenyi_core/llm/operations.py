@@ -102,6 +102,36 @@ OPERATIONS = register_operations(
             flags=("polish",),
             protocol_version=2,
         ),
+        OperationSpec(
+            "quality.self_revision",
+            "Self-revise draft translations",
+            "strong",
+            flags=("self_revision",),
+        ),
+        OperationSpec(
+            "quality.editorial",
+            "Whole-book editorial notes",
+            "cheap",
+            flags=("editorial_pass",),
+        ),
+        OperationSpec(
+            "quality.final_polish",
+            "Final polish candidates",
+            "strong",
+            flags=("final_polish",),
+        ),
+        OperationSpec(
+            "quality.chapter_selfcheck",
+            "Chapter-level LLM self-check",
+            "cheap",
+            flags=("chapter_selfcheck",),
+        ),
+        OperationSpec(
+            "quality.back_translation",
+            "Back-translation QA",
+            "cheap",
+            flags=("back_translation",),
+        ),
         OperationSpec("glossary.extract", "Extract glossary candidates", "fast"),
         OperationSpec("glossary.align_history", "Align terms with earlier translations", "fast"),
         OperationSpec(

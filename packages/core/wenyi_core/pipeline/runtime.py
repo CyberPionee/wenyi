@@ -14,6 +14,7 @@ from typing import Any
 from ..agents.analyzer import Analyzer
 from ..agents.annotation_aligner import AnnotationAligner
 from ..agents.polisher import Polisher
+from ..agents.quality_pass import QualityPassAgent
 from ..agents.reviewer import Reviewer
 from ..agents.synopsis import Synopsizer
 from ..agents.title_translator import TitleTranslator
@@ -50,6 +51,7 @@ class PipelineRuntime:
         self.title_translator = TitleTranslator(self.client, config)
         self.reviewer = Reviewer(self.client, config)
         self.polisher = Polisher(self.client, config)
+        self.quality_pass = QualityPassAgent(self.client, config)
         self.extractor = GlossaryExtractor(self.client, config)
         self.annotation_aligner = AnnotationAligner(self.client, config)
 

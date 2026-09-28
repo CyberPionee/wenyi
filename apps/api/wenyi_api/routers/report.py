@@ -7,6 +7,7 @@ from wenyi_core.assemble.report import build_report
 from wenyi_core.srt.store import SrtRunStore
 
 from ..project_service import project_write, require_project, storage_for
+from ..schemas import ReportOut
 
 router = APIRouter(prefix="/projects/{pid}/report", tags=["report"])
 
@@ -32,12 +33,12 @@ def _report(project: dict, storage) -> dict:
         return report
 
 
-@router.get("")
+@router.get("", response_model=ReportOut)
 def get_report(pid: str) -> dict:
     return _report(require_project(pid), storage_for(pid))
 
 
-@router.post("")
+@router.post("", response_model=ReportOut)
 def regenerate_report(pid: str) -> dict:
     with project_write(pid) as (project, storage):
         report = _report(project, storage)

@@ -1,0 +1,7 @@
+[Style]
+$style
+
+[Source–target pairs to revise] ($n paragraphs)
+$pairs
+
+Return JSON: {"revised":[...]}, with exactly $n items.

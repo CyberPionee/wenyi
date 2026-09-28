@@ -1,0 +1,10 @@
+[Whole-book synopsis]
+$book_synopsis
+
+[Style]
+$style
+
+[Sampled source–target pairs]
+$pairs
+
+Return JSON: {"notes":[...]}, with at most $n notes.

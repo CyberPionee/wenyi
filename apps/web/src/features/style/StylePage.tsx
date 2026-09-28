@@ -78,6 +78,27 @@ export default function StylePage() {
           </TabsList>
 
           <TabsContent value="style" className="mt-4 space-y-4">
+            {((analysis.pilot as Record<string, unknown> | undefined) ||
+              (analysis.quality_pass as Record<string, unknown> | undefined)) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>{tr("style.aiSuggestions")}</CardTitle>
+                </CardHeader>
+                <CardContent className="text-sm space-y-2">
+                  <p className="text-muted-foreground">{tr("style.aiSuggestionsHint")}</p>
+                  <pre className="whitespace-pre-wrap text-xs bg-muted/40 p-3 rounded">
+                    {JSON.stringify(
+                      {
+                        pilot: analysis.pilot,
+                        quality_pass: analysis.quality_pass,
+                      },
+                      null,
+                      2,
+                    )}
+                  </pre>
+                </CardContent>
+              </Card>
+            )}
             <Card>
               <CardHeader>
                 <CardTitle>{tr("style.styleOverview")}</CardTitle>

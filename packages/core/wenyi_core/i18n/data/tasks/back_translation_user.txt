@@ -1,0 +1,4 @@
+[$tgt_label paragraphs to back-translate] ($n paragraphs)
+$numbered_target
+
+Return JSON: {"back":[...]}, with exactly $n items.
