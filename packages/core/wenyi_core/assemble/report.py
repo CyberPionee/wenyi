@@ -10,7 +10,12 @@ from ..review.sweep import scan_segment
 from ..storage.protocol import Storage
 
 
-def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str, Any]:
+def build_report(
+    store: Storage,
+    glossary: Storage | GlossaryStore,
+    *,
+    strict_auto_qa: bool = False,
+) -> dict[str, Any]:
     """Summarize progress, empty translations, glossary conflicts and the latest review."""
     m = store.load_manifest()
     chapters_total = len(m["chapters"])
@@ -74,17 +79,15 @@ def build_report(store: Storage, glossary: Storage | GlossaryStore) -> dict[str,
             "autofix_failed_issue_count": int(autofix.get("failed_issue_count") or 0),
         }
     # Aggregate residual/fixable state without redefining empty_targets/open_conflicts.
+    auto_qa_passed = (
+        not empty_targets and not conflicts and not residual_findings and review_open_issues == 0
+    )
     report["auto_qa"] = {
-        "passed": (
-            not empty_targets
-            and not conflicts
-            and not residual_findings
-            and review_open_issues == 0
-        ),
+        "passed": auto_qa_passed,
         "empty_target_count": len(empty_targets),
         "open_conflict_count": len(conflicts),
         "residual_finding_count": len(residual_findings),
         "open_issue_count": review_open_issues,
-        "blocking": False,
+        "blocking": bool(strict_auto_qa) and not auto_qa_passed,
     }
     return report

@@ -511,13 +511,23 @@ class PreparationService:
             "findings": findings[:20],
         }
         store.save_analysis(analysis)
-        degraded = len(findings) >= max(2, len(sources))
+        # Degrade when at least half the trial segments (or one of one) show residuals.
+        degraded = len(findings) >= max(1, (len(sources) + 1) // 2)
         if degraded:
+            # Conservative downgrade: turn polish off for the rest of this run.
+            self._runtime.config.pipeline.polish = False
+            analysis = store.load_analysis() or {}
+            pilot = dict(analysis.get("pilot") or {})
+            pilot["suggest_disable_polish"] = True
+            pilot["polish_disabled"] = True
+            analysis["pilot"] = pilot
+            store.save_analysis(analysis)
             store.log_event(
                 "pilot_selfcheck_degraded",
                 chapter=chapter_index,
                 finding_count=len(findings),
-                suggestion="consider_disable_polish_or_stricter_terms",
+                suggestion="disable_polish_or_stricter_terms",
+                polish_disabled=True,
             )
         else:
             store.log_event(

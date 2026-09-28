@@ -108,6 +108,7 @@ class TestConfigFileCreation(unittest.TestCase):
         self.assertEqual(cfg.pipeline.rolling_context_segments, 8)
         self.assertTrue(cfg.pipeline.rolling_context_with_source)
         self.assertFalse(cfg.pipeline.pilot)
+        self.assertFalse(cfg.pipeline.auto_qa_strict)
 
     def test_about_page_can_be_disabled(self):
         cfg = Config.from_dict({"output": {"about_page": False}})

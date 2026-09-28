@@ -1420,6 +1420,49 @@ export interface components {
             /** Autofix */
             autofix?: boolean | null;
         };
+        /** AutoQA */
+        AutoQA: {
+            /** Passed */
+            passed?: boolean;
+            /** Empty Target Count */
+            empty_target_count?: number;
+            /** Open Conflict Count */
+            open_conflict_count?: number;
+            /** Residual Finding Count */
+            residual_finding_count?: number;
+            /** Open Issue Count */
+            open_issue_count?: number;
+            /** Blocking */
+            blocking?: boolean;
+        };
+        /** ReportOut */
+        ReportOut: {
+            /** Summary */
+            summary?: {
+                [key: string]: unknown;
+            };
+            auto_qa?: components["schemas"]["AutoQA"] | null;
+            /** Residual Findings */
+            residual_findings?: {
+                [key: string]: unknown;
+            }[];
+            /** Open Conflicts */
+            open_conflicts?: {
+                [key: string]: unknown;
+            }[];
+            /** Empty Targets */
+            empty_targets?: {
+                [key: string]: unknown;
+            }[];
+            /** Usage */
+            usage?: {
+                [key: string]: unknown;
+            };
+            /** Timing */
+            timing?: {
+                [key: string]: unknown;
+            };
+        };
         /** SegmentEdit */
         SegmentEdit: {
             /** Target */

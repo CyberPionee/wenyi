@@ -199,6 +199,31 @@ class TestPilotSelfCheck(unittest.TestCase):
             events = open(store.event_log_path, encoding="utf-8").read()
             self.assertNotIn("pilot_selfcheck_started", events)
 
+    def test_pilot_degrade_disables_polish(self):
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "novel.txt")
+            with open(txt, "w", encoding="utf-8") as handle:
+                handle.write("# One\n\nChapter 12 starts in 2024 and Ann left.\n")
+            cfg = _cfg(os.path.join(directory, "state"))
+            cfg.pipeline.pilot = True
+            cfg.pipeline.polish = True
+
+            def handler(messages, tier, json_mode):
+                system = messages[0]["content"]
+                if "literary translator" in system:
+                    # Omit source numbers to force residual findings.
+                    return '{"translations":["Chapter starts and left."]}'
+                return routing_handler(messages, tier, json_mode)
+
+            orch = Orchestrator(cfg, client=FakeClient(handler=handler))
+            store = orch.prepare(txt)
+            orch._preparation.run_pilot(store, synopsis="overview")
+            self.assertFalse(cfg.pipeline.polish)
+            analysis = store.load_analysis() or {}
+            self.assertTrue(analysis.get("pilot", {}).get("polish_disabled"))
+            events = open(store.event_log_path, encoding="utf-8").read()
+            self.assertIn("pilot_selfcheck_degraded", events)
+
 
 if __name__ == "__main__":
     unittest.main()

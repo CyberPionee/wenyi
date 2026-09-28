@@ -189,6 +189,34 @@ export default function ProgressPage() {
                 {tr("progress.updateReport")}
               </Button>
               <ErrorNotice error={report.error || regenerate.error} />
+              {report.data?.auto_qa && (
+                <div className="mb-3 space-y-1 text-sm">
+                  <div className="font-medium">
+                    {tr("data.autoQa")}
+                    {report.data.auto_qa.passed
+                      ? ` · ${tr("data.autoQaPassed")}`
+                      : ` · ${tr("data.autoQaFailed")}`}
+                    {report.data.auto_qa.blocking ? ` · ${tr("data.autoQaBlocking")}` : ""}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {tr("data.emptyTranslations")}
+                    {": "}
+                    {report.data.auto_qa.empty_target_count ?? 0}
+                    {" · "}
+                    {tr("data.openConflicts")}
+                    {": "}
+                    {report.data.auto_qa.open_conflict_count ?? 0}
+                    {" · "}
+                    {tr("data.residualFindings")}
+                    {": "}
+                    {report.data.auto_qa.residual_finding_count ?? 0}
+                    {" · "}
+                    {tr("common.reviewIssues")}
+                    {": "}
+                    {report.data.auto_qa.open_issue_count ?? 0}
+                  </div>
+                </div>
+              )}
               <StructuredData
                 value={
                   report.data?.summary &&

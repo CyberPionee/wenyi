@@ -95,7 +95,10 @@ class GlossaryExtractor(Agent):
             "glossary_extractor_user",
             src=self.src,
             tgt=self.tgt,
-            glossary=prompts.render_glossary(existing),
+            glossary=prompts.render_glossary(
+                existing,
+                max_note_chars=self.config.pipeline.glossary_note_chars,
+            ),
             source=source_text,
             target=target_text,
         )

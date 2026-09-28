@@ -43,7 +43,10 @@ class Polisher(Agent):
             "polisher_user",
             src=self.src,
             tgt=self.tgt,
-            glossary=prompts.render_glossary(glossary_terms or []),
+            glossary=prompts.render_glossary(
+                glossary_terms or [],
+                max_note_chars=self.config.pipeline.glossary_note_chars,
+            ),
             style=style or "(none)",
             n=n,
             pairs=pairs,

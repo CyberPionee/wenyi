@@ -1672,6 +1672,7 @@ class TestReportAutoQA(unittest.TestCase):
             glossary = GlossaryStore(os.path.join(directory, "g.db"))
             try:
                 report = build_report(store, glossary)
+                strict = build_report(store, glossary, strict_auto_qa=True)
             finally:
                 glossary.close()
             self.assertIn("auto_qa", report)
@@ -1681,6 +1682,7 @@ class TestReportAutoQA(unittest.TestCase):
             self.assertEqual(qa["empty_target_count"], 0)
             self.assertEqual(qa["residual_finding_count"], 1)
             self.assertEqual(report["residual_findings"][0]["kind"], "number_residue")
+            self.assertTrue(strict["auto_qa"]["blocking"])
 
 
 class TestReport(unittest.TestCase):

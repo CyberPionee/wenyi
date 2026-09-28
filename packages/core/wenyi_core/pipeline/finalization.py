@@ -49,10 +49,21 @@ class ReportService:
 
         if progress:
             progress(0, 0, "Generating report…")
-        report = build_report(store, glossary)
+        strict = bool(getattr(self._runtime.config.pipeline, "auto_qa_strict", False))
+        report = build_report(store, glossary, strict_auto_qa=strict)
         assert report is not None
         store.save_report(report)
         store.log_event("report_saved", artifact="report.json")
+        auto_qa = report.get("auto_qa") or {}
+        store.log_event(
+            "auto_qa_finished",
+            passed=bool(auto_qa.get("passed")),
+            blocking=bool(auto_qa.get("blocking")),
+            empty_target_count=int(auto_qa.get("empty_target_count") or 0),
+            open_conflict_count=int(auto_qa.get("open_conflict_count") or 0),
+            residual_finding_count=int(auto_qa.get("residual_finding_count") or 0),
+            open_issue_count=int(auto_qa.get("open_issue_count") or 0),
+        )
         return report
 
 
@@ -76,6 +87,15 @@ class AssemblyService:
         from ..assemble.writer import assemble
         from ..assemble.writer_common import bilingual_out_path
 
+        if getattr(self._runtime.config.pipeline, "auto_qa_strict", False):
+            from ..assemble.report import build_report
+
+            qa = build_report(store, store, strict_auto_qa=True).get("auto_qa") or {}
+            if qa.get("blocking"):
+                raise ValueError(
+                    "auto_qa_strict is enabled and residual findings remain; "
+                    "resolve empty targets, glossary conflicts or open issues before export"
+                )
         if progress:
             progress(0, 0, "Assembling translation…")
         out_cfg = self._runtime.config.output

@@ -54,6 +54,7 @@ pipeline:
   glossary_always_min_occurrences: 3 # Minimum book-wide occurrences for always-on entities
   glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
   pilot: false # Optional 1-batch trial translation + cheap self-check after preparation (opt-in)
+  auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
 
 # Honorific policy, primarily for Japanese source text.
 honorific:

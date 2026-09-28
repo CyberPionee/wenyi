@@ -105,8 +105,18 @@ export type SubtitleCue = Output<"SubtitleCue">;
 export type SubtitleData = Output<"SubtitleResult">;
 export type UploadPreview = Output<"UploadPreview">;
 export type AnalysisPayload = Output<"AnalysisOut">;
+export interface AutoQAData {
+  passed?: boolean;
+  empty_target_count?: number;
+  open_conflict_count?: number;
+  residual_finding_count?: number;
+  open_issue_count?: number;
+  blocking?: boolean;
+}
 export interface ReportData {
   summary: Record<string, unknown>;
+  auto_qa?: AutoQAData;
+  residual_findings?: Array<Record<string, unknown>>;
   usage?: Record<string, unknown>;
   timing?: Record<string, unknown>;
   [key: string]: unknown;

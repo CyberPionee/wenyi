@@ -276,7 +276,8 @@ pipeline:
 - `glossary_always_types`: glossary types kept in chapter-filtered prompts even when the chapter does not mention them (default `[person]`).
 - `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
 - `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
-- `pilot`: off by default. When enabled, run one trial translation batch plus a cheap residual self-check after preparation. Only `analysis.pilot` and `pilot_selfcheck_*` events are written; formal chapter targets are never saved by pilot.
+- `pilot`: off by default. When enabled, run one trial translation batch plus a cheap residual self-check after preparation. Only `analysis.pilot` and `pilot_selfcheck_*` events are written; formal chapter targets are never saved by pilot. If residuals cover at least half the trial segments, polish is turned off for the rest of the run and `pilot_selfcheck_degraded` is logged.
+- `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` still reports empty targets, glossary conflicts, residual findings or open review issues. Default export is never blocked.
 - `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.
 - `babeldoc_timeout`: HTTP timeout in seconds for bridge extract and fillback.

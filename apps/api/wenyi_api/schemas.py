@@ -290,6 +290,15 @@ class ReviewItem(BaseModel):
     publications: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AutoQA(BaseModel):
+    passed: bool = False
+    empty_target_count: int = 0
+    open_conflict_count: int = 0
+    residual_finding_count: int = 0
+    open_issue_count: int = 0
+    blocking: bool = False
+
+
 class ReviewRun(BaseModel):
     id: str
     review_id: str
@@ -302,6 +311,16 @@ class ReviewRun(BaseModel):
     summary: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] = Field(default_factory=dict)
     items: list[ReviewItem] = Field(default_factory=list)
+
+
+class ReportOut(BaseModel):
+    summary: dict[str, Any] = Field(default_factory=dict)
+    auto_qa: AutoQA | None = None
+    residual_findings: list[dict[str, Any]] = Field(default_factory=list)
+    open_conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    empty_targets: list[dict[str, Any]] = Field(default_factory=list)
+    usage: dict[str, Any] = Field(default_factory=dict)
+    timing: dict[str, Any] = Field(default_factory=dict)
 
 
 class SubtitleCue(BaseModel):
