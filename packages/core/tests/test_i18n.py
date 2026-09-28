@@ -287,7 +287,7 @@ def test_all_targets_ignore_old_root_state(tmp_path, target, root_manifest):
     manifest.write_text(root_manifest)
 
     assert translation_run_dir(str(tmp_path), "book", target) == str(root / "targets" / target)
-    assert manifest.read_text() == root_manifest
+    assert manifest.read_text(encoding="utf-8") == root_manifest
     assert not (root / "targets").exists()
 
 

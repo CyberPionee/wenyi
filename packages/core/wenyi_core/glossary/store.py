@@ -241,7 +241,9 @@ class GlossaryStore:
         complete view there. Any resulting shm files or checkpoints remain outside formal
         book state.
         """
-        with tempfile.TemporaryDirectory(prefix="wenyi-glossary-review-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="wenyi-glossary-review-", ignore_cleanup_errors=True
+        ) as directory:
             snapshot_path = f"{directory}/glossary.db"
             wal_path = f"{db_path}-wal"
             snapshot_wal_path = f"{snapshot_path}-wal"

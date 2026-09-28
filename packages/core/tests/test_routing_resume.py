@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from wenyi_core.config import Config
@@ -185,4 +186,4 @@ def test_completed_translation_is_kept_and_changed_review_model_gets_new_run(tmp
     assert {
         path.name: path.read_bytes() for path in (tmp_path / "state").rglob("ch*.json")
     } == translated
-    assert json.loads(open(store.manifest_path).read())["target_lang"] == "zh"
+    assert json.loads(Path(store.manifest_path).read_text(encoding="utf-8"))["target_lang"] == "zh"

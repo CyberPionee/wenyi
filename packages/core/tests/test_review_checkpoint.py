@@ -24,7 +24,8 @@ def test_trace_port_uses_existing_round_paths_and_event_scope(tmp_path):
     with store.round_scope(3):
         assert ReviewTraceStore(store).load(snapshot["agent_id"]) is None
     events = [
-        json.loads(line) for line in Path(store.run_dir, "events.jsonl").read_text().splitlines()
+        json.loads(line)
+        for line in Path(store.run_dir, "events.jsonl").read_text(encoding="utf-8").splitlines()
     ]
     assert len(events) == 1
     assert events[0]["review_round"] == 2
