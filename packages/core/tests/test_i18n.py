@@ -267,6 +267,22 @@ def test_zh_digest_and_synopsis_use_moderate_structured_lengths():
         assert heading in synopsis_system
 
 
+def test_all_languages_use_moderate_structured_lengths():
+    """Every language profile exposes a ranged digest/synopsis budget for structured digests."""
+    for code in supported_languages():
+        lang_profile = profile(code)
+        digest = lang_profile["digest_length"]
+        synopsis = lang_profile["synopsis_length"]
+        assert "–" in digest, (code, digest)
+        assert "–" in synopsis, (code, synopsis)
+        unit = "characters" if "characters" in digest else "words"
+        assert unit in synopsis, (code, synopsis)
+        if code in {"zh", "zh-Hant", "ja", "ko"}:
+            assert unit == "characters", (code, digest)
+        else:
+            assert unit == "words", (code, digest)
+
+
 def test_strict_template_and_literal_source_payload():
     with pytest.raises(ValueError, match="missing argument"):
         render("translator_user", src="en", tgt="ja")

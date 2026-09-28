@@ -14,9 +14,28 @@ from ..glossary.store import GlossaryTerm, source_matches_text, term_match_sourc
 
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
 
+# Letter-run detectors per script family. Length gates live in scan_untranslated_residue.
+_SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("cjk", re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿가-힯]+")),
+    ("latin", re.compile(r"[A-Za-zÀ-ɏ]+")),
+    ("cyrillic", re.compile(r"[Ѐ-ӿ]+")),
+    ("greek", re.compile(r"[Ͱ-Ͽ]+")),
+    ("arabic", re.compile(r"[؀-ۿ]+")),
+    ("hebrew", re.compile(r"[֐-׿]+")),
+    ("thai", re.compile(r"[฀-๿]+")),
+    ("devanagari", re.compile(r"[ऀ-ॿ]+")),
+)
+
 
 def _numbers(text: str) -> list[str]:
     return _NUMBER_RE.findall(text or "")
+
+
+def _script_letter_counts(text: str) -> dict[str, int]:
+    counts = {name: 0 for name, _ in _SCRIPT_PATTERNS}
+    for name, pattern in _SCRIPT_PATTERNS:
+        counts[name] = sum(len(match.group()) for match in pattern.finditer(text))
+    return counts
 
 
 def scan_number_residue(source: str, target: str) -> dict[str, Any] | None:
@@ -35,15 +54,27 @@ def scan_number_residue(source: str, target: str) -> dict[str, Any] | None:
 
 
 def scan_untranslated_residue(source: str, target: str) -> dict[str, Any] | None:
-    """Report source-language CJK runs left inside a non-CJK target (deterministic)."""
+    """Report source-script runs left inside a target dominated by another script.
+
+    Only non-dominant script runs that also appear verbatim in the source are
+    flagged, so intentional loanwords that never appear in the source stay
+    unflagged. Same-script translations stay unflagged.
+    """
     if not (source or "").strip() or not (target or "").strip():
         return None
-    # Only flag when the target is primarily Latin-script; CJK targets legitimately reuse CJK.
-    latin = sum(1 for ch in target if ch.isascii() and ch.isalpha())
-    cjk = sum(1 for ch in target if "぀" <= ch <= "ヿ" or "一" <= ch <= "鿿")
-    if latin < 10 or cjk == 0:
+    target_counts = _script_letter_counts(target)
+    dominant = max(target_counts, key=target_counts.get)  # type: ignore[arg-type]
+    if target_counts[dominant] < 5:
         return None
-    leftover = re.findall(r"[぀-ヿ一-鿿]{2,}", target)
+    leftover: list[str] = []
+    for name, pattern in _SCRIPT_PATTERNS:
+        if name == dominant or target_counts[name] <= 0:
+            continue
+        min_len = 2 if name == "cjk" else 3
+        for match in pattern.finditer(target):
+            run = match.group()
+            if len(run) >= min_len and run in source:
+                leftover.append(run)
     if not leftover:
         return None
     sample = " / ".join(leftover[:3])

@@ -33,6 +33,22 @@ class TestSweep(unittest.TestCase):
         self.assertEqual(finding["kind"], "untranslated_residue")
         self.assertIsNone(scan_untranslated_residue("彼は言った", "他说"))
 
+    def test_untranslated_residue_flags_latin_in_cjk_target(self):
+        finding = scan_untranslated_residue(
+            "He said Hello world clearly",
+            "他认真的说完了 Hello world 这一段话之后就离开了这里",
+        )
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertEqual(finding["kind"], "untranslated_residue")
+        # Loanwords that never appear in the source stay unflagged.
+        self.assertIsNone(scan_untranslated_residue("他开口说话了", "他说 OK 了"))
+
+    def test_untranslated_residue_flags_cyrillic_in_latin_target(self):
+        finding = scan_untranslated_residue("Он сказал привет", "He said привет now")
+        self.assertIsNotNone(finding)
+        self.assertIsNone(scan_untranslated_residue("Он сказал привет", "Он сказал"))
+
     def test_term_drift_requires_fixed_mapping_in_target(self):
         terms = [GlossaryTerm(source="Ann", target="安", type="person")]
         self.assertIsNotNone(scan_term_drift("Ann left", "Anne left", terms))

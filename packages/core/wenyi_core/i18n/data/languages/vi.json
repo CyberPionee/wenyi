@@ -6,6 +6,6 @@
   "punctuation_rule": "Use Vietnamese Latin punctuation and spacing. Preserve quotation marks, brackets, dashes, ellipses and symbol pairing; keep diacritics on letters. Do not apply CJK full-width punctuation rules.",
   "title_rule": "Use conventional Vietnamese titles and section labels, for example Chương 3, Lời mở đầu and Kết.",
   "term_guidance": "Leave reading empty unless there is explicit pronunciation evidence. ",
-  "digest_length": "150 words",
-  "synopsis_length": "350 words"
+  "digest_length": "250–400 words",
+  "synopsis_length": "500–800 words"
 }
