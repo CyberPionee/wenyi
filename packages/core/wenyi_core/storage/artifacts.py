@@ -18,9 +18,22 @@ class FileArtifacts:
         self._artifact_lock = RLock()
 
     def _artifact_path(self, key: str) -> Path:
-        path = Path(self._artifact_root, key).resolve()
-        if not path.is_relative_to(Path(self._artifact_root).resolve()):
+        # Validate the key structurally. resolve()/is_relative_to() is racy on Windows
+        # while concurrent writers create directories under the run root.
+        if not key or Path(key).is_absolute() or ".." in Path(key).parts:
             raise ValueError("Artifact key must remain within the run")
+        path = Path(self._artifact_root, key)
+        resolved_root = Path(self._artifact_root).resolve()
+        try:
+            resolved = path.resolve()
+        except OSError:
+            return path
+        if not resolved.is_relative_to(resolved_root):
+            # Fall back to the non-resolved join for not-yet-created paths.
+            if not Path(os.path.normcase(str(path))).is_relative_to(
+                Path(os.path.normcase(str(self._artifact_root)))
+            ):
+                raise ValueError("Artifact key must remain within the run")
         return path
 
     def read_artifact(self, key: str) -> Any | None:
