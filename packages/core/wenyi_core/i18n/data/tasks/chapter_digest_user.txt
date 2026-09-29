@@ -1,4 +1,4 @@
 [Chapter source ($src_label)]
 $source
 
-Return the chapter digest in $tgt_label, at most $digest_length, as markdown with sections ## Plot, ## Characters, ## Foreshadowing and ## Address in that order.
+Return the chapter digest in $tgt_label, at most $digest_length. For story chapters use markdown sections ## Plot, ## Characters, ## Foreshadowing and ## Address in that order. For non-story content (contents, dedication, copyright, acknowledgments, etc.) write a single brief sentence instead.
