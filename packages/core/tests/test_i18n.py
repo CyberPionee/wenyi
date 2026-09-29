@@ -257,14 +257,7 @@ def test_zh_digest_and_synopsis_use_moderate_structured_lengths():
         assert heading in digest_system
     synopsis_system = render("book_synopsis_system", src="ja", tgt="zh")
     assert "whole-book synopsis writer" in synopsis_system
-    for heading in (
-        "## Plot",
-        "## Characters",
-        "## Relationships",
-        "## Foreshadowing",
-        "## Address",
-    ):
-        assert heading in synopsis_system
+    assert "flowing prose" in synopsis_system
 
 
 def test_all_languages_use_moderate_structured_lengths():

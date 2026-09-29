@@ -1,4 +1,4 @@
-[Whole-book synopsis] (## Plot: overall story arc; ## Characters: main cast and arcs; ## Relationships: how characters relate; ## Foreshadowing: planted clues and payoffs; ## Address: key revelations and turning points)
+[Whole-book synopsis] (flowing summary of plot, characters, relationships, revelations and foreshadowing)
 $book_synopsis
 
 [Style]
