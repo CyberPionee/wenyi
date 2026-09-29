@@ -75,5 +75,24 @@ class Synopsizer(Agent):
             analysis=analysis_brief or "(none)",
             digests=numbered,
         )
-        # Use the fast tier with a bounded output budget for the synopsis.
-        return self._ask_text(system, user, operation="synopsis.book")
+        # Thinking tokens can randomly exhaust the output budget; retry truncation.
+        return self._ask_synopsis_book(system, user)
+
+    def _ask_synopsis_book(self, system: str, user: str) -> str:
+        """Call synopsis.book with retries; truncated thinking budgets are not final answers."""
+        for _attempt in range(3):
+            try:
+                return (
+                    self.client.complete(
+                        [
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user},
+                        ],
+                        operation="synopsis.book",
+                    )
+                    or ""
+                ).strip()
+            except RuntimeError as error:
+                if "truncated" not in str(error).lower():
+                    raise
+        return ""
