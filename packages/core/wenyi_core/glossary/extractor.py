@@ -97,7 +97,9 @@ class GlossaryExtractor(Agent):
             tgt=self.tgt,
             glossary=prompts.render_glossary(
                 existing,
-                max_note_chars=self.config.pipeline.glossary_note_chars,
+                include_note=False,
+                max_note_chars=0,
+                max_terms=self.config.pipeline.glossary_extract_max_prompt_terms,
             ),
             source=source_text,
             target=target_text,
@@ -301,4 +303,77 @@ class GlossaryExtractor(Agent):
             summary["auto_locked"] = summary.get("auto_locked", 0) + 1
             if on_auto_lock is not None:
                 on_auto_lock(t.source, locked_target or t.target)
+        return summary
+
+    def finalize_chapter_glossary(
+        self,
+        store: Storage | GlossaryStore,
+        chapter: int,
+        *,
+        history: Iterable[TranslatedSegmentEvidence] = (),
+        before: tuple[int, int] | None = None,
+        source_corpus: str | None = None,
+        on_auto_lock=None,
+    ) -> dict[str, int]:
+        """Local chapter close-out without another model extraction call.
+
+        Batch extraction already ran per batch. This only fills empty targets from
+        historical evidence (first matching source, no LLM) and applies auto-lock
+        gates to existing terms so chapter end does not re-send the full chapter
+        through the LLM.
+        """
+        summary = {
+            "inserted": 0,
+            "conflict": 0,
+            "unchanged": 0,
+            "updated": 0,
+            "history_filled": 0,
+            "auto_locked": 0,
+            "llm_calls": 0,
+            "mode": "local_finalize",
+        }
+        all_existing = store.all_terms()
+        if not all_existing:
+            return summary
+        ordered_history = sorted(history, key=lambda item: (item.chapter, item.segment))
+        matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
+        open_conflicts = {
+            str(row.get("source") or "")
+            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
+        }
+        for t in all_existing:
+            prior = store.get_term(t.source) if hasattr(store, "get_term") else t
+            target = (prior.target or t.target or "").strip()
+            if not target:
+                # Local fill: first historical source match provides the mapping text.
+                for evidence in ordered_history:
+                    if before is not None and (evidence.chapter, evidence.segment) >= before:
+                        continue
+                    if source_matches_text(t.source, evidence.source):
+                        target = (evidence.target or "").strip()
+                        if target:
+                            filled = replace(t, target=target)
+                            result = store.upsert_term(filled, chapter=chapter)
+                            summary[result] = summary.get(result, 0) + 1
+                            summary["history_filled"] += 1
+                            t = filled
+                            prior = filled
+                        break
+            if not target:
+                summary["unchanged"] += 1
+                continue
+            if matcher is not None:
+                occurrences_n = 2 if matcher.recurring_terms([t], min_occurrences=2) else 1
+                has_open_conflict = t.source in open_conflicts
+                if can_auto_lock(
+                    t,
+                    history_aligned=True,
+                    occurrences=occurrences_n,
+                    has_open_conflict=has_open_conflict,
+                ):
+                    summary["auto_locked"] = summary.get("auto_locked", 0) + 1
+                    if on_auto_lock is not None:
+                        on_auto_lock(t.source, target)
+            else:
+                summary["unchanged"] += 1
         return summary

@@ -12,14 +12,20 @@ def render_glossary(
     *,
     include_note: bool = True,
     max_note_chars: int = 120,
+    max_terms: int | None = None,
 ) -> str:
     """Render glossary objects as a line-by-line reference for prompts.
 
     Non-empty notes are appended as ``Note:`` fragments when ``include_note`` is true.
     Empty notes are omitted. Notes longer than ``max_note_chars`` are clipped.
+    ``max_terms`` keeps only the first N entries (insertion order) to bound prompt size.
     """
     if not terms:
         return "(none)"
+    if max_terms is not None and max_terms >= 0:
+        terms = terms[:max_terms]
+        if not terms:
+            return "(none)"
     lines = []
     for t in terms:
         extra = []

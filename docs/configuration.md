@@ -249,6 +249,7 @@ pipeline:
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
   glossary_note_chars: 120
+  glossary_extract_max_prompt_terms: 80
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
   babeldoc_timeout: 600
@@ -276,6 +277,7 @@ pipeline:
 - `glossary_always_types`: glossary types kept in chapter-filtered prompts even when the chapter does not mention them (default `[person]`).
 - `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
 - `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
+- `glossary_extract_max_prompt_terms`: cap on existing terms injected into **extraction** prompts (default `80`). Extraction prompts omit notes; translate/polish/review keep notes.
 - `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` still reports empty targets, glossary conflicts, residual findings or open review issues. Default export is never blocked.
 - `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.

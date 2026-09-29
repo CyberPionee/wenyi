@@ -389,19 +389,15 @@ class TranslationService:
             # The glossary may have changed; refresh before the next real translation, not after the final batch.
             term_snapshot_stale = True
 
-        # Keep chapter-wide extraction as a fallback for address, speech and fixed expressions needing context.
-        # Final review reads the stable glossary after the entire book finishes translating.
-        src_text = "\n".join(s.source for s in text_segs)
-        tgt_text = "\n".join(s.target or "" for s in text_segs)
+        # Chapter close-out is local only: batches already extracted. Avoid a second
+        # full-chapter LLM extraction that roughly doubles glossary token cost.
         locked: list[tuple[str, str]] = []
 
         def _on_auto_lock(source: str, target: str) -> None:
             locked.append((source, target))
 
-        chapter_glossary_summary = self._runtime.extractor.extract_and_store(
+        chapter_glossary_summary = self._runtime.extractor.finalize_chapter_glossary(
             glossary,
-            src_text,
-            tgt_text,
             ci,
             history=translation_history.values(),
             before=(ci, len(text_segs)),
