@@ -34,7 +34,7 @@ def _synopsis_complete(text: str) -> bool:
     cleaned = (text or "").strip()
     if not cleaned:
         return False
-    return cleaned[-1] in "。．.！？!?…"\"'」』）)]}"
+    return cleaned[-1] in "。．.！？!?…”\"'」』）)]}"
 
 
 class PreparationService:
@@ -443,7 +443,9 @@ class PreparationService:
 
         analysis = store.load_analysis() or {}
         synopsis = str(analysis.get("book_synopsis", "") or "")
-        if not _synopsis_complete(synopsis) and any(d.strip() for d in digests):
+        if (not self._synopsis_is_current(analysis) or not _synopsis_complete(synopsis)) and any(
+            d.strip() for d in digests
+        ):
             if progress:
                 progress(0, 0, "Generating whole-book synopsis…")
             synopsis = self._runtime.synopsizer.book_synopsis(
