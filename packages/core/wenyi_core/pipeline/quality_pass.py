@@ -129,4 +129,9 @@ class QualityPassService:
                     for key, value in result.items()
                 },
             )
+        mode = getattr(cfg, "decision_anchors", "off")
+        if mode != "off":
+            from .decision_anchors import update_decision_anchors
+
+            update_decision_anchors(store, mode=mode)
         return result

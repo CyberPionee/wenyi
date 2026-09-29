@@ -132,6 +132,12 @@ OPERATIONS = register_operations(
             "cheap",
             flags=("back_translation",),
         ),
+        OperationSpec(
+            "quality.judge",
+            "Score sampled translations for fluency and style fit",
+            "cheap",
+            flags=("quality_judge",),
+        ),
         OperationSpec("glossary.extract", "Extract glossary candidates", "fast"),
         OperationSpec("glossary.align_history", "Align terms with earlier translations", "fast"),
         OperationSpec(

@@ -238,6 +238,15 @@ pipeline:
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
   glossary_note_chars: 120
+  evaluation_enabled: true
+  risk_back_translation: true
+  risk_sample_ratio: 0.08
+  quality_judge: true
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5
+  bt_score_min: 0.45
+  max_auto_redo_rounds: 2
+  decision_anchors: "off"
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
   babeldoc_timeout: 600
@@ -265,7 +274,11 @@ pipeline:
 - `glossary_always_types`：章过滤后仍强制保留的术语类型（默认 `[person]`），避免本章未出场的主要人物名被滤掉。
 - `glossary_always_min_occurrences`：always-on 实体在全书源文/别名中的最少出现次数（默认 `3`）。
 - `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
-- `auto_qa_strict`：默认关闭。开启后若 `report.auto_qa` 仍有空译、术语冲突、残留问题或未决 issue，则导出直接失败；默认导出不阻断。
+- `auto_qa_strict`：默认关闭。开启后若 `report.auto_qa` 或机器评估门仍有空译、术语冲突、残留问题、未决 issue 或评估低分，则导出直接失败；默认导出不阻断。
+- `evaluation_enabled`：默认开启 L0–L3 机器评估，写入 `report.evaluation` / `report.machine_gate`。
+- `risk_back_translation` / `risk_sample_ratio`：L1 风险门控回译与每章抽样比例。
+- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`：L3 打分与阈值。
+- `decision_anchors`：`off` | `auto` | `risk`，可选译文决策锚；不替代风格指南与术语表。
 - `pdf_backend`：默认 `mineru`，经 MinerU 转 HTML。需要尽量保留版式时改用 `babeldoc`（外部 AGPL HTTP bridge）。经 BabelDOC 创建的 PDF 状态，在 `translate` 和 `assemble` 中均默认导出 PDF；MinerU 状态仍默认导出 EPUB。显式 `--format` 优先，续跑默认格式以已保存的后端为准。
 - `babeldoc_bridge_url`：BabelDOC bridge 地址，默认 `http://127.0.0.1:8765`。
 - `babeldoc_timeout`：bridge extract / fillback 的 HTTP 超时秒数。

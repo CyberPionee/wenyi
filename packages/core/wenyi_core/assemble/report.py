@@ -15,6 +15,7 @@ def build_report(
     glossary: Storage | GlossaryStore,
     *,
     strict_auto_qa: bool = False,
+    evaluation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Summarize progress, empty translations, glossary conflicts and the latest review."""
     m = store.load_manifest()
@@ -90,4 +91,10 @@ def build_report(
         "open_issue_count": review_open_issues,
         "blocking": bool(strict_auto_qa) and not auto_qa_passed,
     }
+    if evaluation is not None:
+        report["evaluation"] = evaluation
+        gate = evaluation.get("machine_gate") or {}
+        report["machine_gate"] = gate
+        if strict_auto_qa and gate.get("blocking"):
+            report["auto_qa"]["blocking"] = True
     return report

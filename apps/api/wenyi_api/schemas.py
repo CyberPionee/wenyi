@@ -299,6 +299,25 @@ class AutoQA(BaseModel):
     blocking: bool = False
 
 
+class MachineGate(BaseModel):
+    passed: bool = False
+    blocking: bool = False
+    l0_passed: bool = True
+    bt_passed: bool = True
+    judge_passed: bool = True
+    bt_sample_count: int = 0
+    bt_low_count: int = 0
+    judge_sample_count: int = 0
+    judge_avg: float | None = None
+    judge_low_count: int = 0
+    empty_target_count: int = 0
+    open_conflict_count: int = 0
+    residual_finding_count: int = 0
+    open_issue_count: int = 0
+    bt_score_min: float = 0.45
+    judge_score_min: float = 3.5
+
+
 class ReviewRun(BaseModel):
     id: str
     review_id: str
@@ -316,6 +335,8 @@ class ReviewRun(BaseModel):
 class ReportOut(BaseModel):
     summary: dict[str, Any] = Field(default_factory=dict)
     auto_qa: AutoQA | None = None
+    machine_gate: MachineGate | None = None
+    evaluation: dict[str, Any] | None = None
     residual_findings: list[dict[str, Any]] = Field(default_factory=list)
     open_conflicts: list[dict[str, Any]] = Field(default_factory=list)
     empty_targets: list[dict[str, Any]] = Field(default_factory=list)

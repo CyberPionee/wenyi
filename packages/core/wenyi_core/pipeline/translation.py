@@ -69,6 +69,12 @@ class TranslationService:
             min_recent_keep=max(40, self._runtime.config.pipeline.rolling_context_segments),
         )
         style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
+        if self._runtime.config.pipeline.decision_anchors != "off":
+            from .decision_anchors import load_decision_anchors, render_decision_anchors
+
+            anchor_text = render_decision_anchors(load_decision_anchors(store))
+            if anchor_text:
+                style = f"{style}\n\n{anchor_text}" if style else anchor_text
         allow_empty_translations = _is_mineru_pdf(manifest)
 
         if only_chapter is not None:

@@ -27,6 +27,9 @@ export function WorkflowSettings({
     ["review", tr("common.wholeBookReview")],
     ["review_autofix", tr("settings.applyAutofixesToTheSavedTranslation")],
     ["auto_qa_strict", tr("settings.autoQaStrict")],
+    ["evaluation_enabled", tr("settings.evaluationEnabled")],
+    ["risk_back_translation", tr("settings.riskBackTranslation")],
+    ["quality_judge", tr("settings.qualityJudge")],
     ["self_revision", tr("settings.selfRevision")],
     ["editorial_pass", tr("settings.editorialPass")],
     ["final_polish", tr("settings.finalPolish")],
@@ -37,18 +40,43 @@ export function WorkflowSettings({
   return (
     <fieldset disabled={disabled} className="space-y-4 disabled:opacity-60">
       {!subtitles && (
-        <div className="grid sm:grid-cols-2 gap-3">
-          {PIPELINE.map(([key, label]) => (
-            <label key={key} className="flex gap-2 items-center text-sm">
-              <input
-                type="checkbox"
-                checked={Boolean(section(config, "pipeline")[key])}
-                onChange={(e) => onField("pipeline", key, e.target.checked)}
-              />
-              {label}
-            </label>
-          ))}
-        </div>
+        <>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {PIPELINE.map(([key, label]) => (
+              <label key={key} className="flex gap-2 items-center text-sm">
+                <input
+                  type="checkbox"
+                  checked={Boolean(section(config, "pipeline")[key])}
+                  onChange={(e) => onField("pipeline", key, e.target.checked)}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="decision-anchors">
+                {tr("settings.decisionAnchors")}
+              </Label>
+              <Select
+                id="decision-anchors"
+                value={String(
+                  section(config, "pipeline").decision_anchors || "off",
+                )}
+                onChange={(e) =>
+                  onField("pipeline", "decision_anchors", e.target.value)
+                }
+                className="mt-2"
+              >
+                {["off", "auto", "risk"].map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+        </>
       )}
       {subtitles && (
         <p className="text-sm text-muted-foreground">

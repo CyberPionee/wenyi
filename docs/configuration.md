@@ -249,6 +249,15 @@ pipeline:
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
   glossary_note_chars: 120
+  evaluation_enabled: true
+  risk_back_translation: true
+  risk_sample_ratio: 0.08
+  quality_judge: true
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5
+  bt_score_min: 0.45
+  max_auto_redo_rounds: 2
+  decision_anchors: "off"
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
   babeldoc_timeout: 600
@@ -276,7 +285,11 @@ pipeline:
 - `glossary_always_types`: glossary types kept in chapter-filtered prompts even when the chapter does not mention them (default `[person]`).
 - `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
 - `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
-- `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` still reports empty targets, glossary conflicts, residual findings or open review issues. Default export is never blocked.
+- `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` or the machine evaluation gate still reports empty targets, glossary conflicts, residual findings, open review issues or low evaluation scores. Default export is never blocked.
+- `evaluation_enabled`: on by default. Runs the L0–L3 machine evaluation and stores `report.evaluation` / `report.machine_gate`.
+- `risk_back_translation` / `risk_sample_ratio`: L1 risk-gated back-translation and per-chapter sampling ratio.
+- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`: L3 scoring and thresholds.
+- `decision_anchors`: `off` | `auto` | `risk`. Optional target-side decision anchors; they do not replace style briefs or glossaries.
 - `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.
 - `babeldoc_timeout`: HTTP timeout in seconds for bridge extract and fillback.

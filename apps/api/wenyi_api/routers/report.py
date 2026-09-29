@@ -28,6 +28,11 @@ def _report(project: dict, storage) -> dict:
             }
         else:
             report = build_report(storage, storage)
+            saved = storage.load_report() or {}
+            if saved.get("evaluation") is not None:
+                report["evaluation"] = saved.get("evaluation")
+            if saved.get("machine_gate") is not None:
+                report["machine_gate"] = saved.get("machine_gate")
         report["usage"] = storage.load_usage() or {}
         report["timing"] = storage.read_artifact("timing.json") or {}
         return report

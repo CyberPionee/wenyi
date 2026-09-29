@@ -46,11 +46,57 @@ class ReportService:
     ) -> dict[str, Any]:
         """Generate and persist report.json and record the corresponding event."""
         from ..assemble.report import build_report
+        from .evaluation import EvaluationService
 
         if progress:
             progress(0, 0, "Generating report…")
         strict = bool(getattr(self._runtime.config.pipeline, "auto_qa_strict", False))
-        report = build_report(store, glossary, strict_auto_qa=strict)
+        pipeline = self._runtime.config.pipeline
+        evaluation_payload: dict[str, Any] | None = None
+        if getattr(pipeline, "evaluation_enabled", True):
+            if progress:
+                progress(0, 0, "Running machine evaluation…")
+            pre_report = build_report(store, glossary, strict_auto_qa=strict)
+            service = EvaluationService(
+                store,
+                risk_sample_ratio=float(getattr(pipeline, "risk_sample_ratio", 0.08)),
+                judge_sample_ratio=float(getattr(pipeline, "judge_sample_ratio", 0.05)),
+                bt_score_min=float(getattr(pipeline, "bt_score_min", 0.45)),
+                judge_score_min=float(getattr(pipeline, "judge_score_min", 3.5)),
+                risk_back_translation=bool(getattr(pipeline, "risk_back_translation", True)),
+                quality_judge=bool(getattr(pipeline, "quality_judge", True)),
+            )
+            terms = glossary.all_terms() if hasattr(glossary, "all_terms") else []
+            agent = self._runtime.quality_pass
+
+            def _back(targets: list[str]) -> list[str]:
+                return agent.back_translate(targets)
+
+            def _judge(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
+                style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
+                return agent.quality_judge(pairs, style=style)
+
+            evaluation = service.run(
+                l0=pre_report.get("auto_qa") or {},
+                terms=terms,
+                back_translate=_back if pipeline.risk_back_translation else None,
+                judge=_judge if pipeline.quality_judge else None,
+            )
+            evaluation_payload = evaluation.to_dict()
+            store.log_event(
+                "evaluation_finished",
+                passed=bool((evaluation.machine_gate or {}).get("passed")),
+                blocking=bool((evaluation.machine_gate or {}).get("blocking")),
+                risk_count=len(evaluation.risk_segments),
+                bt_count=len(evaluation.back_translation),
+                judge_count=len(evaluation.judge_scores),
+            )
+        report = build_report(
+            store,
+            glossary,
+            strict_auto_qa=strict,
+            evaluation=evaluation_payload,
+        )
         assert report is not None
         store.save_report(report)
         store.log_event("report_saved", artifact="report.json")
@@ -90,11 +136,15 @@ class AssemblyService:
         if getattr(self._runtime.config.pipeline, "auto_qa_strict", False):
             from ..assemble.report import build_report
 
-            qa = build_report(store, store, strict_auto_qa=True).get("auto_qa") or {}
-            if qa.get("blocking"):
+            report = build_report(store, store, strict_auto_qa=True)
+            qa = report.get("auto_qa") or {}
+            saved = store.load_report() or {}
+            gate = saved.get("machine_gate") or {}
+            if qa.get("blocking") or gate.get("blocking"):
                 raise ValueError(
-                    "auto_qa_strict is enabled and residual findings remain; "
-                    "resolve empty targets, glossary conflicts or open issues before export"
+                    "auto_qa_strict is enabled and residual or evaluation findings remain; "
+                    "resolve empty targets, glossary conflicts, open issues or low evaluation "
+                    "scores before export"
                 )
         if progress:
             progress(0, 0, "Assembling translation…")

@@ -62,6 +62,15 @@ pipeline:
   final_polish: false # Optional final polish candidates (analysis/events only)
   chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
   back_translation: false # Optional back-translation QA notes (analysis/events only)
+  evaluation_enabled: true # L0-L3 machine gate for autonomous acceptance
+  risk_back_translation: true # L1 selective back-translation on risk/sampled segments
+  risk_sample_ratio: 0.08 # Per-chapter sample ratio for risk evaluation (0-1)
+  quality_judge: true # L3 LLM fluency/style scoring on sampled segments
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5 # L3 pass threshold (1-5)
+  bt_score_min: 0.45 # L1 back-translation similarity threshold (0-1)
+  max_auto_redo_rounds: 2 # Automatic local redo rounds when the machine gate fails
+  decision_anchors: "off" # off | auto | risk — optional target-side decision anchors
   # PDF backend: mineru (default, supports scans) | babeldoc (optional, preserves layout via external AGPL HTTP bridge)
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
@@ -160,6 +169,15 @@ class PipelineConfig(BaseModel):
     final_polish: bool = False
     chapter_selfcheck: bool = False
     back_translation: bool = False
+    evaluation_enabled: bool = True
+    risk_back_translation: bool = True
+    risk_sample_ratio: float = Field(default=0.08, ge=0.0, le=1.0)
+    quality_judge: bool = True
+    judge_sample_ratio: float = Field(default=0.05, ge=0.0, le=1.0)
+    judge_score_min: float = Field(default=3.5, ge=1.0, le=5.0)
+    bt_score_min: float = Field(default=0.45, ge=0.0, le=1.0)
+    max_auto_redo_rounds: int = Field(default=2, ge=0, le=5)
+    decision_anchors: Literal["off", "auto", "risk"] = "off"
     # PDF: mineru=HTML path for scans (default); babeldoc=external AGPL HTTP bridge (no imports)
     pdf_backend: Literal["mineru", "babeldoc"] = "mineru"
     babeldoc_bridge_url: str = "http://127.0.0.1:8765"

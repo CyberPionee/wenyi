@@ -113,9 +113,29 @@ export interface AutoQAData {
   open_issue_count?: number;
   blocking?: boolean;
 }
+export interface MachineGateData {
+  passed?: boolean;
+  blocking?: boolean;
+  l0_passed?: boolean;
+  bt_passed?: boolean;
+  judge_passed?: boolean;
+  bt_sample_count?: number;
+  bt_low_count?: number;
+  judge_sample_count?: number;
+  judge_avg?: number | null;
+  judge_low_count?: number;
+  empty_target_count?: number;
+  open_conflict_count?: number;
+  residual_finding_count?: number;
+  open_issue_count?: number;
+  bt_score_min?: number;
+  judge_score_min?: number;
+}
 export interface ReportData {
   summary: Record<string, unknown>;
   auto_qa?: AutoQAData;
+  machine_gate?: MachineGateData;
+  evaluation?: Record<string, unknown>;
   residual_findings?: Array<Record<string, unknown>>;
   usage?: Record<string, unknown>;
   timing?: Record<string, unknown>;

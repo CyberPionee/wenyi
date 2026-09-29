@@ -165,7 +165,9 @@ class TestNonStoryDigest(unittest.TestCase):
         self.assertTrue(_looks_non_story("TO MY MOTHER"))
 
     def test_copyright_markers_are_non_story(self):
-        self.assertTrue(_looks_non_story("Copyright 2019 Little, Brown and Company. All rights reserved."))
+        self.assertTrue(
+            _looks_non_story("Copyright 2019 Little, Brown and Company. All rights reserved.")
+        )
 
     def test_long_narrative_is_story(self):
         text = "Holden walked down the street and thought about his life at Pencey. " * 20

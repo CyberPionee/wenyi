@@ -148,6 +148,19 @@ class AutofixCandidateService:
                     sweep_count += 1
         if sweep_count:
             debug.log_event("sweep_applied", count=sweep_count)
+        quality_notes: list[dict[str, Any]] = []
+        analysis_quality = analysis.get("quality_pass") if isinstance(analysis, dict) else None
+        if isinstance(analysis_quality, dict):
+            for key in ("self_revision_notes", "final_polish_notes"):
+                notes = analysis_quality.get(key)
+                if isinstance(notes, list):
+                    quality_notes.extend(item for item in notes if isinstance(item, dict))
+        from .evaluation import quality_notes_to_autofix_issues
+
+        quality_issues = quality_notes_to_autofix_issues(quality_notes, origin="quality")
+        if quality_issues:
+            issues.extend(quality_issues)
+            debug.log_event("quality_notes_applied", count=len(quality_issues))
         grouped: dict[tuple[int, int], list[dict[str, Any]]] = {}
         for issue in issues:
             chapter_index = issue.get("chapter")

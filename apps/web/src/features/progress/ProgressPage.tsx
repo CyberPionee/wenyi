@@ -217,6 +217,33 @@ export default function ProgressPage() {
                   </div>
                 </div>
               )}
+              {report.data?.machine_gate && (
+                <div className="mb-3 space-y-1 text-sm">
+                  <div className="font-medium">
+                    {tr("data.machineGate")}
+                    {report.data.machine_gate.passed
+                      ? ` · ${tr("data.machineGatePassed")}`
+                      : ` · ${tr("data.machineGateFailed")}`}
+                    {report.data.machine_gate.blocking
+                      ? ` · ${tr("data.autoQaBlocking")}`
+                      : ""}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {tr("data.evalBackTranslation")}
+                    {": "}
+                    {report.data.machine_gate.bt_low_count ?? 0}
+                    {" / "}
+                    {report.data.machine_gate.bt_sample_count ?? 0}
+                    {" · "}
+                    {tr("data.evalJudge")}
+                    {": "}
+                    {report.data.machine_gate.judge_avg ?? "—"}
+                    {report.data.machine_gate.judge_score_min != null
+                      ? ` (≥ ${report.data.machine_gate.judge_score_min})`
+                      : ""}
+                  </div>
+                </div>
+              )}
               <StructuredData
                 value={
                   report.data?.summary &&
