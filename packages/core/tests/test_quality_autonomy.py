@@ -199,7 +199,7 @@ class TestPilotSelfCheck(unittest.TestCase):
             events = open(store.event_log_path, encoding="utf-8").read()
             self.assertNotIn("pilot_selfcheck_started", events)
 
-    def test_pilot_degrade_disables_polish(self):
+    def test_pilot_degrade_reports_without_disabling_polish(self):
         with tempfile.TemporaryDirectory() as directory:
             txt = os.path.join(directory, "novel.txt")
             with open(txt, "w", encoding="utf-8") as handle:
@@ -218,9 +218,11 @@ class TestPilotSelfCheck(unittest.TestCase):
             orch = Orchestrator(cfg, client=FakeClient(handler=handler))
             store = orch.prepare(txt)
             orch._preparation.run_pilot(store, synopsis="overview")
-            self.assertFalse(cfg.pipeline.polish)
+            # Polishing must stay on: pilot only reports, it never changes workflow.
+            self.assertTrue(cfg.pipeline.polish)
             analysis = store.load_analysis() or {}
-            self.assertTrue(analysis.get("pilot", {}).get("polish_disabled"))
+            self.assertFalse(analysis.get("pilot", {}).get("polish_disabled"))
+            self.assertTrue(analysis.get("pilot", {}).get("suggest_disable_polish"))
             events = open(store.event_log_path, encoding="utf-8").read()
             self.assertIn("pilot_selfcheck_degraded", events)
 
