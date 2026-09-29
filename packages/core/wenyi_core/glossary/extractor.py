@@ -16,7 +16,9 @@ from ..i18n.prompts import render
 from ..llm.base import LLMClient
 from ..storage.protocol import Storage
 from .auto_lock import can_auto_lock, should_write_auto_lock
+from .injection import select_extraction_terms
 from .store import (
+    TYPE_PERSON,
     TYPE_TERM,
     GlossaryOccurrenceMatcher,
     GlossaryStore,
@@ -99,7 +101,6 @@ class GlossaryExtractor(Agent):
                 existing,
                 include_note=False,
                 max_note_chars=0,
-                max_terms=self.config.pipeline.glossary_extract_max_prompt_terms,
             ),
             source=source_text,
             target=target_text,
@@ -240,10 +241,27 @@ class GlossaryExtractor(Agent):
         notify ``on_auto_lock(source, target)``.
         """
         all_existing = store.all_terms()
-        existing = (
-            self._recurring_existing_terms(all_existing, source_corpus)
-            if source_corpus is not None
-            else all_existing
+        open_conflicts = {
+            str(row.get("source") or "")
+            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
+        }
+        pipeline = self.config.pipeline
+        recent_n = max(0, int(getattr(pipeline, "glossary_extract_recent_max", 20)))
+        recent_sources = [t.source for t in all_existing[-recent_n:]] if recent_n else []
+        existing = select_extraction_terms(
+            all_existing,
+            batch_text=f"{source_text}\n{target_text}",
+            source_corpus=source_corpus or "",
+            budget_chars=int(getattr(pipeline, "glossary_extract_budget_chars", 4000)),
+            core_max=int(getattr(pipeline, "glossary_extract_core_max", 12)),
+            recent_max=recent_n,
+            min_terms=int(getattr(pipeline, "glossary_extract_min_terms", 5)),
+            mode=str(getattr(pipeline, "glossary_extract_inject", "smart")),
+            open_conflict_sources=open_conflicts,
+            recent_sources=recent_sources,
+            always_types=tuple(getattr(pipeline, "glossary_always_types", (TYPE_PERSON,)))
+            or (TYPE_PERSON,),
+            core_min_occurrences=int(getattr(pipeline, "glossary_always_min_occurrences", 3)),
         )
         terms = self.extract(source_text, target_text, existing)
         occurrences = (
@@ -258,12 +276,9 @@ class GlossaryExtractor(Agent):
             "history_aligned": aligned,
             "history_unresolved": unresolved,
             "auto_locked": 0,
+            "injected_terms": len(existing),
         }
         matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
-        open_conflicts = {
-            str(row.get("source") or "")
-            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
-        }
         for t in terms:
             evidence = occurrences.get(t.source)
             t.first_chapter = evidence.chapter if evidence is not None else chapter

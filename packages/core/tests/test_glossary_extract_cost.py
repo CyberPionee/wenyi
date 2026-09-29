@@ -1,4 +1,4 @@
-"""Cost and prompt-size guards for glossary extraction."""
+"""Cost and injection selection guards for glossary extraction."""
 
 from __future__ import annotations
 
@@ -8,11 +8,8 @@ from pathlib import Path
 
 from wenyi_core.agents.prompts import render_glossary
 from wenyi_core.config import Config
-from wenyi_core.glossary.extractor import (
-    GlossaryExtractor,
-    TranslatedSegmentEvidence,
-    select_extraction_context_terms,
-)
+from wenyi_core.glossary.extractor import GlossaryExtractor, TranslatedSegmentEvidence
+from wenyi_core.glossary.injection import select_extraction_terms
 from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
 
 
@@ -34,10 +31,6 @@ def _terms(n: int) -> list[GlossaryTerm]:
 
 
 class RenderGlossaryTests(unittest.TestCase):
-    def test_max_terms_caps_prompt(self):
-        text = render_glossary(_terms(20), include_note=False, max_terms=5)
-        self.assertEqual(len([line for line in text.splitlines() if line.startswith("- ")]), 5)
-
     def test_extraction_render_omits_notes(self):
         text = render_glossary(_terms(2), include_note=False, max_note_chars=120)
         self.assertNotIn("Note:", text)
@@ -48,35 +41,62 @@ class RenderGlossaryTests(unittest.TestCase):
         self.assertIn("Note: note-0", text)
 
 
-class ExtractionContextSelectionTests(unittest.TestCase):
-    def test_selects_only_batch_related_terms(self):
+class InjectionSelectionTests(unittest.TestCase):
+    def test_batch_hit_wins_over_later_terms(self):
+        terms = [
+            GlossaryTerm(source="无关词", target="A", type="term"),
+            GlossaryTerm(source="田中", target="田中", type="person"),
+        ]
+        picked = select_extraction_terms(
+            terms,
+            batch_text="田中说。",
+            budget_chars=10_000,
+            min_terms=0,
+            core_max=0,
+            recent_max=0,
+        )
+        self.assertEqual(picked[0].source, "田中")
+        self.assertTrue(any(t.source == "田中" for t in picked))
+
+    def test_budget_caps_long_glossary(self):
+        terms = [
+            GlossaryTerm(source=f"角色{i:03d}", target=f"T{i}", type="person") for i in range(80)
+        ]
+        picked = select_extraction_terms(
+            terms,
+            batch_text="",
+            budget_chars=400,
+            min_terms=2,
+            core_max=2,
+            recent_max=2,
+        )
+        self.assertLess(len(picked), 80)
+        self.assertGreaterEqual(len(picked), 2)
+
+    def test_hit_only_mode(self):
         terms = [
             GlossaryTerm(source="田中", target="田中", type="person"),
-            GlossaryTerm(source="大阪", target="大阪", type="place"),
-            GlossaryTerm(source="独有招式", target="绝技", type="technique"),
+            GlossaryTerm(source="无关", target="X", type="term"),
         ]
-        picked = select_extraction_context_terms(
-            terms, "田中去了东京。", "田中去了东京。", max_terms=80
+        picked = select_extraction_terms(
+            terms,
+            batch_text="田中来了",
+            mode="hit_only",
+            min_terms=0,
         )
         self.assertEqual([t.source for t in picked], ["田中"])
 
-    def test_target_only_hits_appended_after_source(self):
-        terms = [
-            GlossaryTerm(source="田中", target="田中", type="person"),
-            GlossaryTerm(source="Tanaka", target="田中", type="appellation"),
-        ]
-        picked = select_extraction_context_terms(terms, "他说完了。", "田中说完了。", max_terms=80)
-        self.assertEqual(sorted(t.source for t in picked), ["Tanaka", "田中"])
-        picked2 = select_extraction_context_terms(terms, "田中走了。", "Tanaka left.", max_terms=80)
-        self.assertIn("田中", [t.source for t in picked2])
-
-    def test_safety_cap_only_when_over_limit(self):
-        terms = [GlossaryTerm(source=f"词{i}", target=f"译{i}", type="term") for i in range(5)]
-        text = " ".join(f"词{i}" for i in range(5))
-        picked = select_extraction_context_terms(terms, text, max_terms=3)
-        self.assertEqual(len(picked), 3)
-        picked_all = select_extraction_context_terms(terms, text, max_terms=80)
-        self.assertEqual(len(picked_all), 5)
+    def test_zero_hit_fallback_min_terms(self):
+        terms = [GlossaryTerm(source=f"词{i}", target=f"T{i}", type="term") for i in range(10)]
+        picked = select_extraction_terms(
+            terms,
+            batch_text="完全无关的段落",
+            budget_chars=10_000,
+            min_terms=5,
+            core_max=0,
+            recent_max=0,
+        )
+        self.assertGreaterEqual(len(picked), 5)
 
 
 class FinalizeChapterTests(unittest.TestCase):
@@ -112,10 +132,11 @@ class FinalizeChapterTests(unittest.TestCase):
                 store.close()
 
 
-class ExtractPromptBudgetTests(unittest.TestCase):
-    def test_default_prompt_term_cap(self):
+class ConfigDefaultsTests(unittest.TestCase):
+    def test_inject_defaults(self):
         cfg = Config.from_dict({})
-        self.assertEqual(cfg.pipeline.glossary_extract_max_prompt_terms, 80)
+        self.assertEqual(cfg.pipeline.glossary_extract_inject, "smart")
+        self.assertEqual(cfg.pipeline.glossary_extract_budget_chars, 4000)
 
 
 if __name__ == "__main__":
