@@ -25,10 +25,8 @@ function Location({ chapter, index }: { chapter?: unknown; index?: unknown }) {
 
 export function QualityPassCard({
   qualityPass,
-  pilot,
 }: {
   qualityPass?: Record<string, unknown> | null;
-  pilot?: Record<string, unknown> | null;
 }) {
   const { t } = useI18n();
   const qp = qualityPass || {};
@@ -37,15 +35,13 @@ export function QualityPassCard({
   const polishes = (qp.final_polish_notes as Finding[] | undefined) || [];
   const checks = (qp.chapter_selfcheck_findings as Finding[] | undefined) || [];
   const backs = (qp.back_translation_notes as Finding[] | undefined) || [];
-  const pilotFindings = (pilot?.findings as Finding[] | undefined) || [];
   const empty =
     !notes.length &&
     !revisions.length &&
     !polishes.length &&
     !checks.length &&
     !backs.length &&
-    !pilotFindings.length &&
-    !pilot;
+    !backs.length;
 
   return (
     <Card>
@@ -55,28 +51,6 @@ export function QualityPassCard({
       <CardContent className="text-sm space-y-4">
         <p className="text-muted-foreground">{t("style.aiSuggestionsHint")}</p>
         {empty ? <p className="text-muted-foreground">{t("style.qpEmpty")}</p> : null}
-
-        {pilot ? (
-          <section className="space-y-2">
-            <h4 className="font-medium">
-              {t("style.qpPilot")}
-              {pilot.finding_count != null && (
-                <Badge variant="secondary" className="ml-2">
-                  {t("style.qpCount", { count: num(pilot.finding_count) })}
-                </Badge>
-              )}
-            </h4>
-            {Boolean(pilot.polish_disabled) && (
-              <p className="text-xs text-muted-foreground">{t("style.qpPolishDisabled")}</p>
-            )}
-            {pilotFindings.map((f, i) => (
-              <div key={i} className="border-l-2 pl-3 py-1">
-                <Location chapter={f.chapter} index={f.index} />
-                <div>{text(f.detail) || text(f.kind)}</div>
-              </div>
-            ))}
-          </section>
-        ) : null}
 
         {checks.length > 0 && (
           <section className="space-y-2">

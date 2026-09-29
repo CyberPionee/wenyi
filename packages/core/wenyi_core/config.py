@@ -56,7 +56,6 @@ pipeline:
   glossary_always_types: [person] # Term types kept in chapter-filtered prompts even when absent from the chapter
   glossary_always_min_occurrences: 3 # Minimum book-wide source/alias occurrences for always-on entities
   glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
-  pilot: false # Optional 1-batch trial translation + cheap self-check after preparation (opt-in)
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
   self_revision: false # Optional C-batch draft revision notes (analysis/events only)
   editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
@@ -155,7 +154,6 @@ class PipelineConfig(BaseModel):
     )
     glossary_always_min_occurrences: int = Field(default=3, ge=1)
     glossary_note_chars: int = Field(default=120, ge=0)
-    pilot: bool = False  # Opt-in trial translation and cheap self-check after preparation
     auto_qa_strict: bool = False  # Block export while auto_qa residuals remain
     self_revision: bool = False
     editorial_pass: bool = False

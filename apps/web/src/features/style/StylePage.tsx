@@ -81,7 +81,6 @@ export default function StylePage() {
           <TabsContent value="style" className="mt-4 space-y-4">
             <QualityPassCard
               qualityPass={analysis.quality_pass as Record<string, unknown> | null}
-              pilot={analysis.pilot as Record<string, unknown> | null}
             />
             <Card>
               <CardHeader>

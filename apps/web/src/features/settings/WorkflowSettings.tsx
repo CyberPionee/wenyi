@@ -26,7 +26,6 @@ export function WorkflowSettings({
     ["polish", tr("settings.polishing")],
     ["review", tr("common.wholeBookReview")],
     ["review_autofix", tr("settings.applyAutofixesToTheSavedTranslation")],
-    ["pilot", tr("settings.pilotTrial")],
     ["auto_qa_strict", tr("settings.autoQaStrict")],
     ["self_revision", tr("settings.selfRevision")],
     ["editorial_pass", tr("settings.editorialPass")],

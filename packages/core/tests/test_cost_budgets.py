@@ -18,8 +18,7 @@ class TestCostBudgets(unittest.TestCase):
         # Glossary note / always-on caps.
         self.assertEqual(pipeline.glossary_note_chars, 120)
         self.assertEqual(pipeline.glossary_always_min_occurrences, 3)
-        # C-batch and pilot stay opt-in so the one-click path is unchanged.
-        self.assertFalse(pipeline.pilot)
+        # C-batch stays opt-in so the one-click path is unchanged.
         for flag in (
             "self_revision",
             "editorial_pass",

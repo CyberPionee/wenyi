@@ -1,4 +1,4 @@
-"""Tests for residual sweep candidates, auto-lock events and opt-in pilot self-check."""
+"""Tests for residual sweep candidates and auto-lock events."""
 
 from __future__ import annotations
 
@@ -11,10 +11,6 @@ from wenyi_core.config import Config
 from wenyi_core.glossary.extractor import GlossaryExtractor, TranslatedSegmentEvidence
 from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
 from wenyi_core.llm.providers.fake import FakeClient
-from wenyi_core.pipeline.orchestrator import Orchestrator
-
-from tests.fake_llm import routing_handler
-from tests.sample_data import write_sample_txt
 
 
 def _cfg(state: str) -> Config:
@@ -29,7 +25,6 @@ def _cfg(state: str) -> Config:
                 "polish": False,
                 "book_understanding": True,
                 "annotation_alignment": False,
-                "pilot": False,
             },
         }
     )
@@ -162,69 +157,6 @@ class TestTermAutoLock(unittest.TestCase):
             self.assertEqual(locked, [])
         finally:
             store.close()
-
-
-class TestPilotSelfCheck(unittest.TestCase):
-    def test_pilot_writes_analysis_only_and_logs_events(self):
-        with tempfile.TemporaryDirectory() as directory:
-            txt = os.path.join(directory, "novel.txt")
-            write_sample_txt(txt)
-            cfg = _cfg(os.path.join(directory, "state"))
-            cfg.pipeline.pilot = True
-            client = FakeClient(handler=routing_handler)
-            orch = Orchestrator(cfg, client=client)
-            store = orch.prepare(txt)
-            orch._preparation.run_pilot(store, synopsis="overview")
-            analysis = store.load_analysis() or {}
-            self.assertIn("pilot", analysis)
-            self.assertEqual(analysis["pilot"]["chapter"], 0)
-            events = open(store.event_log_path, encoding="utf-8").read()
-            self.assertIn("pilot_selfcheck_started", events)
-            self.assertTrue(
-                "pilot_selfcheck_finished" in events or "pilot_selfcheck_degraded" in events
-            )
-            # Pilot must not publish chapter targets.
-            chapter = store.load_chapter(0)
-            self.assertTrue(all(segment.target is None for segment in chapter.text_segments))
-
-    def test_pilot_default_off_skips_trial(self):
-        with tempfile.TemporaryDirectory() as directory:
-            txt = os.path.join(directory, "novel.txt")
-            write_sample_txt(txt)
-            cfg = _cfg(os.path.join(directory, "state"))
-            self.assertFalse(cfg.pipeline.pilot)
-            client = FakeClient(handler=routing_handler)
-            orch = Orchestrator(cfg, client=client)
-            store = orch.prepare(txt)
-            events = open(store.event_log_path, encoding="utf-8").read()
-            self.assertNotIn("pilot_selfcheck_started", events)
-
-    def test_pilot_degrade_reports_without_disabling_polish(self):
-        with tempfile.TemporaryDirectory() as directory:
-            txt = os.path.join(directory, "novel.txt")
-            with open(txt, "w", encoding="utf-8") as handle:
-                handle.write("# One\n\nChapter 12 starts in 2024 and Ann left.\n")
-            cfg = _cfg(os.path.join(directory, "state"))
-            cfg.pipeline.pilot = True
-            cfg.pipeline.polish = True
-
-            def handler(messages, tier, json_mode):
-                system = messages[0]["content"]
-                if "literary translator" in system:
-                    # Omit source numbers to force residual findings.
-                    return '{"translations":["Chapter starts and left."]}'
-                return routing_handler(messages, tier, json_mode)
-
-            orch = Orchestrator(cfg, client=FakeClient(handler=handler))
-            store = orch.prepare(txt)
-            orch._preparation.run_pilot(store, synopsis="overview")
-            # Polishing must stay on: pilot only reports, it never changes workflow.
-            self.assertTrue(cfg.pipeline.polish)
-            analysis = store.load_analysis() or {}
-            self.assertFalse(analysis.get("pilot", {}).get("polish_disabled"))
-            self.assertTrue(analysis.get("pilot", {}).get("suggest_disable_polish"))
-            events = open(store.event_log_path, encoding="utf-8").read()
-            self.assertIn("pilot_selfcheck_degraded", events)
 
 
 if __name__ == "__main__":
