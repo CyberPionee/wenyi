@@ -7,6 +7,7 @@ import os
 import tempfile
 import unittest
 
+from wenyi_core.agents.synopsis import _collapse_to_sentence, _looks_non_story
 from wenyi_core.config import Config
 from wenyi_core.glossary.extractor import GlossaryExtractor, TranslatedSegmentEvidence
 from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
@@ -157,6 +158,28 @@ class TestTermAutoLock(unittest.TestCase):
             self.assertEqual(locked, [])
         finally:
             store.close()
+
+
+class TestNonStoryDigest(unittest.TestCase):
+    def test_short_text_is_non_story(self):
+        self.assertTrue(_looks_non_story("TO MY MOTHER"))
+
+    def test_copyright_markers_are_non_story(self):
+        self.assertTrue(_looks_non_story("Copyright 2019 Little, Brown and Company. All rights reserved."))
+
+    def test_long_narrative_is_story(self):
+        text = "Holden walked down the street and thought about his life at Pencey. " * 20
+        self.assertFalse(_looks_non_story(text))
+
+    def test_collapse_strips_headings_keeps_first_body_line(self):
+        result = _collapse_to_sentence("## Plot\n版权页。\n## Characters\n无角色出场。")
+        self.assertEqual(result, "版权页。")
+
+    def test_collapse_plain_text_passthrough(self):
+        self.assertEqual(_collapse_to_sentence("题献给作者母亲。"), "题献给作者母亲。")
+
+    def test_collapse_empty_returns_empty(self):
+        self.assertEqual(_collapse_to_sentence(""), "")
 
 
 if __name__ == "__main__":

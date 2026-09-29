@@ -9,11 +9,20 @@ supports cache reuse. Use grouped map-reduce merging for long books to bound pro
 
 from __future__ import annotations
 
+import re
+
 from ..i18n.prompts import render
 from .base import Agent
 
 # Character budget for one digest merge; group and recursively merge larger inputs.
 _REDUCE_BUDGET = 12000
+
+# Heuristic markers for front/back matter that should never receive the story template.
+_NON_STORY_PATTERNS = re.compile(
+    r"(?i)(all rights reserved|copyright\s*©|publisher|isbn|dedication|table of contents|"
+    r"colophon|acknowledg|for my (mother|father|wife|husband)|^to [a-z ]+$|"
+    r"^\s*©|little, brown|hachette)"
+)
 
 
 class Synopsizer(Agent):
@@ -23,6 +32,13 @@ class Synopsizer(Agent):
         """
         if not source_text.strip():
             return ""
+        if _looks_non_story(source_text):
+            system = render("chapter_digest_system", src=self.src, tgt=self.tgt)
+            user = render(
+                "chapter_digest_user", src=self.src, tgt=self.tgt, source=source_text[:2000]
+            )
+            result = self._ask_text(system, user, operation="synopsis.chapter")
+            return _collapse_to_sentence(result)
         system = render("chapter_digest_system", src=self.src, tgt=self.tgt)
         user = render("chapter_digest_user", src=self.src, tgt=self.tgt, source=source_text[:8000])
         # Use the fast tier with output headroom above the language-specific digest budget.
@@ -96,3 +112,27 @@ class Synopsizer(Agent):
                 if "truncated" not in str(error).lower():
                     raise
         return ""
+
+
+def _looks_non_story(source_text: str) -> bool:
+    """Heuristic: very short text or known front/back-matter markers."""
+    stripped = source_text.strip()
+    if len(stripped) < 300:
+        return True
+    return bool(_NON_STORY_PATTERNS.search(stripped[:800]))
+
+
+def _collapse_to_sentence(text: str) -> str:
+    """Reduce a template-shaped digest to a single identifying sentence.
+
+    If the model still emitted section headings, take the first non-empty body
+    line under any heading; otherwise return the first non-empty line.
+    """
+    lines = [ln.strip() for ln in (text or "").split("\n") if ln.strip()]
+    if not lines:
+        return ""
+    for line in lines:
+        if line.startswith("##"):
+            continue
+        return line
+    return lines[0]
