@@ -367,18 +367,38 @@ class PreparationService:
 
     # Book-understanding prescan: chapter digests and a whole-book synopsis.
     # Version 3 embeds glossary-aware prompts; glossary_fp maps source→target at generation
-    # time so that modifying an existing translation invalidates the cached digest.
+    # time so that modifying an existing translation patches the cached digest in place.
     SOURCE_DIGEST_V = 3
     BOOK_SYNOPSIS_V = 3
 
     @staticmethod
     def _glossary_fp(terms: list) -> dict[str, str]:
-        """Map source→target for glossary fingerprinting; only edits to existing pairs invalidate."""
+        """Map source→target for glossary fingerprinting."""
         return {
             t.source: t.target
             for t in terms
             if getattr(t, "source", "") and getattr(t, "target", "")
         }
+
+    @staticmethod
+    def _glossary_edits(
+        stored: dict[str, str], glossary_fp: dict[str, str]
+    ) -> list[tuple[str, str]]:
+        """Return (old_target, new_target) pairs for terms whose target changed."""
+        edits: list[tuple[str, str]] = []
+        for src, old_tgt in stored.items():
+            new_tgt = glossary_fp.get(src)
+            if new_tgt is not None and new_tgt != old_tgt:
+                edits.append((old_tgt, new_tgt))
+        return edits
+
+    @staticmethod
+    def _patch_text(text: str, edits: list[tuple[str, str]]) -> str:
+        """Apply (old, new) string replacements to text."""
+        for old, new in edits:
+            if old:
+                text = text.replace(old, new)
+        return text
 
     @staticmethod
     def _digest_is_current(meta: dict, glossary_fp: dict[str, str]) -> bool:
@@ -389,7 +409,7 @@ class PreparationService:
         stored = meta.get("source_digest_gf") or {}
         if not isinstance(stored, dict):
             return False
-        # Invalidate only when an existing pair's target changed; new terms are fine.
+        # Only an existing pair's target change invalidates; new terms are fine.
         for src, tgt in stored.items():
             if glossary_fp.get(src) != tgt:
                 return False
@@ -428,11 +448,41 @@ class PreparationService:
         glossary_terms = list(store.all_terms()) if hasattr(store, "all_terms") else []
         glossary_fp = self._glossary_fp(glossary_terms)
 
-        # Digest chapters independently in a thread pool, but persist all results on the main thread
-        # to avoid competing atomic writes and preserve incremental chapter-level resume. Skip saved digests.
         loaded = {
             c.get("index", i): store.load_chapter(c.get("index", i)) for i, c in enumerate(chapters)
         }
+
+        # Phase 1: patch existing digests when glossary targets changed (no LLM call).
+        patched_any = False
+        for ci, ch in loaded.items():
+            meta = ch.meta
+            digest = meta.get("source_digest") or ""
+            version = meta.get("source_digest_v", 1)
+            stored = meta.get("source_digest_gf") or {}
+            if not (str(digest).strip() and isinstance(version, int) and version >= 3):
+                continue
+            if not isinstance(stored, dict) or not stored:
+                continue
+            edits = self._glossary_edits(stored, glossary_fp)
+            if not edits:
+                continue
+            meta["source_digest"] = self._patch_text(str(digest), edits)
+            meta["source_digest_gf"] = glossary_fp
+            store.save_chapter(ch)
+            patched_any = True
+            store.log_event(
+                "book_understanding_digest_patched",
+                chapter=ci,
+                edits=[{"old": o, "new": n} for o, n in edits],
+            )
+        if patched_any:
+            # Reload patched digests for the synopsis step.
+            loaded = {
+                c.get("index", i): store.load_chapter(c.get("index", i))
+                for i, c in enumerate(chapters)
+            }
+
+        # Phase 2: generate missing or outdated digests.
         todo = [
             (ci, "\n".join(s.source for s in ch.text_segments))
             for ci, ch in loaded.items()
@@ -476,6 +526,29 @@ class PreparationService:
 
         analysis = store.load_analysis() or {}
         synopsis = str(analysis.get("book_synopsis", "") or "")
+
+        # Phase 3: patch existing synopsis when glossary targets changed (no LLM call).
+        syn_stored = analysis.get("book_synopsis_gf") or {}
+        syn_version = analysis.get("book_synopsis_v", 1)
+        if (
+            synopsis.strip()
+            and isinstance(syn_version, int)
+            and syn_version >= 3
+            and isinstance(syn_stored, dict)
+            and syn_stored
+        ):
+            syn_edits = self._glossary_edits(syn_stored, glossary_fp)
+            if syn_edits:
+                synopsis = self._patch_text(synopsis, syn_edits)
+                analysis["book_synopsis"] = synopsis
+                analysis["book_synopsis_gf"] = glossary_fp
+                store.save_analysis(analysis)
+                store.log_event(
+                    "book_synopsis_patched",
+                    edits=[{"old": o, "new": n} for o, n in syn_edits],
+                )
+
+        # Phase 4: generate synopsis when missing, incomplete or outdated.
         if (
             not self._synopsis_is_current(analysis, glossary_fp) or not _synopsis_complete(synopsis)
         ) and any(d.strip() for d in digests):

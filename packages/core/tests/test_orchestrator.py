@@ -1120,6 +1120,49 @@ class TestBookUnderstanding(unittest.TestCase):
                 [],
             )
 
+    def test_glossary_edit_patches_digest_without_llm(self):
+        """Changing an existing glossary target patches digests in place without regeneration."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review = False
+            store = require_file_storage(
+                Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(txt)
+            )
+            # Simulate a digest that contains a glossary target.
+            chapter = store.load_chapter(0)
+            chapter.meta["source_digest"] = "Holden leaves Pencey after being expelled."
+            chapter.meta["source_digest_v"] = 3
+            chapter.meta["source_digest_gf"] = {"Pencey": "Pencey"}
+            store.save_chapter(chapter)
+            analysis = store.load_analysis() or {}
+            analysis["book_synopsis"] = "The story begins at Pencey."
+            analysis["book_synopsis_v"] = 3
+            analysis["book_synopsis_gf"] = {"Pencey": "Pencey"}
+            store.save_analysis(analysis)
+
+            # Change the glossary target.
+            from wenyi_core.glossary.store import GlossaryTerm
+
+            store.upsert_term(GlossaryTerm(source="Pencey", target="彭西", type="place"))
+
+            client = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=client)._preparation.ensure_understanding(store)
+            # No LLM calls for patching.
+            self.assertEqual(client.calls, [])
+            self.assertEqual(
+                store.load_chapter(0).meta["source_digest"],
+                "Holden leaves 彭西 after being expelled.",
+            )
+            self.assertIn("彭西", (store.load_analysis() or {}).get("book_synopsis", ""))
+            # Fingerprint updated to the new mapping.
+            self.assertEqual(
+                store.load_chapter(0).meta["source_digest_gf"].get("Pencey"),
+                "彭西",
+            )
+            store.close()
+
 
 class TestRunSteps(unittest.TestCase):
     def test_subset_only_assemble(self):
