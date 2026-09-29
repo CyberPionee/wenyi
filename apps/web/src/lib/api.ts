@@ -141,8 +141,14 @@ export const api = {
   getWorkflow: (pid: string) =>
     request<Output<"WorkflowOut">>(`/projects/${pid}/workflow`),
   capabilities: () => request<Capabilities>("/capabilities"),
-  getPreview: (pid: string) =>
-    request<UploadPreview>(`/projects/${pid}/preview`),
+  getPreview: async (pid: string): Promise<UploadPreview | null> => {
+    try {
+      return await request<UploadPreview>(`/projects/${pid}/preview`);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("409:")) return null;
+      throw error;
+    }
+  },
   getConfig: (pid: string) => request<ProjectConfig>(`/projects/${pid}/config`),
   saveConfig: (pid: string, yaml: string) =>
     request<ProjectConfig>(`/projects/${pid}/config`, {
