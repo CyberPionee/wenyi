@@ -26,6 +26,42 @@ _SCRIPT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("devanagari", re.compile(r"[ऀ-ॿ]+")),
 )
 
+# TLD / URL fragments that must not be treated as leftover prose.
+_URL_TOKENS = frozenset(
+    {
+        "com",
+        "org",
+        "net",
+        "edu",
+        "gov",
+        "www",
+        "http",
+        "https",
+        "html",
+        "htm",
+        "php",
+        "asp",
+        "aspx",
+        "jsp",
+        "json",
+        "xml",
+        "css",
+        "js",
+        "pdf",
+        "jpg",
+        "png",
+        "gif",
+        "svg",
+        "zip",
+        "exe",
+        "cgi",
+        "shtml",
+        "cfm",
+        "mailto",
+        "ftp",
+    }
+)
+
 
 def _numbers(text: str) -> list[str]:
     return _NUMBER_RE.findall(text or "")
@@ -36,6 +72,27 @@ def _script_letter_counts(text: str) -> dict[str, int]:
     for name, pattern in _SCRIPT_PATTERNS:
         counts[name] = sum(len(match.group()) for match in pattern.finditer(text))
     return counts
+
+
+def _looks_like_url_context(target: str, start: int, end: int) -> bool:
+    """True when the match sits in URL/domain-like punctuation."""
+    left = target[max(0, start - 3) : start]
+    right = target[end : end + 3]
+    if any(ch in left or ch in right for ch in ("/", ":", "@", "#", "?")):
+        return True
+    return left.endswith(".") or right.startswith(".")
+
+
+def _is_proper_noun_or_url_token(run: str) -> bool:
+    """Skip URL fragments and Title Case / ALLCAPS names that stay untranslated."""
+    if run.lower() in _URL_TOKENS:
+        return True
+    letters = [c for c in run if c.isalpha()]
+    if not letters:
+        return True
+    if run.isupper() and len(letters) >= 2:
+        return True
+    return bool(run[0].isupper() and run[1:].islower())
 
 
 def scan_number_residue(source: str, target: str) -> dict[str, Any] | None:
@@ -56,9 +113,8 @@ def scan_number_residue(source: str, target: str) -> dict[str, Any] | None:
 def scan_untranslated_residue(source: str, target: str) -> dict[str, Any] | None:
     """Report source-script runs left inside a target dominated by another script.
 
-    Only non-dominant script runs that also appear verbatim in the source are
-    flagged, so intentional loanwords that never appear in the source stay
-    unflagged. Same-script translations stay unflagged.
+    Skip URLs, domain labels and proper nouns (Title Case / ALLCAPS) so copyright
+    pages, publisher names and web addresses are not treated as untranslated prose.
     """
     if not (source or "").strip() or not (target or "").strip():
         return None
@@ -73,8 +129,16 @@ def scan_untranslated_residue(source: str, target: str) -> dict[str, Any] | None
         min_len = 2 if name == "cjk" else 3
         for match in pattern.finditer(target):
             run = match.group()
-            if len(run) >= min_len and run in source:
-                leftover.append(run)
+            if len(run) < min_len:
+                continue
+            if run not in source:
+                continue
+            if name == "latin" and (
+                _looks_like_url_context(target, match.start(), match.end())
+                or _is_proper_noun_or_url_token(run)
+            ):
+                continue
+            leftover.append(run)
     if not leftover:
         return None
     sample = " / ".join(leftover[:3])

@@ -33,6 +33,27 @@ class TestSweep(unittest.TestCase):
         self.assertEqual(finding["kind"], "untranslated_residue")
         self.assertIsNone(scan_untranslated_residue("彼は言った", "他说"))
 
+    def test_untranslated_residue_skips_urls_and_proper_nouns(self):
+        # URLs / domain fragments in a CJK target
+        self.assertIsNone(
+            scan_untranslated_residue(
+                "版权页 permissions hbgusa com",
+                "版权声明：permissions / hbgusa / com 请遵守。",
+            )
+        )
+        self.assertIsNone(
+            scan_untranslated_residue(
+                "Copyright Little Brown Company",
+                "版权所有 Little / Brown 出版公司。",
+            )
+        )
+        # Real leftover lowercase prose is still flagged
+        finding = scan_untranslated_residue(
+            "He said hello world clearly",
+            "他认真的说完了 hello world 这一段话之后就离开了这里",
+        )
+        self.assertIsNotNone(finding)
+
     def test_untranslated_residue_flags_latin_in_cjk_target(self):
         finding = scan_untranslated_residue(
             "He said Hello world clearly",
