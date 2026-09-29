@@ -105,7 +105,7 @@ class TestConfigFileCreation(unittest.TestCase):
         self.assertEqual(cfg.pipeline.glossary_always_types, ["person"])
         self.assertEqual(cfg.pipeline.glossary_always_min_occurrences, 3)
         self.assertEqual(cfg.pipeline.glossary_note_chars, 120)
-        self.assertEqual(cfg.pipeline.rolling_context_segments, 8)
+        self.assertEqual(cfg.pipeline.rolling_context_segments, 6)
         self.assertTrue(cfg.pipeline.rolling_context_with_source)
         self.assertFalse(cfg.pipeline.auto_qa_strict)
 

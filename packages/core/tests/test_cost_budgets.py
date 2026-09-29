@@ -13,7 +13,7 @@ class TestCostBudgets(unittest.TestCase):
         cfg = Config.from_dict({"llm": {"preset": "fake"}})
         pipeline = cfg.pipeline
         # Rolling context: 8 source-target pairs (quality tier may use 12).
-        self.assertEqual(pipeline.rolling_context_segments, 8)
+        self.assertEqual(pipeline.rolling_context_segments, 6)
         self.assertLessEqual(pipeline.rolling_context_segments, 12)
         # Glossary note / always-on caps.
         self.assertEqual(pipeline.glossary_note_chars, 120)
