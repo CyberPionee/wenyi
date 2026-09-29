@@ -94,9 +94,42 @@ def numbered_pairs_with_refs(
     return "\n".join(out)
 
 
+def strip_empty_sections(text: str) -> str:
+    """Remove markdown ``##`` sections that carry no body content.
+
+    A section is empty when everything between its heading and the next heading
+    (or end of text) is whitespace.  Sections with content are kept unchanged.
+    This trims digest/synopsis boilerplate before prompt injection.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    lines = raw.split("\n")
+    sections: list[tuple[str, list[str]]] = []  # (heading, body_lines)
+    current_heading = ""
+    current_body: list[str] = []
+    for line in lines:
+        if line.startswith("## "):
+            sections.append((current_heading, current_body))
+            current_heading = line
+            current_body = []
+        else:
+            current_body.append(line)
+    sections.append((current_heading, current_body))
+    kept: list[str] = []
+    for heading, body in sections:
+        if heading:
+            if any(ln.strip() for ln in body):
+                kept.append(heading)
+                kept.extend(body)
+        else:
+            kept.extend(body)  # preamble before first heading
+    return "\n".join(kept).strip()
+
+
 def clip_context_block(value: str, max_chars: int) -> str:
     """Clip long style/synopsis/digest blocks for review prompts; empty becomes (none)."""
-    text = (value or "").strip()
+    text = strip_empty_sections(value or "")
     if not text:
         return "(none)"
     if max_chars > 0 and len(text) > max_chars:

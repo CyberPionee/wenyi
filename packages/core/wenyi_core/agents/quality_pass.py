@@ -63,7 +63,7 @@ class QualityPassAgent(Agent):
             src=self.src,
             tgt=self.tgt,
             style=style or "(none)",
-            book_synopsis=book_synopsis or "(none)",
+            book_synopsis=prompts.strip_empty_sections(book_synopsis) or "(none)",
             pairs=prompts.numbered_pairs([s for s, _ in pairs], [t for _, t in pairs]),
             n=max_notes,
         )

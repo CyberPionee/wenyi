@@ -118,7 +118,7 @@ class Translator(Agent):
             src=self.src,
             tgt=self.tgt,
             style=style or "(none)",
-            book_synopsis=book_synopsis or "(none)",
+            book_synopsis=prompts.strip_empty_sections(book_synopsis) or "(none)",
             glossary=prompts.render_glossary(
                 glossary_terms,
                 max_note_chars=self.config.pipeline.glossary_note_chars,
@@ -126,7 +126,7 @@ class Translator(Agent):
             annotation_contexts=prompts.render_annotation_contexts(
                 annotation_contexts or [[] for _ in sources]
             ),
-            chapter_digest=chapter_digest or "(none)",
+            chapter_digest=prompts.strip_empty_sections(chapter_digest) or "(none)",
             context=context or "(none)",
             n=n,
             n_minus_1=n - 1,

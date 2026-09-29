@@ -245,12 +245,12 @@ class ReviewFixer(Agent):
             tgt=self.tgt,
             style=style.strip() if isinstance(style, str) and style.strip() else "(none)",
             book_synopsis=(
-                book_synopsis.strip()
+                prompts.strip_empty_sections(book_synopsis)
                 if isinstance(book_synopsis, str) and book_synopsis.strip()
                 else "(none)"
             ),
             chapter_digest=(
-                chapter_digest.strip()
+                prompts.strip_empty_sections(chapter_digest)
                 if isinstance(chapter_digest, str) and chapter_digest.strip()
                 else "(none)"
             ),

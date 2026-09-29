@@ -8,7 +8,7 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
-from wenyi_core.agents.prompts import render_glossary
+from wenyi_core.agents.prompts import render_glossary, strip_empty_sections
 from wenyi_core.glossary.store import (
     TYPE_APPELLATION,
     TYPE_PERSON,
@@ -280,6 +280,30 @@ class TestGlossary(unittest.TestCase):
             max_always=2,
         )
         self.assertEqual([term.source for term in merged], ["P0", "P1"])
+
+    def test_strip_empty_sections_removes_blank_headings(self):
+        text = (
+            "## Plot\nHolden leaves school.\n\n"
+            "## Characters\n   \n\n"
+            "## Foreshadowing\n\n"
+            "## Address\nHe calls Phoebe.\n"
+        )
+        stripped = strip_empty_sections(text)
+        self.assertIn("## Plot", stripped)
+        self.assertIn("## Address", stripped)
+        self.assertNotIn("## Characters", stripped)
+        self.assertNotIn("## Foreshadowing", stripped)
+
+    def test_strip_empty_sections_keeps_nonempty_sections(self):
+        text = "## Plot\nSomething happens.\n## Characters\nAnn appears.\n"
+        self.assertEqual(strip_empty_sections(text).count("## "), 2)
+
+    def test_strip_empty_sections_handles_no_headings(self):
+        self.assertEqual(strip_empty_sections("Just a sentence."), "Just a sentence.")
+
+    def test_strip_empty_sections_handles_empty_input(self):
+        self.assertEqual(strip_empty_sections(""), "")
+        self.assertEqual(strip_empty_sections("   \n  "), "")
 
 
 if __name__ == "__main__":
