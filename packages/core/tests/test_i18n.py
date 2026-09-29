@@ -280,7 +280,7 @@ def test_strict_template_and_literal_source_payload():
     with pytest.raises(ValueError, match="missing argument"):
         render("translator_user", src="en", tgt="ja")
     source = '${tgt_label} $n {"translations": []}'
-    assert source in render("chapter_digest_user", source=source)
+    assert source in render("chapter_digest_user", source=source, glossary="(none)")
     with pytest.raises(ValueError, match="Unsupported"):
         render("translator_system", src="en", tgt="zz")
     with pytest.raises(ValueError):

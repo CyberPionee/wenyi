@@ -365,22 +365,49 @@ class PreparationService:
             parts.append(f"【{tag}】\n{chunk}")
         return "\n\n".join(parts)
 
-    # Book-understanding prescan: chapter digests and whole-book synopsis.
-    # Structured digests/synopses are version 2; missing or v1 free-form results regenerate.
-    SOURCE_DIGEST_V = 2
-    BOOK_SYNOPSIS_V = 2
+    # Book-understanding prescan: chapter digests and a whole-book synopsis.
+    # Version 3 embeds glossary-aware prompts; glossary_fp maps source→target at generation
+    # time so that modifying an existing translation invalidates the cached digest.
+    SOURCE_DIGEST_V = 3
+    BOOK_SYNOPSIS_V = 3
 
     @staticmethod
-    def _digest_is_current(meta: dict) -> bool:
+    def _glossary_fp(terms: list) -> dict[str, str]:
+        """Map source→target for glossary fingerprinting; only edits to existing pairs invalidate."""
+        return {
+            t.source: t.target
+            for t in terms
+            if getattr(t, "source", "") and getattr(t, "target", "")
+        }
+
+    @staticmethod
+    def _digest_is_current(meta: dict, glossary_fp: dict[str, str]) -> bool:
         digest = meta.get("source_digest") or ""
         version = meta.get("source_digest_v", 1)
-        return bool(str(digest).strip()) and isinstance(version, int) and version >= 2
+        if not (str(digest).strip() and isinstance(version, int) and version >= 3):
+            return False
+        stored = meta.get("source_digest_gf") or {}
+        if not isinstance(stored, dict):
+            return False
+        # Invalidate only when an existing pair's target changed; new terms are fine.
+        for src, tgt in stored.items():
+            if glossary_fp.get(src) != tgt:
+                return False
+        return True
 
     @staticmethod
-    def _synopsis_is_current(analysis: dict) -> bool:
+    def _synopsis_is_current(analysis: dict, glossary_fp: dict[str, str]) -> bool:
         synopsis = analysis.get("book_synopsis") or ""
         version = analysis.get("book_synopsis_v", 1)
-        return bool(str(synopsis).strip()) and isinstance(version, int) and version >= 2
+        if not (str(synopsis).strip() and isinstance(version, int) and version >= 3):
+            return False
+        stored = analysis.get("book_synopsis_gf") or {}
+        if not isinstance(stored, dict):
+            return False
+        for src, tgt in stored.items():
+            if glossary_fp.get(src) != tgt:
+                return False
+        return True
 
     def ensure_understanding(
         self,
@@ -397,6 +424,10 @@ class PreparationService:
         manifest = store.load_manifest()
         chapters = manifest.get("chapters", [])
 
+        # Snapshot glossary terms once; the fingerprint gates digest reuse across edits.
+        glossary_terms = list(store.all_terms()) if hasattr(store, "all_terms") else []
+        glossary_fp = self._glossary_fp(glossary_terms)
+
         # Digest chapters independently in a thread pool, but persist all results on the main thread
         # to avoid competing atomic writes and preserve incremental chapter-level resume. Skip saved digests.
         loaded = {
@@ -405,7 +436,7 @@ class PreparationService:
         todo = [
             (ci, "\n".join(s.source for s in ch.text_segments))
             for ci, ch in loaded.items()
-            if not self._digest_is_current(ch.meta)
+            if not self._digest_is_current(ch.meta, glossary_fp)
         ]
         if todo:
             store.log_event(
@@ -418,7 +449,8 @@ class PreparationService:
                 progress(0, len(todo), "Prescanning chapter digests")
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 futs = {
-                    ex.submit(self._runtime.synopsizer.digest_chapter, src): ci for ci, src in todo
+                    ex.submit(self._runtime.synopsizer.digest_chapter, src, glossary_terms): ci
+                    for ci, src in todo
                 }
                 for n_done, fut in enumerate(as_completed(futs), 1):
                     ci = futs[fut]
@@ -426,6 +458,7 @@ class PreparationService:
                         fut.result()
                     )  # _ask_text already returns an empty fallback on failure.
                     loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
+                    loaded[ci].meta["source_digest_gf"] = glossary_fp
                     store.save_chapter(loaded[ci])
                     store.log_event(
                         "book_understanding_chapter_digest_saved",
@@ -443,17 +476,19 @@ class PreparationService:
 
         analysis = store.load_analysis() or {}
         synopsis = str(analysis.get("book_synopsis", "") or "")
-        if (not self._synopsis_is_current(analysis) or not _synopsis_complete(synopsis)) and any(
-            d.strip() for d in digests
-        ):
+        if (
+            not self._synopsis_is_current(analysis, glossary_fp) or not _synopsis_complete(synopsis)
+        ) and any(d.strip() for d in digests):
             if progress:
                 progress(0, 0, "Generating whole-book synopsis…")
             synopsis = self._runtime.synopsizer.book_synopsis(
                 digests,
                 self._runtime.analyzer.style_brief(analysis),
+                glossary_terms,
             )
             analysis["book_synopsis"] = synopsis
             analysis["book_synopsis_v"] = self.BOOK_SYNOPSIS_V
+            analysis["book_synopsis_gf"] = glossary_fp
             store.save_analysis(analysis)
             store.log_event("book_synopsis_saved", synopsis=synopsis)
         return str(analysis.get("book_synopsis", "") or "")

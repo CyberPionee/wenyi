@@ -1096,8 +1096,8 @@ class TestBookUnderstanding(unittest.TestCase):
             ]
             self.assertEqual(len(digest_calls), 1)
             self.assertEqual(len(synopsis_calls), 1)
-            self.assertEqual(store.load_chapter(0).meta.get("source_digest_v"), 2)
-            self.assertEqual((store.load_analysis() or {}).get("book_synopsis_v"), 2)
+            self.assertEqual(store.load_chapter(0).meta.get("source_digest_v"), 3)
+            self.assertEqual((store.load_analysis() or {}).get("book_synopsis_v"), 3)
             self.assertNotEqual(store.load_chapter(0).meta.get("source_digest"), "旧梗概")
             translate_calls = [
                 c for c in client.calls if "literary translator" in c["messages"][0]["content"]

@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import re
 
+from ..glossary.store import GlossaryTerm
 from ..i18n.prompts import render
+from . import prompts
 from .base import Agent
 
 # Character budget for one digest merge; group and recursively merge larger inputs.
@@ -26,27 +28,50 @@ _NON_STORY_PATTERNS = re.compile(
 
 
 class Synopsizer(Agent):
-    def digest_chapter(self, source_text: str) -> str:
+    def digest_chapter(
+        self,
+        source_text: str,
+        glossary_terms: list[GlossaryTerm] | None = None,
+    ) -> str:
         """Summarize one source chapter in the target language; return empty on empty input or
-        failure.
+        failure.  Glossary terms steer name translations to match the established mapping.
         """
         if not source_text.strip():
             return ""
+        glossary = prompts.render_glossary(
+            glossary_terms or [],
+            max_note_chars=self.config.pipeline.glossary_note_chars,
+        )
         if _looks_non_story(source_text):
             system = render("chapter_digest_system", src=self.src, tgt=self.tgt)
             user = render(
-                "chapter_digest_user", src=self.src, tgt=self.tgt, source=source_text[:2000]
+                "chapter_digest_user",
+                src=self.src,
+                tgt=self.tgt,
+                source=source_text[:2000],
+                glossary=glossary,
             )
             result = self._ask_text(system, user, operation="synopsis.chapter")
             return _collapse_to_sentence(result)
         system = render("chapter_digest_system", src=self.src, tgt=self.tgt)
-        user = render("chapter_digest_user", src=self.src, tgt=self.tgt, source=source_text[:8000])
+        user = render(
+            "chapter_digest_user",
+            src=self.src,
+            tgt=self.tgt,
+            source=source_text[:8000],
+            glossary=glossary,
+        )
         # Use the fast tier with output headroom above the language-specific digest budget.
         return self._ask_text(system, user, operation="synopsis.chapter")
 
-    def book_synopsis(self, digests: list[str], analysis_brief: str) -> str:
+    def book_synopsis(
+        self,
+        digests: list[str],
+        analysis_brief: str,
+        glossary_terms: list[GlossaryTerm] | None = None,
+    ) -> str:
         """Combine chapter digests and analysis into a book synopsis; use map-reduce for long
-        inputs.
+        inputs.  Glossary terms keep character names consistent with the established mapping.
         """
         items = [d.strip() for d in digests if d and d.strip()]
         if not items:
@@ -54,9 +79,9 @@ class Synopsizer(Agent):
         while True:
             groups = self._group(items, _REDUCE_BUDGET)
             if len(groups) == 1:
-                return self._synth(groups[0], analysis_brief)
+                return self._synth(groups[0], analysis_brief, glossary_terms)
             # Summarize each group first, then merge those summaries in the next round.
-            items = [self._synth(g, analysis_brief) for g in groups]
+            items = [self._synth(g, analysis_brief, glossary_terms) for g in groups]
             items = [s for s in items if s.strip()]
             if not items:
                 return ""
@@ -80,9 +105,18 @@ class Synopsizer(Agent):
             groups.append(cur)
         return groups
 
-    def _synth(self, digests: list[str], analysis_brief: str) -> str:
+    def _synth(
+        self,
+        digests: list[str],
+        analysis_brief: str,
+        glossary_terms: list[GlossaryTerm] | None = None,
+    ) -> str:
         """Merge one group of chapter digests and style analysis into a higher-level synopsis."""
         numbered = "\n".join(f"[{i}] {d}" for i, d in enumerate(digests))
+        glossary = prompts.render_glossary(
+            glossary_terms or [],
+            max_note_chars=self.config.pipeline.glossary_note_chars,
+        )
         system = render("book_synopsis_system", src=self.src, tgt=self.tgt)
         user = render(
             "book_synopsis_user",
@@ -90,6 +124,7 @@ class Synopsizer(Agent):
             tgt=self.tgt,
             analysis=analysis_brief or "(none)",
             digests=numbered,
+            glossary=glossary,
         )
         # Thinking tokens can randomly exhaust the output budget; retry truncation.
         return self._ask_synopsis_book(system, user)

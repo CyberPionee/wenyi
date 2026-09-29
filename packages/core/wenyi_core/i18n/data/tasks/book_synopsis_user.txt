@@ -1,3 +1,6 @@
+[Glossary] (use these translations for names)
+$glossary
+
 [Preliminary analysis]
 $analysis
 
