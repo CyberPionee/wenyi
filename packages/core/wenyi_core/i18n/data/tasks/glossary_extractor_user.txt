@@ -7,4 +7,7 @@ $source
 [Translation ($tgt_label)]
 $target
 
-Extract new or newly confirmed terms, forms of address and fixed expressions. Return JSON: {"terms":[...]}.
+Extract new or newly confirmed glossary entries under the include/exclude rules.
+Skip unless later chapters would suffer if the wording changed.
+Prefer a short high-quality list; do not pad; do not drop real names or rare terms to meet a count.
+Return JSON: {"terms":[...]} (empty list is valid).

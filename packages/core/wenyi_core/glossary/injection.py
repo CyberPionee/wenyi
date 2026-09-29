@@ -117,13 +117,21 @@ def select_extraction_terms(
             return term.type in always
         return bool(matcher.recurring_terms([term], min_occurrences=core_min_occurrences))
 
+    def is_recurring(term: GlossaryTerm) -> bool:
+        if matcher is None:
+            return True
+        return bool(matcher.recurring_terms([term], min_occurrences=2))
+
     def frequency(term: GlossaryTerm) -> int:
         if matcher is None:
             return 0
-        matched = matcher.recurring_terms([term], min_occurrences=1)
-        return 20 if matched else 1
+        if matcher.recurring_terms([term], min_occurrences=3):
+            return 20
+        if is_recurring(term):
+            return 10
+        return 1
 
-    candidates = [
+    scored_all = [
         score_term(
             term,
             batch_text=batch_text,
@@ -134,13 +142,17 @@ def select_extraction_terms(
         )
         for term in terms
     ]
+    # With a book corpus, skip one-off rows unless this batch hits them, they
+    # carry an open conflict, or they are core always-on entities.
+    if matcher is not None:
+        scored_all = [c for c in scored_all if c.hit or c.forced or c.core or is_recurring(c.term)]
     if mode == "hit_only":
-        picked = [c for c in candidates if c.hit or c.forced]
+        picked = [c for c in scored_all if c.hit or c.forced]
         picked.sort(key=lambda c: (not c.forced, -c.score, c.term.source))
         return [c.term for c in picked]
 
     # smart
-    candidates.sort(key=lambda c: (not c.forced, -c.score, c.term.source))
+    candidates = sorted(scored_all, key=lambda c: (not c.forced, -c.score, c.term.source))
     selected: list[InjectionCandidate] = []
     selected_keys: set[str] = set()
     budget_left = max(0, int(budget_chars))
