@@ -13,9 +13,8 @@ router = APIRouter(prefix="/projects/{pid}/report", tags=["report"])
 
 
 def _report(project: dict, storage) -> dict:
-    # All read operations share one brief state transaction; there are no model calls.
-    with storage.state_lock():
-        if project.get("fmt") == "srt":
+    if project.get("fmt") == "srt":
+        with storage.state_lock():
             cues = SrtRunStore(storage.run_dir, storage=storage).load_cues()
             report = {
                 "summary": {
@@ -26,8 +25,10 @@ def _report(project: dict, storage) -> dict:
                     ),
                 }
             }
-        else:
-            report = build_report(storage, storage)
+    else:
+        # Read-only scan; do not hold the state advisory lock for the full book walk.
+        report = build_report(storage, storage)
+    with storage.state_lock():
         report["usage"] = storage.load_usage() or {}
         report["timing"] = storage.read_artifact("timing.json") or {}
         return report
