@@ -7,12 +7,56 @@ polishing cannot drop paragraphs.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from ..glossary.store import GlossaryTerm
 from ..i18n.prompts import render
 from . import prompts
 from .base import Agent, Messages
+
+# Heuristic: CJK characters dominate target-language prose in zh/ja/ko.
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]")
+
+
+def _looks_like_source_leak(source: str, polished: str) -> bool:
+    """Return True when *polished* is suspiciously similar to *source*.
+
+    Guards against the model returning the source-language paragraph as the
+    "polished" result instead of the target-language translation.  Short strings
+    (numbers, names, single words) are exempt because they legitimately stay
+    identical across languages.
+    """
+    src = (source or "").strip()
+    pol = (polished or "").strip()
+    if not src or not pol:
+        return False
+    # Very short text is almost always preserved as-is (numbers, names, etc.).
+    if len(src) < 15 or len(pol) < 15:
+        return False
+    if src == pol:
+        return True
+
+    def _norm(t: str) -> str:
+        return re.sub(r"\s+", "", t).lower()
+
+    ns, np_ = _norm(src), _norm(pol)
+    if ns == np_:
+        return True
+    if not ns or not np_:
+        return False
+    # If the shorter string is almost fully contained in the longer one, it is a leak.
+    shorter, longer = (ns, np_) if len(ns) <= len(np_) else (np_, ns)
+    if len(shorter) >= 10 and shorter in longer:
+        return True
+    # Character-overlap ratio: >0.85 means the "polished" text is essentially the source.
+    from collections import Counter
+
+    cs, cp = Counter(ns), Counter(np_)
+    overlap = sum((cs & cp).values())
+    if overlap / max(len(ns), len(np_)) > 0.85:
+        return True
+    return False
 
 
 class Polisher(Agent):
@@ -54,7 +98,13 @@ class Polisher(Agent):
         )
         items = self._ask_json(system, user, operation="polish.body", key="polished", default=None)
         if isinstance(items, list) and len(items) == n:
-            return [str(x) for x in items]
+            result = [str(x) for x in items]
+            # Reject the batch if any item is essentially the source text.
+            if sources is not None and len(sources) == n:
+                for s, t in zip(sources, result):
+                    if _looks_like_source_leak(s, t):
+                        return list(targets)
+            return result
         return list(targets)
 
     def polish_continue(
@@ -62,6 +112,7 @@ class Polisher(Agent):
         turn: Messages,
         *,
         n: int,
+        sources: Sequence[str] | None = None,
         next_source: str = "",
     ) -> list[str] | None:
         """Append a polish user turn to a successful translation transcript.
@@ -89,5 +140,10 @@ class Polisher(Agent):
             default=None,
         )
         if isinstance(items, list) and len(items) == n:
-            return [str(x) for x in items]
+            result = [str(x) for x in items]
+            if sources is not None and len(sources) == n:
+                for s, t in zip(sources, result):
+                    if _looks_like_source_leak(s, t):
+                        return None
+            return result
         return None
