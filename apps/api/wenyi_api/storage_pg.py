@@ -29,6 +29,28 @@ class ProjectBusyError(BlockingIOError):
     """A different workflow or editor currently owns this project."""
 
 
+_LANGUAGE_FIELDS = ("source_lang", "target_lang")
+
+
+def _resolved_language(value: object) -> bool:
+    """Tell a resolved language code apart from the configured auto placeholder."""
+    return isinstance(value, str) and bool(value.strip()) and value.strip().lower() != "auto"
+
+
+def _merge_manifest_columns(manifest: dict[str, Any], columns: dict[str, Any]) -> dict[str, Any]:
+    """Merge the denormalized project columns into the stored run manifest.
+
+    Language columns double as the configured project direction and may be reset to
+    ``auto`` by a settings save, while an initialized manifest keeps the detection
+    result that the pipeline restores when it activates.
+    """
+    merged = {**manifest, **columns}
+    for key in _LANGUAGE_FIELDS:
+        if _resolved_language(manifest.get(key)):
+            merged[key] = manifest[key]
+    return merged
+
+
 class PostgresStorage:
     def __init__(self, project_id: str, pool: ConnectionPool, *, run_dir: str | None = None):
         self.project_id = project_id
@@ -262,7 +284,7 @@ class PostgresStorage:
                 (self.project_id,),
             ).fetchall()
         manifest = dict(row[0] or {})
-        manifest.update(
+        columns = dict(
             zip(
                 (
                     "title",
@@ -276,6 +298,7 @@ class PostgresStorage:
                 row[1:],
             )
         )
+        manifest = _merge_manifest_columns(manifest, columns)
         manifest["meta"] = manifest.get("meta") or {}
         manifest["chapters"] = []
         for ch in chapters:
