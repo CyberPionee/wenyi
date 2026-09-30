@@ -55,7 +55,8 @@ class FileArtifacts:
 
     def list_artifacts(self, prefix: str = "") -> list[str]:
         base = Path(self._artifact_root).resolve()
-        directory = self._artifact_path(prefix.rpartition("/")[0])
+        parent = prefix.rpartition("/")[0]
+        directory = base if not parent else self._artifact_path(parent)
         if not directory.is_dir():
             return []
         keys = (
