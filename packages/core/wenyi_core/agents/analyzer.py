@@ -26,31 +26,40 @@ def _text(value: Any, default: str = "") -> str:
 
 class Analyzer(Agent):
     def analyze(self, sample_text: str) -> dict[str, Any]:
-        """Analyze samples and return type-checked style, character and terminology data."""
+        """Analyze samples and return type-checked style, character and terminology data.
+
+        Retry up to 3 times when the style guide looks truncated (thinking tokens can
+        exhaust the output budget mid-sentence while finish_reason still says stop).
+        """
         system = render("analyzer_system", src=self.src, tgt=self.tgt)
         user = render("analyzer_user", src=self.src, tgt=self.tgt, sample=sample_text)
-        # No default: propagate analysis failures for the caller to handle, including preparation failures.
-        data = self._ask_json(system, user, operation="analysis.style")
-        if not isinstance(data, dict):
-            data = {}
-        # Accept a list of prose bullets as well as the requested string. Never stringify objects.
-        if isinstance(data.get("style_guide"), list):
-            data["style_guide"] = "\n".join(
-                item.strip()
-                for item in data["style_guide"]
-                if isinstance(item, str) and item.strip()
-            )
-        for key in (
-            "genre",
-            "tone",
-            "style_guide",
-            "narration",
-            "pacing",
-            "register",
-            "dialogue_style",
-            "rhetoric",
-        ):
-            data[key] = _text(data.get(key))
+        for _attempt in range(3):
+            # No default: propagate analysis failures for the caller to handle.
+            data = self._ask_json(system, user, operation="analysis.style")
+            if not isinstance(data, dict):
+                data = {}
+            # Accept a list of prose bullets as well as the requested string. Never stringify objects.
+            if isinstance(data.get("style_guide"), list):
+                data["style_guide"] = "\n".join(
+                    item.strip()
+                    for item in data["style_guide"]
+                    if isinstance(item, str) and item.strip()
+                )
+            for key in (
+                "genre",
+                "tone",
+                "style_guide",
+                "narration",
+                "pacing",
+                "register",
+                "dialogue_style",
+                "rhetoric",
+            ):
+                data[key] = _text(data.get(key))
+            style = data.get("style_guide", "")
+            if not style or style.endswith((".", "!", "?", "。", "！", "？")):
+                break
+            # Mid-sentence cut: retry the call with a fresh budget.
         data["characters"] = self.dict_items(
             data.get("characters"), operation="analysis.style", field="characters"
         )

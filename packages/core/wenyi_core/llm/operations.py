@@ -73,6 +73,7 @@ OPERATIONS = register_operations(
             "analysis.style",
             "Analyze style, characters and seed terms",
             "strong",
+            output_tokens=4096,
             workflows=("prepare", "translate"),
         ),
         OperationSpec(
