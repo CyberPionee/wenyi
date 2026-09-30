@@ -17,7 +17,7 @@ import pytest
 from psycopg import sql
 from psycopg_pool import ConnectionPool
 from type_helpers import must
-from wenyi_api.storage_pg import PostgresStorage, ProjectBusyError
+from wenyi_api.storage_pg import PostgresStorage, ProjectBusyError, _merge_manifest_columns
 from wenyi_core.glossary.store import GlossaryTerm
 from wenyi_core.ingest.models import Chapter, Document, Segment
 from wenyi_core.llm.usage import empty_usage
@@ -142,6 +142,32 @@ def test_initialization_marker_and_complete_metadata_round_trip(storage, tmp_pat
     assert storage.ensure_source_identity(doc.source_path) == digest
     with pytest.raises(ValueError):
         storage.ensure_source_identity(doc.source_path, actual_sha256="0" * 64)
+
+
+def test_manifest_columns_never_replace_a_detected_language():
+    columns = {
+        "title": "Book",
+        "fmt": "text",
+        "source_path": "book.txt",
+        "source_sha256": "0" * 64,
+        "source_lang": "auto",
+        "target_lang": "zh",
+        "meta": {},
+    }
+    merged = _merge_manifest_columns({"source_lang": "en", "target_lang": "zh"}, columns)
+    assert merged["source_lang"] == "en"
+    assert merged["title"] == "Book"
+    assert _merge_manifest_columns({}, columns)["source_lang"] == "auto"
+    poisoned = _merge_manifest_columns({"source_lang": "auto"}, {**columns, "source_lang": "ja"})
+    assert poisoned["source_lang"] == "ja"
+
+
+def test_detected_source_survives_a_reset_direction_column(pg_pool, pg_storage, tmp_path):
+    initialize(pg_storage, tmp_path)
+    with pg_pool.connection() as conn:
+        conn.execute("UPDATE projects SET source_lang='auto' WHERE id=%s", (pg_storage.project_id,))
+    assert pg_storage.load_manifest()["source_lang"] == "en"
+    assert pg_storage.load_manifest()["target_lang"] == "zh"
 
 
 def test_atomic_chapter_and_export_snapshot(storage, tmp_path):

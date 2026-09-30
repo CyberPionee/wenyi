@@ -6,6 +6,7 @@ records unresolved translation conflicts.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -113,6 +114,7 @@ def _match_text(text: str) -> str:
 _WORD_BOUNDARY_SCRIPTS = ("LATIN", "GREEK", "CYRILLIC")
 
 
+@functools.lru_cache(maxsize=4096)
 def _source_pattern(key: str) -> re.Pattern[str] | None:
     """Build word boundaries for space-delimited scripts; return None for substring-matched
     scripts.
