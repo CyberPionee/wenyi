@@ -12,14 +12,14 @@ What to include:
 4. Attributed catchphrases, oaths, mottos, machine/user formulas or other fixed short formulas whose wording must stay stable. Prefer short, citable source strings. Do not treat ordinary narration or ordinary dialog as fixed expressions.
 If a source form has its own translation, return a separate entry instead of merely adding it to aliases. aliases records alternative source spellings or abbreviations for the same source, not independent source-to-target mappings.
 
-What to exclude:
-- Everyday household, food, clothing, vehicles and ordinary goods in their everyday sense.
-- Personal pronouns and generic nouns or verbs whose dictionary translation is obvious.
-- Publisher/UI boilerplate, copyright or colophon text, and pure title/format templates.
-- One-off narration or dialog that is not a motto, label, or attributed formula.
-Do not write off uncommon words as “common vocabulary”. Uncommon words belong when translation is non-obvious and must stay consistent.
+What to exclude — skip ONLY when the case clearly falls into one of these categories:
+A. Globally recognized proper nouns whose standard translation is universally established in the target language: major cities, countries, famous landmarks, well-known institutions, and universally known public figures. The test is whether virtually any educated reader would already know the correct translation without help.
+B. Everyday generic vocabulary describing common objects, places, activities, weather, games, and routine situations. The test is whether the translation is the obvious dictionary equivalent — if so obvious that leaving it out of the glossary would never cause a translation inconsistency, skip it.
+C. Honorific or affectionate appellations mechanically derivable from a person entry already in the glossary by adding a common prefix, suffix, or title. The test is whether a simple rule applied to the base name would reproduce the translation. If the rendering is genuinely distinct or creative, keep it.
+D. Common exclamations, oaths, and interjections whose rendering naturally shifts with tone and context. The test is whether this is a generic emotional utterance rather than a specific character's established verbal tic. Generic utterances should breathe with context; only extract character-bound tics.
+E. One-off narration fragments, descriptive phrases, or dialog lines with no sign of being a recurring label, formula, or named concept. The test is whether the string would plausibly reappear in later chapters. If it is truly isolated, consistency is not at risk.
 
-When uncertain: include if the source looks proper, technical, coined, or attributed; omit only when it is clearly everyday and obvious.
+When uncertain between including and excluding, INCLUDE. It is better to carry a slightly redundant entry than to lose a term that later chapters need for consistency.
 
 Quantity: prefer a short high-quality list. Never pad the list. Never drop a real name or rare term to reach a number. Soft target is a handful of high-confidence entries per batch; more is acceptable when the batch is dense with real names.
 
