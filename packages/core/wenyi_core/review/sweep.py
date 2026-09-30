@@ -10,7 +10,12 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..glossary.store import GlossaryTerm, source_matches_text, term_match_sources
+from ..glossary.store import (
+    GlossaryTerm,
+    _match_text,
+    _source_pattern,
+    term_match_sources,
+)
 
 _NUMBER_RE = re.compile(r"\d+(?:[.,]\d+)*")
 
@@ -157,13 +162,29 @@ def scan_term_drift(
     """Report glossary source hits whose fixed target mapping is absent from the translation."""
     if not (source or "").strip() or not (target or "").strip() or not terms:
         return None
+
+    normalized_source = _match_text(source)
+    if not normalized_source.strip():
+        return None
     for term in terms:
         if not term.target or not term.target.strip():
             continue
-        keys = term_match_sources(term)
-        if not any(source_matches_text(key, source) for key in keys):
-            continue
         if term.target in target:
+            continue
+        keys = term_match_sources(term)
+        hit = False
+        for key in keys:
+            norm_key = _match_text(key).strip()
+            if not norm_key:
+                continue
+            if pattern := _source_pattern(norm_key):
+                if pattern.search(normalized_source):
+                    hit = True
+                    break
+            elif norm_key in normalized_source:
+                hit = True
+                break
+        if not hit:
             continue
         return {
             "kind": "term_drift",
