@@ -238,6 +238,11 @@ pipeline:
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
   glossary_note_chars: 120
+  glossary_extract_inject: "smart"
+  glossary_extract_budget_chars: 4000
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
   evaluation_enabled: true
   risk_back_translation: true
   risk_sample_ratio: 0.08
@@ -274,6 +279,7 @@ pipeline:
 - `glossary_always_types`：章过滤后仍强制保留的术语类型（默认 `[person]`），避免本章未出场的主要人物名被滤掉。
 - `glossary_always_min_occurrences`：always-on 实体在全书源文/别名中的最少出现次数（默认 `3`）。
 - `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
+- `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`：抽取时已有术语的通用灵活注入（命中优先、预算封顶、最小兜底）。详见[术语注入](glossary-injection.md)。抽取提示词不带 Note；翻译/润色/审校仍保留 Note。
 - `auto_qa_strict`：默认关闭。开启后若 `report.auto_qa` 或机器评估门仍有空译、术语冲突、残留问题、未决 issue 或评估低分，则导出直接失败；默认导出不阻断。
 - `evaluation_enabled`：默认开启 L0–L3 机器评估，写入 `report.evaluation` / `report.machine_gate`。
 - `risk_back_translation` / `risk_sample_ratio`：L1 风险门控回译与每章抽样比例。

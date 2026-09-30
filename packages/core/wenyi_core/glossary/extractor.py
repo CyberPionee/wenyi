@@ -16,7 +16,9 @@ from ..i18n.prompts import render
 from ..llm.base import LLMClient
 from ..storage.protocol import Storage
 from .auto_lock import can_auto_lock, should_write_auto_lock
+from .injection import select_extraction_terms
 from .store import (
+    TYPE_PERSON,
     TYPE_TERM,
     GlossaryOccurrenceMatcher,
     GlossaryStore,
@@ -97,7 +99,8 @@ class GlossaryExtractor(Agent):
             tgt=self.tgt,
             glossary=prompts.render_glossary(
                 existing,
-                max_note_chars=self.config.pipeline.glossary_note_chars,
+                include_note=False,
+                max_note_chars=0,
             ),
             source=source_text,
             target=target_text,
@@ -238,10 +241,27 @@ class GlossaryExtractor(Agent):
         notify ``on_auto_lock(source, target)``.
         """
         all_existing = store.all_terms()
-        existing = (
-            self._recurring_existing_terms(all_existing, source_corpus)
-            if source_corpus is not None
-            else all_existing
+        open_conflicts = {
+            str(row.get("source") or "")
+            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
+        }
+        pipeline = self.config.pipeline
+        recent_n = max(0, int(getattr(pipeline, "glossary_extract_recent_max", 20)))
+        recent_sources = [t.source for t in all_existing[-recent_n:]] if recent_n else []
+        existing = select_extraction_terms(
+            all_existing,
+            batch_text=f"{source_text}\n{target_text}",
+            source_corpus=source_corpus or "",
+            budget_chars=int(getattr(pipeline, "glossary_extract_budget_chars", 4000)),
+            core_max=int(getattr(pipeline, "glossary_extract_core_max", 12)),
+            recent_max=recent_n,
+            min_terms=int(getattr(pipeline, "glossary_extract_min_terms", 5)),
+            mode=str(getattr(pipeline, "glossary_extract_inject", "smart")),
+            open_conflict_sources=open_conflicts,
+            recent_sources=recent_sources,
+            always_types=tuple(getattr(pipeline, "glossary_always_types", (TYPE_PERSON,)))
+            or (TYPE_PERSON,),
+            core_min_occurrences=int(getattr(pipeline, "glossary_always_min_occurrences", 3)),
         )
         terms = self.extract(source_text, target_text, existing)
         occurrences = (
@@ -256,12 +276,9 @@ class GlossaryExtractor(Agent):
             "history_aligned": aligned,
             "history_unresolved": unresolved,
             "auto_locked": 0,
+            "injected_terms": len(existing),
         }
         matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
-        open_conflicts = {
-            str(row.get("source") or "")
-            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
-        }
         for t in terms:
             evidence = occurrences.get(t.source)
             t.first_chapter = evidence.chapter if evidence is not None else chapter
@@ -301,4 +318,77 @@ class GlossaryExtractor(Agent):
             summary["auto_locked"] = summary.get("auto_locked", 0) + 1
             if on_auto_lock is not None:
                 on_auto_lock(t.source, locked_target or t.target)
+        return summary
+
+    def finalize_chapter_glossary(
+        self,
+        store: Storage | GlossaryStore,
+        chapter: int,
+        *,
+        history: Iterable[TranslatedSegmentEvidence] = (),
+        before: tuple[int, int] | None = None,
+        source_corpus: str | None = None,
+        on_auto_lock=None,
+    ) -> dict[str, int]:
+        """Local chapter close-out without another model extraction call.
+
+        Batch extraction already ran per batch. This only fills empty targets from
+        historical evidence (first matching source, no LLM) and applies auto-lock
+        gates to existing terms so chapter end does not re-send the full chapter
+        through the LLM.
+        """
+        summary = {
+            "inserted": 0,
+            "conflict": 0,
+            "unchanged": 0,
+            "updated": 0,
+            "history_filled": 0,
+            "auto_locked": 0,
+            "llm_calls": 0,
+            "mode": "local_finalize",
+        }
+        all_existing = store.all_terms()
+        if not all_existing:
+            return summary
+        ordered_history = sorted(history, key=lambda item: (item.chapter, item.segment))
+        matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
+        open_conflicts = {
+            str(row.get("source") or "")
+            for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
+        }
+        for t in all_existing:
+            prior = store.get_term(t.source) if hasattr(store, "get_term") else t
+            target = (prior.target or t.target or "").strip()
+            if not target:
+                # Local fill: first historical source match provides the mapping text.
+                for evidence in ordered_history:
+                    if before is not None and (evidence.chapter, evidence.segment) >= before:
+                        continue
+                    if source_matches_text(t.source, evidence.source):
+                        target = (evidence.target or "").strip()
+                        if target:
+                            filled = replace(t, target=target)
+                            result = store.upsert_term(filled, chapter=chapter)
+                            summary[result] = summary.get(result, 0) + 1
+                            summary["history_filled"] += 1
+                            t = filled
+                            prior = filled
+                        break
+            if not target:
+                summary["unchanged"] += 1
+                continue
+            if matcher is not None:
+                occurrences_n = 2 if matcher.recurring_terms([t], min_occurrences=2) else 1
+                has_open_conflict = t.source in open_conflicts
+                if can_auto_lock(
+                    t,
+                    history_aligned=True,
+                    occurrences=occurrences_n,
+                    has_open_conflict=has_open_conflict,
+                ):
+                    summary["auto_locked"] = summary.get("auto_locked", 0) + 1
+                    if on_auto_lock is not None:
+                        on_auto_lock(t.source, target)
+            else:
+                summary["unchanged"] += 1
         return summary

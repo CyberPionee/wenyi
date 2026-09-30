@@ -383,22 +383,60 @@ class PreparationService:
     @staticmethod
     def _glossary_edits(
         stored: dict[str, str], glossary_fp: dict[str, str]
-    ) -> list[tuple[str, str]]:
-        """Return (old_target, new_target) pairs for terms whose target changed."""
-        edits: list[tuple[str, str]] = []
+    ) -> list[tuple[str, str, str]]:
+        """Return (source, old_target, new_target) for terms whose target changed."""
+        edits: list[tuple[str, str, str]] = []
         for src, old_tgt in stored.items():
             new_tgt = glossary_fp.get(src)
             if new_tgt is not None and new_tgt != old_tgt:
-                edits.append((old_tgt, new_tgt))
+                edits.append((src, old_tgt, new_tgt))
         return edits
 
     @staticmethod
-    def _patch_text(text: str, edits: list[tuple[str, str]]) -> str:
-        """Apply (old, new) string replacements to text."""
-        for old, new in edits:
-            if old:
-                text = text.replace(old, new)
-        return text
+    def _patch_text(text: str, edits: list[tuple[str, str, str]]) -> tuple[str, dict[str, str]]:
+        """Patch glossary renderings by source anchor; never blind-replace targets.
+
+        Digests are target-language prose. Identity is the source form. Only rewrite a
+        target when the source form appears next to it (``target（source）`` style).
+        Returns the patched text and the source→new_target map that was applied.
+        Unapplied sources stay out of the map so the fingerprint still marks the digest
+        stale and forces regeneration instead of a wrong global replace.
+        """
+        applied: dict[str, str] = {}
+        for source, old_tgt, new_tgt in edits:
+            if not source or not old_tgt or not new_tgt:
+                continue
+            if source not in text:
+                continue
+            replacements = (
+                (f"{old_tgt}（{source}）", f"{new_tgt}（{source}）"),
+                (f"{old_tgt} ({source})", f"{new_tgt} ({source})"),
+                (f"{old_tgt}({source})", f"{new_tgt}({source})"),
+                (f"{old_tgt}（{source}）", f"{new_tgt}（{source}）"),
+                (f"{old_tgt} ({source})", f"{new_tgt} ({source})"),
+                (f"{old_tgt}「{source}」", f"{new_tgt}「{source}」"),
+                (f"{old_tgt} / {source}", f"{new_tgt} / {source}"),
+                (f"{source} / {old_tgt}", f"{source} / {new_tgt}"),
+            )
+            patched = False
+            for old, new in replacements:
+                if old in text:
+                    text = text.replace(old, new)
+                    patched = True
+            if patched:
+                applied[source] = new_tgt
+        return text, applied
+
+    @staticmethod
+    def _merge_glossary_fp(
+        stored: dict[str, str],
+        glossary_fp: dict[str, str],
+        applied: dict[str, str],
+    ) -> dict[str, str]:
+        """Keep unapplied sources stale so a later pass regenerates instead of guessing."""
+        merged = dict(stored)
+        merged.update(applied)
+        return merged
 
     @staticmethod
     def _digest_is_current(meta: dict, glossary_fp: dict[str, str]) -> bool:
@@ -466,14 +504,18 @@ class PreparationService:
             edits = self._glossary_edits(stored, glossary_fp)
             if not edits:
                 continue
-            meta["source_digest"] = self._patch_text(str(digest), edits)
-            meta["source_digest_gf"] = glossary_fp
+            patched_digest, applied = self._patch_text(str(digest), edits)
+            if not applied:
+                continue
+            meta["source_digest"] = patched_digest
+            meta["source_digest_gf"] = self._merge_glossary_fp(stored, glossary_fp, applied)
             store.save_chapter(ch)
             patched_any = True
             store.log_event(
                 "book_understanding_digest_patched",
                 chapter=ci,
-                edits=[{"old": o, "new": n} for o, n in edits],
+                edits=[{"source": s, "old": o, "new": n} for s, o, n in edits if s in applied],
+                skipped=[s for s, _o, _n in edits if s not in applied],
             )
         if patched_any:
             # Reload patched digests for the synopsis step.
@@ -527,7 +569,7 @@ class PreparationService:
         analysis = store.load_analysis() or {}
         synopsis = str(analysis.get("book_synopsis", "") or "")
 
-        # Phase 3: patch existing synopsis when glossary targets changed (no LLM call).
+        # Phase 3: patch existing synopsis when glossary targets changed (source-anchored).
         syn_stored = analysis.get("book_synopsis_gf") or {}
         syn_version = analysis.get("book_synopsis_v", 1)
         if (
@@ -539,14 +581,23 @@ class PreparationService:
         ):
             syn_edits = self._glossary_edits(syn_stored, glossary_fp)
             if syn_edits:
-                synopsis = self._patch_text(synopsis, syn_edits)
-                analysis["book_synopsis"] = synopsis
-                analysis["book_synopsis_gf"] = glossary_fp
-                store.save_analysis(analysis)
-                store.log_event(
-                    "book_synopsis_patched",
-                    edits=[{"old": o, "new": n} for o, n in syn_edits],
-                )
+                patched_syn, syn_applied = self._patch_text(synopsis, syn_edits)
+                if syn_applied:
+                    synopsis = patched_syn
+                    analysis["book_synopsis"] = synopsis
+                    analysis["book_synopsis_gf"] = self._merge_glossary_fp(
+                        syn_stored, glossary_fp, syn_applied
+                    )
+                    store.save_analysis(analysis)
+                    store.log_event(
+                        "book_synopsis_patched",
+                        edits=[
+                            {"source": s, "old": o, "new": n}
+                            for s, o, n in syn_edits
+                            if s in syn_applied
+                        ],
+                        skipped=[s for s, _o, _n in syn_edits if s not in syn_applied],
+                    )
 
         # Phase 4: generate synopsis when missing, incomplete or outdated.
         if (

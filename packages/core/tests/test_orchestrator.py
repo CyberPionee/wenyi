@@ -1121,7 +1121,7 @@ class TestBookUnderstanding(unittest.TestCase):
             )
 
     def test_glossary_edit_patches_digest_without_llm(self):
-        """Changing an existing glossary target patches digests in place without regeneration."""
+        """Changing a glossary target patches source-anchored digests without regeneration."""
         with tempfile.TemporaryDirectory() as d:
             txt = os.path.join(d, "novel.txt")
             write_sample_txt(txt)
@@ -1130,14 +1130,14 @@ class TestBookUnderstanding(unittest.TestCase):
             store = require_file_storage(
                 Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(txt)
             )
-            # Simulate a digest that contains a glossary target.
+            # Digest keeps source identity in parentheses: target (source).
             chapter = store.load_chapter(0)
-            chapter.meta["source_digest"] = "Holden leaves Pencey after being expelled."
+            chapter.meta["source_digest"] = "Holden leaves Pencey (Pencey) after being expelled."
             chapter.meta["source_digest_v"] = 3
             chapter.meta["source_digest_gf"] = {"Pencey": "Pencey"}
             store.save_chapter(chapter)
             analysis = store.load_analysis() or {}
-            analysis["book_synopsis"] = "The story begins at Pencey."
+            analysis["book_synopsis"] = "The story begins at Pencey (Pencey)."
             analysis["book_synopsis_v"] = 3
             analysis["book_synopsis_gf"] = {"Pencey": "Pencey"}
             store.save_analysis(analysis)
@@ -1153,15 +1153,26 @@ class TestBookUnderstanding(unittest.TestCase):
             self.assertEqual(client.calls, [])
             self.assertEqual(
                 store.load_chapter(0).meta["source_digest"],
-                "Holden leaves 彭西 after being expelled.",
+                "Holden leaves 彭西 (Pencey) after being expelled.",
             )
-            self.assertIn("彭西", (store.load_analysis() or {}).get("book_synopsis", ""))
-            # Fingerprint updated to the new mapping.
+            self.assertIn("彭西 (Pencey)", (store.load_analysis() or {}).get("book_synopsis", ""))
             self.assertEqual(
                 store.load_chapter(0).meta["source_digest_gf"].get("Pencey"),
                 "彭西",
             )
             store.close()
+
+    def test_glossary_edit_without_source_anchor_does_not_blind_replace(self):
+        """Targets without a source anchor are left alone so digests regenerate later."""
+        from wenyi_core.pipeline.preparation import PreparationService
+
+        text = "Holden leaves Pencey after being expelled."
+        patched, applied = PreparationService._patch_text(
+            text,
+            [("Pencey", "Pencey", "彭西")],
+        )
+        self.assertEqual(patched, text)
+        self.assertEqual(applied, {})
 
 
 class TestRunSteps(unittest.TestCase):
@@ -3084,9 +3095,8 @@ class TestGlossaryScope(unittest.TestCase):
                 if "terminology" in call["messages"][0]["content"]
                 and "extractor" in call["messages"][0]["content"]
             ]
-            # Skip all saved batches and retain only the chapter-end fallback extraction.
-            self.assertEqual(len(glossary_calls), 1)
-            self.assertTrue(glossary_labels)
+            # Saved batches skip extraction; chapter close-out is local (no LLM).
+            self.assertEqual(len(glossary_calls), 0)
             self.assertTrue(all(label != "Parsing document…" for label in glossary_labels))
 
     def test_final_glossary_is_available_to_review_prompt(self):
@@ -3165,7 +3175,7 @@ class TestTierRouting(unittest.TestCase):
             expect = {
                 "chapter digest writer": "fast",
                 "whole-book synopsis writer": "fast",
-                "terminology and forms-of-address extractor": "fast",
+                "terminology extractor": "fast",
                 "translation reviewer": "cheap",
                 "literary translator": "strong",
             }

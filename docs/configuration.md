@@ -249,6 +249,11 @@ pipeline:
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
   glossary_note_chars: 120
+  glossary_extract_inject: "smart"
+  glossary_extract_budget_chars: 4000
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
   evaluation_enabled: true
   risk_back_translation: true
   risk_sample_ratio: 0.08
@@ -285,6 +290,7 @@ pipeline:
 - `glossary_always_types`: glossary types kept in chapter-filtered prompts even when the chapter does not mention them (default `[person]`).
 - `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
 - `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
+- `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`: universal flexible injection of existing terms into extraction prompts (hit-first, budget-capped, minimum fallback). See the Chinese design doc `docs/zh/glossary-injection.md`. Extraction prompts omit notes; translate/polish/review keep notes.
 - `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` or the machine evaluation gate still reports empty targets, glossary conflicts, residual findings, open review issues or low evaluation scores. Default export is never blocked.
 - `evaluation_enabled`: on by default. Runs the L0–L3 machine evaluation and stores `report.evaluation` / `report.machine_gate`.
 - `risk_back_translation` / `risk_sample_ratio`: L1 risk-gated back-translation and per-chapter sampling ratio.

@@ -56,6 +56,11 @@ pipeline:
   glossary_always_types: [person] # Term types kept in chapter-filtered prompts even when absent from the chapter
   glossary_always_min_occurrences: 3 # Minimum book-wide source/alias occurrences for always-on entities
   glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
+  glossary_extract_inject: "smart" # smart | all | hit_only — how existing terms enter extraction prompts
+  glossary_extract_budget_chars: 4000 # Character budget for extraction glossary injection
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
   self_revision: false # Optional C-batch draft revision notes (analysis/events only)
   editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
@@ -163,6 +168,11 @@ class PipelineConfig(BaseModel):
     )
     glossary_always_min_occurrences: int = Field(default=3, ge=1)
     glossary_note_chars: int = Field(default=120, ge=0)
+    glossary_extract_inject: Literal["smart", "all", "hit_only"] = "smart"
+    glossary_extract_budget_chars: int = Field(default=4000, ge=0)
+    glossary_extract_core_max: int = Field(default=12, ge=0)
+    glossary_extract_recent_max: int = Field(default=20, ge=0)
+    glossary_extract_min_terms: int = Field(default=5, ge=0)
     auto_qa_strict: bool = False  # Block export while auto_qa residuals remain
     self_revision: bool = False
     editorial_pass: bool = False
