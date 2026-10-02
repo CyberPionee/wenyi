@@ -80,7 +80,8 @@ OPERATIONS = register_operations(
             "synopsis.chapter",
             "Summarize one chapter",
             "fast",
-            output_tokens=2500,
+            # Thinking tokens share this budget, so a small cap truncates the digest.
+            output_tokens=8192,
             workflows=("prepare", "translate"),
             flags=("book_understanding",),
         ),
