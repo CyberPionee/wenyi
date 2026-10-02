@@ -55,6 +55,32 @@ export function WorkflowSettings({
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
+              <Label htmlFor="glossary-scope">
+                {tr("settings.glossaryScope")}
+              </Label>
+              <Select
+                id="glossary-scope"
+                value={String(
+                  section(config, "pipeline").glossary_scope || "chapter",
+                )}
+                onChange={(e) =>
+                  onField("pipeline", "glossary_scope", e.target.value)
+                }
+                className="mt-2"
+              >
+                {["chapter", "full"].map((s) => (
+                  <option key={s} value={s}>
+                    {s === "chapter"
+                      ? tr("settings.glossaryScopeChapter")
+                      : tr("settings.glossaryScopeFull")}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {tr("settings.glossaryScopeHelp")}
+              </p>
+            </div>
+            <div>
               <Label htmlFor="decision-anchors">
                 {tr("settings.decisionAnchors")}
               </Label>

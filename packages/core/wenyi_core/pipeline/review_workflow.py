@@ -65,6 +65,8 @@ class ReviewService:
             "target_lang": self._runtime.config.target_lang,
             "honorific_strategy": self._runtime.config.honorific_strategy,
             "prompt_fingerprint": prompt_fingerprint(),
+            # Bind reuse and resume to the glossary scope actually used for this review.
+            "review_glossary_policy": self._runtime.config.pipeline.glossary_scope,
             "review_output_retries": self._runtime.config.pipeline.review_output_retries,
             "review_agent_loop": self._runtime.config.pipeline.review_agent_loop,
             "inference": inference_snapshot(
@@ -90,13 +92,23 @@ class ReviewService:
 
     @staticmethod
     def _review_glossary_fingerprint(terms: list[GlossaryTerm]) -> str:
-        """Fingerprint glossary content so changed terms invalidate completed review reuse.
+        """Fingerprint every ordered glossary field so any edit invalidates review reuse.
 
-        Include note and aliases (previously source, target, type only) so metadata-only
-        glossary edits also force a fresh review scan.
+        Includes note, aliases, reading, gender and status beyond source/target/type, so
+        metadata-only glossary edits also force a fresh review scan.
         """
         ordered = sorted(
-            (term.source, term.target, term.type, term.note, list(term.aliases)) for term in terms
+            (
+                term.source,
+                term.target,
+                term.type,
+                term.note,
+                list(term.aliases),
+                term.reading,
+                term.gender,
+                term.status,
+            )
+            for term in terms
         )
         return hashlib.sha256(json.dumps(ordered, ensure_ascii=False).encode("utf-8")).hexdigest()
 

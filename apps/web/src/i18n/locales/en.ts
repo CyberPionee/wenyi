@@ -516,6 +516,11 @@ const en = {
   "settings.riskBackTranslation": "Risk-gated back-translation (L1)",
   "settings.qualityJudge": "Quality judge scores (L3)",
   "settings.decisionAnchors": "Decision anchors",
+  "settings.glossaryScope": "Glossary scope",
+  "settings.glossaryScopeChapter": "Chapter-relevant + core names (saves tokens)",
+  "settings.glossaryScopeFull": "Full glossary (matches upstream)",
+  "settings.glossaryScopeHelp":
+    "Chapter scope injects only terms that occur in the chapter plus always-on core entities. Full sends the entire glossary to translation and review.",
   "style.aiSuggestions": "AI tone suggestions",
   "style.aiSuggestionsHint": "Reference only. Saving style changes remains manual.",
   "style.qpEmpty": "No C-batch results yet. Enable the switches in settings and run translation.",

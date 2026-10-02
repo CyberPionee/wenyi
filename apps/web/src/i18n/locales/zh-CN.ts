@@ -496,6 +496,11 @@ const zhCN = {
   "settings.riskBackTranslation": "风险门控回译（L1）",
   "settings.qualityJudge": "质量评分 Judge（L3）",
   "settings.decisionAnchors": "译文决策锚",
+  "settings.glossaryScope": "术语范围",
+  "settings.glossaryScopeChapter": "本章相关 + 核心人名（省 token）",
+  "settings.glossaryScopeFull": "全量术语表（与上游一致）",
+  "settings.glossaryScopeHelp":
+    "「本章相关」只注入本章出现的术语加常驻核心实体；「全量」把整份术语表交给翻译与审校。",
   "style.aiSuggestions": "AI 定调建议",
   "style.aiSuggestionsHint": "仅供参考，保存风格仍需人工确认。",
   "style.qpEmpty": "尚未生成 C 批结果。请在设置中打开对应开关并运行翻译后查看。",
