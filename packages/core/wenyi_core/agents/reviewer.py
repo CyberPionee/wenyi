@@ -112,8 +112,9 @@ class Reviewer(Agent):
 
         if not isinstance(data, dict):
             raise ReviewOutputError("response_not_object")
-        if list(data)[-2:] != ["reviewed_segments", "complete"]:
-            raise ReviewOutputError("completion_footer_not_last")
+        if not parsed.safe_for_complete_payload:
+            # Structural repair means the payload may be an invented fragment.
+            raise ReviewOutputError("unsafe_json_repair")
         reviewed_segments = data.get("reviewed_segments")
         if (
             isinstance(reviewed_segments, bool)

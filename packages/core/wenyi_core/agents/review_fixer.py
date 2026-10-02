@@ -307,8 +307,8 @@ class ReviewFixer(Agent):
             raise ReviewFixerProtocolError("response_not_object")
         if set(data) != _OUTPUT_FIELDS:
             raise ReviewFixerProtocolError("unexpected_fields")
-        if not data or list(data)[-1] != "complete":
-            raise ReviewFixerProtocolError("completion_marker_not_last")
+        if not parsed.safe_for_complete_payload:
+            raise ReviewFixerProtocolError("unsafe_json_repair")
         if data.get("complete") is not True:
             raise ReviewFixerProtocolError("completion_marker_missing")
         if data.get("segment_ref") != segment_ref:

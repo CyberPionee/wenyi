@@ -119,7 +119,7 @@ class TestReviewer(unittest.TestCase):
             _cfg(),
         )
 
-        with self.assertRaisesRegex(ReviewOutputError, "completion_footer_not_last"):
+        with self.assertRaisesRegex(ReviewOutputError, "reviewed_segments_mismatch"):
             reviewer.review(["あ"], ["甲"])
 
     def test_reviewer_rejects_bare_issue_array_without_completion_footer(self):
@@ -263,7 +263,7 @@ class TestReviewer(unittest.TestCase):
         splits = [event for event in events if event["event"] == "review_chunk_split"]
         self.assertEqual(len(splits), 3)
         self.assertTrue(all(event["chapter"] == 7 for event in splits))
-        self.assertTrue(all(event["reason"] == "completion_footer_not_last" for event in splits))
+        self.assertTrue(all(event["reason"] == "unsafe_json_repair" for event in splits))
         self.assertTrue(all("source" not in event and "target" not in event for event in events))
 
     def test_singleton_retries_then_recovers(self):

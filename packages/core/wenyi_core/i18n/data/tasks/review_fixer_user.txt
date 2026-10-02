@@ -27,4 +27,4 @@ $source
 [Complete current $tgt_label translation]
 $current_target
 
-Make only the minimum edits that address every confirmed issue and return the complete revised paragraph. Follow the system JSON protocol exactly, with complete as the final field.
+Make only the minimum edits that address every confirmed issue and return the complete revised paragraph. Follow the system JSON protocol exactly, and set complete to true only when the replacement is whole; JSON object field order has no meaning.

@@ -13,4 +13,4 @@ $glossary
 [Paragraph pairs] ($n paragraphs)
 $pairs
 
-Review all $n paragraphs and return JSON. The final two fields must be "reviewed_segments":$n followed by "complete":true. They confirm that the batch is complete and must not be emitted early. Use issues for definite errors and soft_findings for uncertain notes.
+Review all $n paragraphs and return JSON. Set reviewed_segments to $n and complete to true only when every required field holds its full semantic value; JSON object field order has no meaning. The receipt must not be emitted early. Use issues for definite errors and soft_findings for uncertain notes.
