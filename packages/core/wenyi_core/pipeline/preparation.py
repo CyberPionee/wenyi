@@ -546,9 +546,18 @@ class PreparationService:
                 }
                 for n_done, fut in enumerate(as_completed(futs), 1):
                     ci = futs[fut]
-                    loaded[ci].meta["source_digest"] = (
-                        fut.result()
-                    )  # _ask_text already returns an empty fallback on failure.
+                    digest = fut.result()  # _ask_text already returns an empty fallback on failure.
+                    if not str(digest).strip():
+                        # Never cache a failure: keep the chapter out of date so a later
+                        # run retries it instead of reusing an empty digest.
+                        store.log_event(
+                            "book_understanding_chapter_digest_failed",
+                            chapter=ci,
+                        )
+                        if progress:
+                            progress(n_done, len(todo), "Prescanning chapter digests")
+                        continue
+                    loaded[ci].meta["source_digest"] = digest
                     loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
                     loaded[ci].meta["source_digest_gf"] = glossary_fp
                     store.save_chapter(loaded[ci])
@@ -565,6 +574,25 @@ class PreparationService:
             loaded[c.get("index", i)].meta.get("source_digest", "") or ""
             for i, c in enumerate(chapters)
         ]
+
+        # Every translatable chapter needs a digest before translation: downstream prompts
+        # and the synopsis depend on them, so a partial prescan must fail loudly rather
+        # than translate with missing context.
+        missing_digests = [
+            ci
+            for ci, ch in loaded.items()
+            if any((seg.source or "").strip() for seg in ch.text_segments)
+            and not str(ch.meta.get("source_digest", "") or "").strip()
+        ]
+        if missing_digests:
+            store.log_event(
+                "book_understanding_incomplete",
+                chapters=sorted(missing_digests),
+            )
+            raise ValueError(
+                "Chapter digests could not be generated for chapters: "
+                + ", ".join(str(ci) for ci in sorted(missing_digests))
+            )
 
         analysis = store.load_analysis() or {}
         synopsis = str(analysis.get("book_synopsis", "") or "")
@@ -605,14 +633,21 @@ class PreparationService:
         ) and any(d.strip() for d in digests):
             if progress:
                 progress(0, 0, "Generating whole-book synopsis…")
-            synopsis = self._runtime.synopsizer.book_synopsis(
+            generated = self._runtime.synopsizer.book_synopsis(
                 digests,
                 self._runtime.analyzer.style_brief(analysis),
                 glossary_terms,
             )
-            analysis["book_synopsis"] = synopsis
-            analysis["book_synopsis_v"] = self.BOOK_SYNOPSIS_V
-            analysis["book_synopsis_gf"] = glossary_fp
-            store.save_analysis(analysis)
-            store.log_event("book_synopsis_saved", synopsis=synopsis)
+            if _synopsis_complete(generated):
+                synopsis = generated
+                analysis["book_synopsis"] = synopsis
+                analysis["book_synopsis_v"] = self.BOOK_SYNOPSIS_V
+                analysis["book_synopsis_gf"] = glossary_fp
+                store.save_analysis(analysis)
+                store.log_event("book_synopsis_saved", synopsis=synopsis)
+            else:
+                # A failed or truncated regeneration must not overwrite a working synopsis.
+                store.log_event("book_synopsis_failed", incomplete=True)
+                if progress:
+                    progress(0, 0, "Whole-book synopsis unavailable")
         return str(analysis.get("book_synopsis", "") or "")

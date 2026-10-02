@@ -9,7 +9,7 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
-from ..retrying import EmptyResponseError
+from ..retrying import EmptyResponseError, TruncatedResponseError
 from ..transport import Messages, ProviderAdapter, RequestContext, ResolvedModel
 from ..usage import UsageSample, make_usage_sample, read_usage_int, read_usage_value
 
@@ -158,7 +158,11 @@ class OpenAICompatibleBaseClient(ProviderAdapter, Generic[OptionsT]):
         finish_reason = str(getattr(choice, "finish_reason", "")).lower()
         if finish_reason == "length":
             # Truncated output is not a complete answer; never treat a mid-sentence cut as success.
-            raise RuntimeError("OpenAI-compatible response was truncated at the token limit")
+            # The consumer decides whether a partial answer is usable (summary ops retry).
+            raise TruncatedResponseError(
+                getattr(self.cfg, "kind", "") or "",
+                "OpenAI-compatible response was truncated at the token limit",
+            )
         if not content.strip():
             fallback = self._json_response_fallback(model_config, message) if json_mode else None
             if fallback is None or not fallback.strip():

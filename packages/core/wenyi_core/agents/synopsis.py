@@ -81,10 +81,12 @@ class Synopsizer(Agent):
             if len(groups) == 1:
                 return self._synth(groups[0], analysis_brief, glossary_terms)
             # Summarize each group first, then merge those summaries in the next round.
-            items = [self._synth(g, analysis_brief, glossary_terms) for g in groups]
-            items = [s for s in items if s.strip()]
-            if not items:
+            # Every group must produce a summary: silently dropping a failed group would
+            # yield a synopsis that omits whole stretches of the book.
+            summaries = [self._synth(g, analysis_brief, glossary_terms) for g in groups]
+            if not all(s.strip() for s in summaries):
                 return ""
+            items = summaries
 
     # Internal helpers.
     @staticmethod
