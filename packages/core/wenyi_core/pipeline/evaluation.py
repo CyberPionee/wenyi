@@ -257,6 +257,39 @@ def score_back_translations(
     return results
 
 
+# Autonomy tiers shape how strictly the machine gate is enforced and how densely
+# evaluation samples the book. Explicit thresholds always win over tier defaults.
+AUTONOMY_TIERS = ("off", "speed", "standard", "precise")
+
+
+def apply_autonomy_tier(settings: dict[str, Any], tier: str) -> dict[str, Any]:
+    """Return effective evaluation settings for an autonomy tier.
+
+    - ``speed``: L0 must pass; L1-L3 stay informational and never block.
+    - ``standard``: L0-L3 all green to pass, denser sampling than speed.
+    - ``precise``: standard enforcement with tighter thresholds and sampling.
+    """
+    effective = {
+        "tier": tier if tier in AUTONOMY_TIERS else "standard",
+        "block_on_l0_only": False,
+        "risk_sample_ratio": float(settings.get("risk_sample_ratio") or 0.08),
+        "judge_sample_ratio": float(settings.get("judge_sample_ratio") or 0.05),
+        "bt_score_min": float(settings.get("bt_score_min") or 0.45),
+        "judge_score_min": float(settings.get("judge_score_min") or 3.5),
+        "l2_min_consistency": float(settings.get("l2_min_consistency") or 1.0),
+    }
+    if effective["tier"] == "speed":
+        effective["block_on_l0_only"] = True
+    elif effective["tier"] == "precise":
+        # Tighter acceptance plus denser sampling; never relax below the configured floor.
+        effective["risk_sample_ratio"] = min(1.0, effective["risk_sample_ratio"] * 2)
+        effective["judge_sample_ratio"] = min(1.0, effective["judge_sample_ratio"] * 2)
+        effective["bt_score_min"] = max(effective["bt_score_min"], 0.6)
+        effective["judge_score_min"] = max(effective["judge_score_min"], 4.0)
+        effective["l2_min_consistency"] = 1.0
+    return effective
+
+
 def build_machine_gate(
     *,
     l0: dict[str, Any],
@@ -266,6 +299,7 @@ def build_machine_gate(
     bt_score_min: float = 0.45,
     judge_score_min: float = 3.5,
     l2_min_consistency: float = 1.0,
+    block_on_l0_only: bool = False,
 ) -> dict[str, Any]:
     """Aggregate L0-L3 into a single machine acceptance gate."""
     empty = int(l0.get("empty_target_count") or 0)
@@ -296,9 +330,12 @@ def build_machine_gate(
     judge_passed = (not judge_values) or (judge_avg is not None and judge_avg >= judge_score_min)
 
     passed = l0_passed and l2_passed and bt_passed and judge_passed
+    # The speed tier keeps L1-L3 informational: only L0 can block export.
+    blocking = not l0_passed if block_on_l0_only else not passed
     return {
         "passed": passed,
-        "blocking": not passed,
+        "blocking": blocking,
+        "block_on_l0_only": block_on_l0_only,
         "l0_passed": l0_passed,
         "l2_passed": l2_passed,
         "bt_passed": bt_passed,
@@ -479,6 +516,7 @@ class EvaluationService:
         bt_score_min: float = 0.45,
         judge_score_min: float = 3.5,
         l2_min_consistency: float = 1.0,
+        block_on_l0_only: bool = False,
         risk_back_translation: bool = True,
         quality_judge: bool = True,
     ):
@@ -488,6 +526,7 @@ class EvaluationService:
         self.bt_score_min = bt_score_min
         self.judge_score_min = judge_score_min
         self.l2_min_consistency = l2_min_consistency
+        self.block_on_l0_only = block_on_l0_only
         self.risk_back_translation = risk_back_translation
         self.quality_judge = quality_judge
 
@@ -562,5 +601,6 @@ class EvaluationService:
             bt_score_min=self.bt_score_min,
             judge_score_min=self.judge_score_min,
             l2_min_consistency=self.l2_min_consistency,
+            block_on_l0_only=self.block_on_l0_only,
         )
         return result

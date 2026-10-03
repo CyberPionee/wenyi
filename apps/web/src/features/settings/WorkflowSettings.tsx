@@ -102,6 +102,93 @@ export function WorkflowSettings({
               </Select>
             </div>
           </div>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div>
+              <Label htmlFor="autonomy-tier">{tr("settings.autonomyTier")}</Label>
+              <Select
+                id="autonomy-tier"
+                value={String(
+                  section(config, "pipeline").autonomy_tier || "standard",
+                )}
+                onChange={(e) =>
+                  onField("pipeline", "autonomy_tier", e.target.value)
+                }
+                className="mt-2"
+              >
+                {["off", "speed", "standard", "precise"].map((s) => (
+                  <option key={s} value={s}>
+                    {s === "off"
+                      ? tr("settings.autonomyTierOff")
+                      : s === "speed"
+                        ? tr("settings.autonomyTierSpeed")
+                        : s === "precise"
+                          ? tr("settings.autonomyTierPrecise")
+                          : tr("settings.autonomyTierStandard")}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {tr("settings.autonomyTierHelp")}
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="judge-score-min">
+                {tr("settings.judgeScoreMin")}
+              </Label>
+              <Input
+                id="judge-score-min"
+                type="number"
+                min={1}
+                max={5}
+                step={0.5}
+                value={Number(
+                  section(config, "pipeline").judge_score_min ?? 3.5,
+                )}
+                onChange={(e) =>
+                  onField("pipeline", "judge_score_min", Number(e.target.value))
+                }
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="bt-score-min">{tr("settings.btScoreMin")}</Label>
+              <Input
+                id="bt-score-min"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={Number(section(config, "pipeline").bt_score_min ?? 0.45)}
+                onChange={(e) =>
+                  onField("pipeline", "bt_score_min", Number(e.target.value))
+                }
+                className="mt-2"
+              />
+            </div>
+            <div>
+              <Label htmlFor="l2-min-consistency">
+                {tr("settings.l2MinConsistency")}
+              </Label>
+              <Input
+                id="l2-min-consistency"
+                type="number"
+                min={0}
+                max={1}
+                step={0.05}
+                value={Number(
+                  section(config, "pipeline").l2_min_consistency ?? 1,
+                )}
+                onChange={(e) =>
+                  onField(
+                    "pipeline",
+                    "l2_min_consistency",
+                    Number(e.target.value),
+                  )
+                }
+                className="mt-2"
+              />
+            </div>
+          </div>
         </>
       )}
       {subtitles && (

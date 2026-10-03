@@ -11,6 +11,7 @@ from wenyi_core.pipeline.decision_anchors import (
     render_decision_anchors,
 )
 from wenyi_core.pipeline.evaluation import (
+    apply_autonomy_tier,
     back_translation_similarity,
     build_machine_gate,
     evaluation_low_score_issues,
@@ -217,6 +218,35 @@ class EvaluationIssueMappingTests(unittest.TestCase):
         }
         issues = evaluation_low_score_issues(evaluation, bt_min=0.45, judge_min=3.5)
         self.assertEqual(issues, [])
+
+
+class AutonomyTierTests(unittest.TestCase):
+    def test_speed_tier_only_blocks_on_l0(self):
+        effective = apply_autonomy_tier({"bt_score_min": 0.45, "judge_score_min": 3.5}, "speed")
+        self.assertTrue(effective["block_on_l0_only"])
+        gate = build_machine_gate(
+            l0={
+                "empty_target_count": 0,
+                "open_conflict_count": 0,
+                "residual_finding_count": 0,
+                "open_issue_count": 0,
+            },
+            back_translation=[{"score": 0.1}],
+            judge_scores=[{"score": 1.0}],
+            block_on_l0_only=effective["block_on_l0_only"],
+        )
+        self.assertFalse(gate["passed"])
+        self.assertFalse(gate["blocking"])
+
+    def test_precise_tier_tightens_thresholds(self):
+        effective = apply_autonomy_tier(
+            {"bt_score_min": 0.45, "judge_score_min": 3.5, "risk_sample_ratio": 0.1},
+            "precise",
+        )
+        self.assertEqual(effective["bt_score_min"], 0.6)
+        self.assertEqual(effective["judge_score_min"], 4.0)
+        self.assertEqual(effective["l2_min_consistency"], 1.0)
+        self.assertAlmostEqual(effective["risk_sample_ratio"], 0.2)
 
 
 class QualityPassNoteMappingTests(unittest.TestCase):

@@ -46,17 +46,28 @@ class ReportService:
     ) -> tuple[dict[str, Any], Any]:
         """Run one L0-L3 evaluation pass and return its payload plus the result object."""
         from ..assemble.report import build_report
-        from .evaluation import EvaluationService
+        from .evaluation import EvaluationService, apply_autonomy_tier
 
         pipeline = self._runtime.config.pipeline
         pre_report = build_report(store, glossary, strict_auto_qa=strict)
+        effective = apply_autonomy_tier(
+            {
+                "risk_sample_ratio": getattr(pipeline, "risk_sample_ratio", 0.08),
+                "judge_sample_ratio": getattr(pipeline, "judge_sample_ratio", 0.05),
+                "bt_score_min": getattr(pipeline, "bt_score_min", 0.45),
+                "judge_score_min": getattr(pipeline, "judge_score_min", 3.5),
+                "l2_min_consistency": getattr(pipeline, "l2_min_consistency", 1.0),
+            },
+            str(getattr(pipeline, "autonomy_tier", "standard")),
+        )
         service = EvaluationService(
             store,
-            risk_sample_ratio=float(getattr(pipeline, "risk_sample_ratio", 0.08)),
-            judge_sample_ratio=float(getattr(pipeline, "judge_sample_ratio", 0.05)),
-            bt_score_min=float(getattr(pipeline, "bt_score_min", 0.45)),
-            judge_score_min=float(getattr(pipeline, "judge_score_min", 3.5)),
-            l2_min_consistency=float(getattr(pipeline, "l2_min_consistency", 1.0)),
+            risk_sample_ratio=effective["risk_sample_ratio"],
+            judge_sample_ratio=effective["judge_sample_ratio"],
+            bt_score_min=effective["bt_score_min"],
+            judge_score_min=effective["judge_score_min"],
+            l2_min_consistency=effective["l2_min_consistency"],
+            block_on_l0_only=bool(effective["block_on_l0_only"]),
             risk_back_translation=bool(getattr(pipeline, "risk_back_translation", True)),
             quality_judge=bool(getattr(pipeline, "quality_judge", True)),
         )

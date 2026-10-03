@@ -67,6 +67,7 @@ pipeline:
   final_polish: false # Optional final polish candidates (analysis/events only)
   chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
   back_translation: false # Optional back-translation QA notes (analysis/events only)
+  autonomy_tier: "standard" # off | speed | standard | precise
   evaluation_enabled: true # L0-L3 machine gate for autonomous acceptance
   risk_back_translation: true # L1 selective back-translation on risk/sampled segments
   risk_sample_ratio: 0.08 # Per-chapter sample ratio for risk evaluation (0-1)
@@ -181,6 +182,7 @@ class PipelineConfig(BaseModel):
     final_polish: bool = False
     chapter_selfcheck: bool = False
     back_translation: bool = False
+    autonomy_tier: Literal["off", "speed", "standard", "precise"] = "standard"
     evaluation_enabled: bool = True
     risk_back_translation: bool = True
     risk_sample_ratio: float = Field(default=0.08, ge=0.0, le=1.0)
