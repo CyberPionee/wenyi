@@ -59,9 +59,12 @@ class QualityPassService:
         polish_notes: list[dict[str, Any]] = []
         back_notes: list[dict[str, Any]] = []
         for chapter in chapters:
-            segments = [s for s in chapter.text_segments if (s.target or "").strip()]
+            text_segments = list(chapter.text_segments)
+            segments = [s for s in text_segments if (s.target or "").strip()]
             if not segments:
                 continue
+            # Autofix locations are positions within text_segments, not Segment.index.
+            positions = [text_segments.index(s) for s in segments]
             sources = [s.source for s in segments]
             targets = [s.target or "" for s in segments]
             sampled_pairs.extend(list(zip(sources, targets))[:8])
@@ -72,7 +75,7 @@ class QualityPassService:
                         revision_notes.append(
                             {
                                 "chapter": chapter.index,
-                                "index": segments[index].index,
+                                "index": positions[index],
                                 "suggested": after,
                             }
                         )
@@ -83,7 +86,7 @@ class QualityPassService:
                         polish_notes.append(
                             {
                                 "chapter": chapter.index,
-                                "index": segments[index].index,
+                                "index": positions[index],
                                 "suggested": after,
                             }
                         )
@@ -92,17 +95,25 @@ class QualityPassService:
                     finding = dict(finding)
                     finding["chapter"] = chapter.index
                     local = finding.get("index")
-                    if isinstance(local, int):
-                        finding["index"] = segments[local].index
+                    if isinstance(local, int) and 0 <= local < len(positions):
+                        finding["index"] = positions[local]
+                    else:
+                        finding.pop("index", None)
                     chapter_notes.append(finding)
             if cfg.back_translation:
                 backs = agent.back_translate(targets[:4])
-                for source, back in zip(sources[:4], backs):
+                from .evaluation import back_translation_similarity
+
+                for position, (source, target, back) in enumerate(
+                    zip(sources[:4], targets[:4], backs)
+                ):
                     back_notes.append(
                         {
                             "chapter": chapter.index,
+                            "index": positions[position],
                             "source_preview": source[:80],
                             "back_preview": back[:80],
+                            "score": round(back_translation_similarity(source, back), 4),
                         }
                     )
         if cfg.editorial_pass:

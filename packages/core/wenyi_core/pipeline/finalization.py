@@ -68,7 +68,26 @@ class ReportService:
 
         def _judge(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
             style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
-            return agent.quality_judge(pairs, style=style)
+            first = agent.quality_judge(pairs, style=style)
+            if not bool(getattr(pipeline, "quality_judge_dual", False)):
+                return first
+            # Dual judging reduces single-rater noise by averaging two independent passes.
+            second = agent.quality_judge(pairs, style=style)
+            merged: list[dict[str, Any]] = []
+            for position in range(min(len(first), len(second), len(pairs))):
+                left = first[position] if isinstance(first[position], dict) else {}
+                right = second[position] if isinstance(second[position], dict) else {}
+                scores = [
+                    float(value)
+                    for value in (left.get("score"), right.get("score"))
+                    if isinstance(value, (int, float)) and not isinstance(value, bool)
+                ]
+                record = dict(left)
+                if scores:
+                    record["score"] = round(sum(scores) / len(scores), 2)
+                record["judge_passes"] = len(scores)
+                merged.append(record)
+            return merged
 
         evaluation = service.run(
             l0=pre_report.get("auto_qa") or {},

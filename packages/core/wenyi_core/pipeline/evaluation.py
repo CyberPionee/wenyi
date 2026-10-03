@@ -354,6 +354,46 @@ def quality_notes_to_autofix_issues(
     return issues
 
 
+def quality_pass_notes_to_issues(
+    quality: dict[str, Any], *, bt_min: float = 0.45
+) -> list[dict[str, Any]]:
+    """Convert C-batch notes into Autofix issues where a location is known.
+
+    - self-revision / final-polish notes carry a replacement.
+    - chapter self-check findings carry a detail only; the detail guides the fixer.
+    - back-translation notes are candidates only when their offline score is low.
+    - editorial notes are book-level and have no paragraph location, so they are skipped.
+    """
+    notes: list[dict[str, Any]] = []
+    for key in ("self_revision_notes", "final_polish_notes"):
+        values = quality.get(key)
+        if isinstance(values, list):
+            notes.extend(item for item in values if isinstance(item, dict))
+    for item in quality.get("chapter_selfcheck_findings") or []:
+        if not isinstance(item, dict):
+            continue
+        if not item.get("suggested"):
+            item = {**item, "suggested": str(item.get("detail") or "").strip()}
+        notes.append(item)
+    for item in quality.get("back_translation_notes") or []:
+        if not isinstance(item, dict):
+            continue
+        score = item.get("score")
+        if (
+            isinstance(score, (int, float))
+            and not isinstance(score, bool)
+            and float(score) >= bt_min
+        ):
+            continue
+        if not item.get("suggested"):
+            item = {
+                **item,
+                "suggested": "Revise this paragraph so it faithfully matches the source.",
+            }
+        notes.append(item)
+    return quality_notes_to_autofix_issues(notes, origin="quality")
+
+
 def evaluation_low_score_issues(
     evaluation: dict[str, Any], *, bt_min: float, judge_min: float
 ) -> list[dict[str, Any]]:

@@ -15,6 +15,7 @@ from wenyi_core.pipeline.evaluation import (
     build_machine_gate,
     evaluation_low_score_issues,
     quality_notes_to_autofix_issues,
+    quality_pass_notes_to_issues,
     scan_term_consistency,
     score_back_translations,
     segment_risk_reasons,
@@ -216,6 +217,27 @@ class EvaluationIssueMappingTests(unittest.TestCase):
         }
         issues = evaluation_low_score_issues(evaluation, bt_min=0.45, judge_min=3.5)
         self.assertEqual(issues, [])
+
+
+class QualityPassNoteMappingTests(unittest.TestCase):
+    def test_selfcheck_and_low_back_translation_become_issues(self):
+        quality = {
+            "self_revision_notes": [{"chapter": 0, "index": 1, "suggested": "改好的句子"}],
+            "chapter_selfcheck_findings": [{"chapter": 0, "index": 2, "detail": "语气不稳"}],
+            "back_translation_notes": [
+                {"chapter": 0, "index": 3, "score": 0.1},
+                {"chapter": 0, "index": 4, "score": 0.95},
+            ],
+            "editorial_notes": ["书级笔记不应映射到段落"],
+        }
+        issues = quality_pass_notes_to_issues(quality, bt_min=0.45)
+        self.assertEqual({issue["index"] for issue in issues}, {1, 2, 3})
+        selfcheck = next(issue for issue in issues if issue["index"] == 2)
+        self.assertEqual(selfcheck["suggestion"], "语气不稳")
+
+    def test_empty_suggestion_without_detail_is_skipped(self):
+        quality = {"chapter_selfcheck_findings": [{"chapter": 0, "index": 2}]}
+        self.assertEqual(quality_pass_notes_to_issues(quality), [])
 
 
 class AnchorTests(unittest.TestCase):

@@ -71,6 +71,7 @@ pipeline:
   risk_back_translation: true # L1 selective back-translation on risk/sampled segments
   risk_sample_ratio: 0.08 # Per-chapter sample ratio for risk evaluation (0-1)
   quality_judge: true # L3 LLM fluency/style scoring on sampled segments
+  quality_judge_dual: false # Average two independent judge passes to reduce rater noise
   judge_sample_ratio: 0.05
   judge_score_min: 3.5 # L3 pass threshold (1-5)
   l2_min_consistency: 1.0 # L2 glossary consistency threshold; 1.0 means any drift fails
@@ -184,6 +185,7 @@ class PipelineConfig(BaseModel):
     risk_back_translation: bool = True
     risk_sample_ratio: float = Field(default=0.08, ge=0.0, le=1.0)
     quality_judge: bool = True
+    quality_judge_dual: bool = False
     judge_sample_ratio: float = Field(default=0.05, ge=0.0, le=1.0)
     judge_score_min: float = Field(default=3.5, ge=1.0, le=5.0)
     l2_min_consistency: float = Field(default=1.0, ge=0.0, le=1.0)

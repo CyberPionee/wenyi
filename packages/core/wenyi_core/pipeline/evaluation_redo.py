@@ -19,7 +19,7 @@ from .autofix_candidates import AutofixCandidateService
 from .autofix_plan import prepare_identity, save_plan
 from .autofix_publish import AutofixPublisher
 from .docx_styles import DocxStyleService
-from .evaluation import evaluation_low_score_issues, quality_notes_to_autofix_issues
+from .evaluation import evaluation_low_score_issues, quality_pass_notes_to_issues
 
 if TYPE_CHECKING:
     from .runtime import PipelineRuntime
@@ -47,14 +47,12 @@ class EvaluationRedoService:
         )
         analysis = store.load_analysis() or {}
         quality = analysis.get("quality_pass") or {}
-        notes: list[dict[str, Any]] = []
-        for key in ("self_revision_notes", "final_polish_notes"):
-            values = quality.get(key)
-            if isinstance(values, list):
-                notes.extend(item for item in values if isinstance(item, dict))
+        quality_issues = quality_pass_notes_to_issues(
+            quality, bt_min=float(getattr(pipeline, "bt_score_min", 0.45))
+        )
         # Merge without duplicating locations already covered by an evaluation issue.
         seen = {(issue["chapter"], issue["index"]) for issue in issues}
-        for note in quality_notes_to_autofix_issues(notes, origin="quality"):
+        for note in quality_issues:
             location = (note["chapter"], note["index"])
             if location in seen:
                 continue
