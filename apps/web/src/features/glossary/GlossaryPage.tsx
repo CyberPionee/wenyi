@@ -136,9 +136,14 @@ export default function GlossaryPage() {
       decision: string;
       target?: string;
     }) => api.resolveConflict(pid, cid, { decision, target }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidate();
-      toast.success(tr("glossary.conflictResolved"));
+      const replaced = result?.detail?.segments_replaced ?? 0;
+      toast.success(
+        replaced > 0
+          ? tr("glossary.conflictResolvedWithWriteback", { count: replaced })
+          : tr("glossary.conflictResolved"),
+      );
     },
     onError: (e) => toast.error(e.message),
   });
@@ -644,8 +649,13 @@ function EditTermDialog({
           .map((s) => s.trim())
           .filter(Boolean),
       }),
-    onSuccess: () => {
-      toast.success(tr("glossary.updated"));
+    onSuccess: (result) => {
+      const replaced = result?.writeback?.segments_replaced ?? 0;
+      toast.success(
+        replaced > 0
+          ? tr("glossary.updatedWithWriteback", { count: replaced })
+          : tr("glossary.updated"),
+      );
       onSaved();
     },
     onError: (e) =>

@@ -194,6 +194,7 @@ const zhCN = {
   "glossary.unclosedQuoteInCsv": "CSV 引号未闭合",
   "glossary.deleted": "已删除",
   "glossary.conflictResolved": "已解决冲突",
+  "glossary.conflictResolvedWithWriteback": "已解决冲突 · 已同步 {count} 处译文",
   "glossary.selectedTermsDeleted": "批量删除完成",
   "glossary.couldNotDeleteSelectedTerms": "批量删除失败",
   "glossary.manageNamesAppellationsAndFixedExpressionsAnd":
@@ -227,6 +228,7 @@ const zhCN = {
   "common.cancel": "取消",
   "glossary.add": "添加",
   "glossary.updated": "已更新",
+  "glossary.updatedWithWriteback": "已更新 · 已同步 {count} 处译文",
   "glossary.couldNotUpdateTerm": "更新失败：{error}",
   "common.gender": "性别",
   "glossary.unspecified": "未指定",

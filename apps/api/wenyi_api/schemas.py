@@ -139,6 +139,8 @@ class TermOut(BaseModel):
     first_chapter: Optional[int] = None
     note: str = ""
     status: str = "ok"
+    # Populated when a target change rewrote formal translations.
+    writeback: Optional[dict[str, Any]] = None
 
 
 class TermIn(RequestModel):

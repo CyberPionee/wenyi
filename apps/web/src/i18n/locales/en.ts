@@ -198,6 +198,8 @@ const en = {
   "glossary.unclosedQuoteInCsv": "Unclosed quote in CSV",
   "glossary.deleted": "Deleted",
   "glossary.conflictResolved": "Conflict resolved",
+  "glossary.conflictResolvedWithWriteback":
+    "Conflict resolved · {count} translation(s) updated",
   "glossary.selectedTermsDeleted": "Selected terms deleted",
   "glossary.couldNotDeleteSelectedTerms": "Could not delete selected terms",
   "glossary.manageNamesAppellationsAndFixedExpressionsAnd":
@@ -233,6 +235,7 @@ const en = {
   "common.cancel": "Cancel",
   "glossary.add": "Add",
   "glossary.updated": "Updated",
+  "glossary.updatedWithWriteback": "Updated · {count} translation(s) synchronized",
   "glossary.couldNotUpdateTerm": "Could not update term: {error}",
   "common.gender": "Gender",
   "glossary.unspecified": "Unspecified",

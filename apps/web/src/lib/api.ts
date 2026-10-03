@@ -82,7 +82,15 @@ export type ChapterSummary = Output<"ChapterSummary">;
 export type SegmentOut = Output<"SegmentOut">;
 export type ChapterSegments = Output<"ChapterSegments">;
 export type SegmentRevision = Output<"SegmentRevision">;
-export type Term = Output<"TermOut">;
+export interface GlossaryWriteback {
+  source?: string;
+  old_target?: string;
+  new_target?: string;
+  segments_replaced?: number;
+  chapters_touched?: number;
+  matched_segments?: number;
+}
+export type Term = Output<"TermOut"> & { writeback?: GlossaryWriteback | null };
 export type Conflict = Output<"ConflictOut">;
 export type StepDef = Output<"StepDef">;
 export type StrategyTemplate = Output<"StrategyTemplateOut">;
@@ -319,7 +327,7 @@ export const api = {
     cid: number,
     body: { decision: string; target?: string },
   ) =>
-    request<{ message: string }>(
+    request<{ message: string; detail?: GlossaryWriteback | null }>(
       `/projects/${pid}/glossary/conflicts/${cid}/resolve`,
       { method: "POST", body: JSON.stringify(body) },
     ),
