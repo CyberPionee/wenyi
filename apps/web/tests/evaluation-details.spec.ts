@@ -65,6 +65,20 @@ const report = {
       },
     ],
     machine_gate: {},
+    history: [
+      {
+        ts: "2026-10-03T10:00:00+08:00",
+        passed: true,
+        l2_consistency_rate: 1.0,
+        judge_avg: 4.2,
+      },
+      {
+        ts: "2026-10-03T11:00:00+08:00",
+        passed: false,
+        l2_consistency_rate: 0.83,
+        judge_avg: 3.1,
+      },
+    ],
   },
 };
 
@@ -86,6 +100,8 @@ test("evaluation details list L2 drift, low scores, and risk segments", async ({
   await expect(details).toContainText("翻译腔明显");
   await expect(details).toContainText("Risk segments");
   await expect(details).toContainText("Ch. 1 ¶4");
+  await expect(details).toContainText("Recent evaluation runs");
+  await expect(details).toContainText("2026-10-03T11:00:00+08:00");
 });
 
 test("evaluation details stay hidden when the report has no evaluation", async ({ page }) => {

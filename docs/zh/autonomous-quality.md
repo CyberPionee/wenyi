@@ -190,7 +190,7 @@
 
 已具备、直接复用：`analysis.style`、全书概要与章节摘要、术语抽取与按章注入、滚动源译对、后文参考、Review 取证与影子修订、Autofix 发布、residual sweep、`auto_qa` 汇总。
 
-需补强（本方案核心）：C-batch/回译入 Autofix、术语回写、失败自动局部重做、L3 judge 与机器验收报告、风险门控回译的产品化。
+已补强（截至 autonomous-quality-v3）：C-batch 与回译低分入 Autofix、术语回写（按源文命中定点替换）、评估不过线经 Autofix 自动重做（max_auto_redo_rounds）、L3 固定 rubric 与可选双评、机器验收报告与评估明细/趋势、自治档位与阈值可配、可选风险范围审校。
 
 明确不做：整本回译默认路径、强制试点章、固定集 A/B、人工逐条审、人工逐项验收签字。
 
