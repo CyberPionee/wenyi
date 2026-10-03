@@ -117,10 +117,16 @@ export interface MachineGateData {
   passed?: boolean;
   blocking?: boolean;
   l0_passed?: boolean;
+  l2_passed?: boolean;
   bt_passed?: boolean;
   judge_passed?: boolean;
   bt_sample_count?: number;
   bt_low_count?: number;
+  l2_checked_count?: number;
+  l2_drift_count?: number;
+  l2_consistency_rate?: number;
+  l2_min_consistency?: number;
+  l0_residual_finding_count?: number;
   judge_sample_count?: number;
   judge_avg?: number | null;
   judge_low_count?: number;
@@ -131,11 +137,51 @@ export interface MachineGateData {
   bt_score_min?: number;
   judge_score_min?: number;
 }
+export interface EvaluationRiskSegment {
+  chapter: number;
+  index: number;
+  source_preview?: string;
+  target_preview?: string;
+  reasons?: string[];
+}
+export interface EvaluationL2Item {
+  chapter: number;
+  index: number;
+  source_term?: string;
+  expected_target?: string;
+  missing_targets?: string[];
+  source_preview?: string;
+  target_preview?: string;
+}
+export interface EvaluationL2Data {
+  checked?: number;
+  drifted?: number;
+  consistency_rate?: number;
+  items?: EvaluationL2Item[];
+}
+export interface EvaluationBackTranslation {
+  source_preview?: string;
+  back_preview?: string;
+  score?: number;
+}
+export interface EvaluationJudgeScore {
+  index?: number | null;
+  score?: number;
+  note?: string;
+}
+export interface EvaluationData {
+  l0?: Record<string, unknown>;
+  l2?: EvaluationL2Data;
+  back_translation?: EvaluationBackTranslation[];
+  judge_scores?: EvaluationJudgeScore[];
+  risk_segments?: EvaluationRiskSegment[];
+  machine_gate?: MachineGateData;
+}
 export interface ReportData {
   summary: Record<string, unknown>;
   auto_qa?: AutoQAData;
   machine_gate?: MachineGateData;
-  evaluation?: Record<string, unknown>;
+  evaluation?: EvaluationData;
   residual_findings?: Array<Record<string, unknown>>;
   usage?: Record<string, unknown>;
   timing?: Record<string, unknown>;

@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ErrorNotice, StructuredData } from "@/components/ui/data";
 import { Disclosure } from "@/components/ui/disclosure";
+import { EvaluationDetails } from "./EvaluationDetails";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { Accounting } from "./Accounting";
 import { toast } from "sonner";
@@ -266,6 +267,7 @@ export default function ProgressPage() {
                 }
               />
             </Disclosure>
+            <EvaluationDetails evaluation={report.data?.evaluation} />
             <ChapterTable pid={pid} chapters={chapters} busy={busy} />
           </>
         )}
