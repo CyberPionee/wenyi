@@ -52,6 +52,7 @@ pipeline:
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
   review_autofix: true # Publish review revisions to formal chapters; use --no-autofix for recommendations only
+  review_scope: "all" # all | risk — risk reviews only chapters containing risk segments
   glossary_scope: chapter # chapter=terms relevant to this chapter; full=entire glossary
   glossary_always_types: [person] # Term types kept in chapter-filtered prompts even when absent from the chapter
   glossary_always_min_occurrences: 3 # Minimum book-wide source/alias occurrences for always-on entities
@@ -162,6 +163,7 @@ class PipelineConfig(BaseModel):
     review_fix_max_rounds: int = Field(default=2, ge=0, le=4)
     review_clean_confirmations: int = Field(default=2, ge=1, le=2)
     review_autofix: bool = True  # Publish formal translations through a separate stage after review
+    review_scope: Literal["all", "risk"] = "all"
     glossary_scope: str = (
         "chapter"  # chapter=terms occurring in this chapter (saves tokens); full=entire glossary
     )

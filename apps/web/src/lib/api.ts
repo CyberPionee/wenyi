@@ -177,12 +177,24 @@ export interface EvaluationJudgeScore {
   score?: number;
   note?: string;
 }
+export interface EvaluationHistoryEntry {
+  ts?: string;
+  passed?: boolean;
+  blocking?: boolean;
+  tier?: unknown;
+  l2_consistency_rate?: number | null;
+  bt_low_count?: number | null;
+  judge_avg?: number | null;
+  l0_residual_finding_count?: number | null;
+}
 export interface EvaluationData {
   l0?: Record<string, unknown>;
   l2?: EvaluationL2Data;
   back_translation?: EvaluationBackTranslation[];
   judge_scores?: EvaluationJudgeScore[];
   risk_segments?: EvaluationRiskSegment[];
+  history?: EvaluationHistoryEntry[];
+  auto_redo?: Record<string, unknown>;
   machine_gate?: MachineGateData;
 }
 export interface ReportData {

@@ -112,6 +112,7 @@ const zhCN = {
   "eval.l3Avg": "Judge 均分",
   "eval.l3Title": "Judge 低分段落",
   "eval.riskTitle": "高风险段落",
+  "eval.historyTitle": "最近评估记录",
   "eval.sourceTerm": "原文术语",
   "eval.expectedTarget": "应使用译名",
   "eval.targetPreview": "译文片段",

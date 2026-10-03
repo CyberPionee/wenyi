@@ -159,6 +159,21 @@ class ReviewService:
             )
 
         chapter_rows = manifest.get("chapters", [])
+        if self._runtime.config.pipeline.review_scope == "risk":
+            # Narrow review to chapters that actually carry risk segments; ordinary
+            # narrative chapters are skipped to keep the deep pass focused.
+            from .evaluation import select_risk_segments
+
+            terms = all_terms if isinstance(all_terms, list) else []
+            risk = select_risk_segments(
+                [store.load_chapter(item["index"]) for item in chapter_rows],
+                terms=terms,
+                sample_ratio=0.0,
+            )
+            risk_chapters = {item.chapter for item in risk}
+            chapter_rows = [item for item in chapter_rows if item.get("index") in risk_chapters]
+            if not chapter_rows:
+                chapter_rows = manifest.get("chapters", [])
         if progress:
             progress(0, len(chapter_rows), "Loading review chapters")
         loaded = []

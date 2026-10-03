@@ -111,6 +111,7 @@ const en = {
   "eval.l3Avg": "Judge average",
   "eval.l3Title": "Low judge scores",
   "eval.riskTitle": "Risk segments",
+  "eval.historyTitle": "Recent evaluation runs",
   "eval.sourceTerm": "Source term",
   "eval.expectedTarget": "Expected translation",
   "eval.targetPreview": "Translation preview",

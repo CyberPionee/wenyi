@@ -158,6 +158,38 @@ export function EvaluationDetails({ evaluation }: { evaluation?: EvaluationData 
             </ul>
           </section>
         )}
+        {(evaluation.history || []).length > 1 && (
+          <section>
+            <h4 className="mb-2 font-medium">{tr("eval.historyTitle")}</h4>
+            <ul className="space-y-1">
+              {evaluation.history!.slice(-5).reverse().map((item, position) => (
+                <li key={position} className="border-t pt-1 text-muted-foreground">
+                  <span>{item.ts}</span>
+                  {" · "}
+                  <span>
+                    {item.passed
+                      ? tr("data.machineGatePassed")
+                      : tr("data.machineGateFailed")}
+                  </span>
+                  {" · "}
+                  <span>
+                    {tr("eval.l2")}
+                    {": "}
+                    {item.l2_consistency_rate != null
+                      ? `${Math.round(item.l2_consistency_rate * 100)}%`
+                      : "—"}
+                  </span>
+                  {" · "}
+                  <span>
+                    {tr("eval.l3Avg")}
+                    {": "}
+                    {item.judge_avg ?? "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </div>
     </Disclosure>
   );

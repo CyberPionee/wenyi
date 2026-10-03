@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from wenyi_core.glossary.store import GlossaryTerm
@@ -268,6 +270,26 @@ class QualityPassNoteMappingTests(unittest.TestCase):
     def test_empty_suggestion_without_detail_is_skipped(self):
         quality = {"chapter_selfcheck_findings": [{"chapter": 0, "index": 2}]}
         self.assertEqual(quality_pass_notes_to_issues(quality), [])
+
+
+class EvaluationTrendTests(unittest.TestCase):
+    def test_history_is_appended_and_capped(self):
+        from wenyi_core.storage.file import FileStorage
+
+        with tempfile.TemporaryDirectory() as d:
+            store = FileStorage(str(Path(d) / "state"))
+            try:
+                for _ in range(25):
+                    from wenyi_core.pipeline.finalization import ReportService
+
+                    history = ReportService._record_evaluation_trend(
+                        store, {"machine_gate": {"passed": True, "judge_avg": 4.2}}
+                    )
+                self.assertEqual(len(history), 20)
+                self.assertTrue(history[-1]["passed"])
+                self.assertEqual(history[-1]["judge_avg"], 4.2)
+            finally:
+                store.close()
 
 
 class AnchorTests(unittest.TestCase):

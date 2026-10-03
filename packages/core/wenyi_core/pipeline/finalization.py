@@ -117,6 +117,34 @@ class ReportService:
         )
         return payload, evaluation
 
+    @staticmethod
+    def _record_evaluation_trend(store: Storage, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Append a compact summary to the evaluation history and return the recent tail.
+
+        The history is a rolling list so the report can show whether the machine gate is
+        improving without asking anyone to diff runs by hand.
+        """
+        from datetime import datetime
+
+        gate = payload.get("machine_gate") or {}
+        entry = {
+            "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "passed": bool(gate.get("passed")),
+            "blocking": bool(gate.get("blocking")),
+            "tier": gate.get("tier") or gate.get("block_on_l0_only"),
+            "l2_consistency_rate": gate.get("l2_consistency_rate"),
+            "bt_low_count": gate.get("bt_low_count"),
+            "judge_avg": gate.get("judge_avg"),
+            "l0_residual_finding_count": gate.get("l0_residual_finding_count"),
+        }
+        history = store.read_artifact("evaluation_history.json")
+        if not isinstance(history, list):
+            history = []
+        history.append(entry)
+        history = history[-20:]
+        store.write_artifact("evaluation_history.json", history)
+        return history
+
     def build_and_save(
         self,
         store: Storage,
@@ -176,6 +204,7 @@ class ReportService:
                 )
         if evaluation_payload is not None:
             evaluation_payload["auto_redo"] = redo_summary
+            evaluation_payload["history"] = self._record_evaluation_trend(store, evaluation_payload)
         report = build_report(
             store,
             glossary,
