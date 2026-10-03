@@ -13,6 +13,7 @@ from wenyi_core.pipeline.decision_anchors import (
 from wenyi_core.pipeline.evaluation import (
     back_translation_similarity,
     build_machine_gate,
+    evaluation_low_score_issues,
     quality_notes_to_autofix_issues,
     scan_term_consistency,
     score_back_translations,
@@ -81,8 +82,10 @@ class GateTests(unittest.TestCase):
 
     def test_similarity_and_score_pairs(self):
         self.assertGreater(back_translation_similarity("hello world", "hello world"), 0.9)
-        scores = score_back_translations([("hello world", "你好世界")], ["hello world"])
+        scores = score_back_translations([(0, 3, "hello world", "你好世界")], ["hello world"])
         self.assertEqual(scores[0]["score"] > 0.5, True)
+        self.assertEqual(scores[0]["chapter"], 0)
+        self.assertEqual(scores[0]["index"], 3)
 
     def test_quality_notes_map_to_issues(self):
         issues = quality_notes_to_autofix_issues(
@@ -179,6 +182,40 @@ class GateL2Tests(unittest.TestCase):
         )
         self.assertFalse(gate["l2_passed"])
         self.assertTrue(gate["blocking"])
+
+
+class EvaluationIssueMappingTests(unittest.TestCase):
+    def test_low_score_and_drift_become_located_issues(self):
+        evaluation = {
+            "l2": {
+                "items": [
+                    {
+                        "chapter": 1,
+                        "index": 2,
+                        "source_term": "A",
+                        "expected_target": "甲",
+                        "missing_targets": ["甲"],
+                    }
+                ]
+            },
+            "back_translation": [{"chapter": 1, "index": 5, "score": 0.1}],
+            "judge_scores": [{"chapter": 1, "index": 7, "score": 2.0, "note": "fluent but flat"}],
+        }
+        issues = evaluation_low_score_issues(evaluation, bt_min=0.45, judge_min=3.5)
+        self.assertEqual(len(issues), 3)
+        self.assertEqual({issue["index"] for issue in issues}, {2, 5, 7})
+        l2_issue = next(issue for issue in issues if issue["issue_key"].startswith("eval_l2"))
+        self.assertEqual(l2_issue["suggestion"], "甲")
+        self.assertEqual(l2_issue["type"], "terminology")
+
+    def test_passing_findings_are_not_mapped(self):
+        evaluation = {
+            "l2": {"items": []},
+            "back_translation": [{"chapter": 0, "index": 0, "score": 0.9}],
+            "judge_scores": [{"chapter": 0, "index": 1, "score": 4.5}],
+        }
+        issues = evaluation_low_score_issues(evaluation, bt_min=0.45, judge_min=3.5)
+        self.assertEqual(issues, [])
 
 
 class AnchorTests(unittest.TestCase):

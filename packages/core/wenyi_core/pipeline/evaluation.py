@@ -234,15 +234,21 @@ def back_translation_similarity(source: str, back: str) -> float:
 
 
 def score_back_translations(
-    pairs: Sequence[tuple[str, str]],
+    pairs: Sequence[tuple[int, int, str, str]],
     back_texts: Sequence[str],
 ) -> list[dict[str, Any]]:
-    """Pair each source with its back-translation score."""
+    """Pair each located source with its back-translation score.
+
+    ``pairs`` entries are ``(chapter, index, source, target)`` so low-scoring items can
+    be routed back to the same paragraph for repair.
+    """
     results: list[dict[str, Any]] = []
-    for (source, _target), back in zip(pairs, back_texts):
+    for (chapter, index, source, _target), back in zip(pairs, back_texts):
         score = back_translation_similarity(source, back)
         results.append(
             {
+                "chapter": chapter,
+                "index": index,
                 "source_preview": _preview(source),
                 "back_preview": _preview(back),
                 "score": round(score, 4),
@@ -348,6 +354,79 @@ def quality_notes_to_autofix_issues(
     return issues
 
 
+def evaluation_low_score_issues(
+    evaluation: dict[str, Any], *, bt_min: float, judge_min: float
+) -> list[dict[str, Any]]:
+    """Map failing evaluation findings onto the Autofix issue contract.
+
+    L2 drift and low-scoring L1/L3 paragraphs have no deterministic replacement here:
+    L2 only knows the expected mapping, so the fixer revises the whole paragraph using
+    that mapping as the suggestion.
+    """
+    issues: list[dict[str, Any]] = []
+
+    def add(chapter: Any, index: Any, detail: str, suggestion: str, key: str) -> None:
+        if not isinstance(chapter, int) or isinstance(chapter, bool):
+            return
+        if not isinstance(index, int) or isinstance(index, bool):
+            return
+        issues.append(
+            {
+                "chapter": chapter,
+                "index": index,
+                "issue_key": key,
+                "issue_id": key,
+                "type": "terminology" if suggestion and key.startswith("eval_l2") else "fluency",
+                "detail": detail,
+                "suggestion": suggestion,
+            }
+        )
+
+    l2 = evaluation.get("l2") or {}
+    for position, item in enumerate(l2.get("items") or []):
+        missing = [value for value in (item.get("missing_targets") or []) if value]
+        expected = item.get("expected_target") or ""
+        suggestion = missing[0] if missing else expected
+        add(
+            item.get("chapter"),
+            item.get("index"),
+            f"Glossary mapping not used: {item.get('source_term') or ''} -> {suggestion}",
+            suggestion,
+            f"eval_l2:{item.get('chapter')}:{item.get('index')}:{position}",
+        )
+
+    for position, item in enumerate(evaluation.get("back_translation") or []):
+        score = float(item.get("score") or 1.0)
+        if score >= bt_min:
+            continue
+        add(
+            item.get("chapter"),
+            item.get("index"),
+            f"Back-translation similarity {score:.2f} below {bt_min}",
+            "",
+            f"eval_bt:{item.get('chapter')}:{item.get('index')}:{position}",
+        )
+
+    for position, item in enumerate(evaluation.get("judge_scores") or []):
+        score = item.get("score")
+        if not isinstance(score, (int, float)) or isinstance(score, bool):
+            continue
+        if float(score) >= judge_min:
+            continue
+        note = str(item.get("note") or "").strip()
+        detail = f"Quality judge score {score} below {judge_min}"
+        if note:
+            detail = f"{detail}: {note}"
+        add(
+            item.get("chapter"),
+            item.get("index"),
+            detail,
+            "",
+            f"eval_judge:{item.get('chapter')}:{item.get('index')}:{position}",
+        )
+    return issues
+
+
 class EvaluationService:
     """Run L1/L3 sample evaluation and merge into the machine gate."""
 
@@ -397,40 +476,43 @@ class EvaluationService:
         result = EvaluationResult(risk_segments=risk, l0=dict(l0))
         # L2 is deterministic and cheap: always measure the real glossary coverage.
         result.l2 = scan_term_consistency(chapters, terms)
-        bt_pairs: list[tuple[str, str]] = []
-        for item in risk:
-            if "empty_target" in item.reasons:
-                continue
-            if not self.risk_back_translation:
-                break
-            if "sample" in item.reasons and self.risk_sample_ratio <= 0:
-                continue
-            bt_pairs.append((item.source_preview, item.target_preview))
-        # Prefer full source/target texts when available via chapter reload
-        full_pairs: list[tuple[str, str]] = []
+        # Keep chapter/segment identity so failing items can be routed back for repair.
         by_key = {
-            (c.index, s.index): (s.source, s.target or "")
+            (c.index, s.index): (c.index, s.index, s.source, s.target or "")
             for c in chapters
             for s in c.text_segments
         }
+        pairs: list[tuple[int, int, str, str]] = []
         for item in risk:
-            pair = by_key.get((item.chapter, item.index))
-            if pair:
-                full_pairs.append(pair)
-        pairs = full_pairs or bt_pairs
+            if "empty_target" in item.reasons:
+                continue
+            if not self.risk_back_translation and not self.quality_judge:
+                break
+            if "sample" in item.reasons and self.risk_sample_ratio <= 0:
+                continue
+            located = by_key.get((item.chapter, item.index))
+            if located is not None:
+                pairs.append(located)
         if pairs and self.risk_back_translation and back_translate is not None:
-            targets = [target for _source, target in pairs]
+            targets = [target for _c, _i, _s, target in pairs]
             backs = back_translate(targets)
             result.back_translation = score_back_translations(pairs, backs)
 
-        judge_pairs: list[tuple[str, str]] = []
+        judge_pairs: list[tuple[int, int, str, str]] = []
         if self.quality_judge and judge is not None:
             step = max(1, int(1 / self.judge_sample_ratio)) if self.judge_sample_ratio > 0 else 1
             for position, pair in enumerate(pairs):
                 if position % step == 0:
                     judge_pairs.append(pair)
             if judge_pairs:
-                result.judge_scores = list(judge(judge_pairs))
+                scored = judge([(source, target) for _c, _i, source, target in judge_pairs])
+                located_scores: list[dict[str, Any]] = []
+                for (chapter, index, _source, _target), item in zip(judge_pairs, scored):
+                    record = dict(item) if isinstance(item, dict) else {}
+                    record.setdefault("chapter", chapter)
+                    record.setdefault("index", index)
+                    located_scores.append(record)
+                result.judge_scores = located_scores
 
         result.machine_gate = build_machine_gate(
             l0=l0,
