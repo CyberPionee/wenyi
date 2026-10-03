@@ -63,6 +63,7 @@ class ReportService:
                 judge_sample_ratio=float(getattr(pipeline, "judge_sample_ratio", 0.05)),
                 bt_score_min=float(getattr(pipeline, "bt_score_min", 0.45)),
                 judge_score_min=float(getattr(pipeline, "judge_score_min", 3.5)),
+                l2_min_consistency=float(getattr(pipeline, "l2_min_consistency", 1.0)),
                 risk_back_translation=bool(getattr(pipeline, "risk_back_translation", True)),
                 quality_judge=bool(getattr(pipeline, "quality_judge", True)),
             )

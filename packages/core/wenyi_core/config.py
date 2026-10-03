@@ -73,6 +73,7 @@ pipeline:
   quality_judge: true # L3 LLM fluency/style scoring on sampled segments
   judge_sample_ratio: 0.05
   judge_score_min: 3.5 # L3 pass threshold (1-5)
+  l2_min_consistency: 1.0 # L2 glossary consistency threshold; 1.0 means any drift fails
   bt_score_min: 0.45 # L1 back-translation similarity threshold (0-1)
   max_auto_redo_rounds: 2 # Automatic local redo rounds when the machine gate fails
   decision_anchors: "off" # off | auto | risk — optional target-side decision anchors
@@ -185,6 +186,7 @@ class PipelineConfig(BaseModel):
     quality_judge: bool = True
     judge_sample_ratio: float = Field(default=0.05, ge=0.0, le=1.0)
     judge_score_min: float = Field(default=3.5, ge=1.0, le=5.0)
+    l2_min_consistency: float = Field(default=1.0, ge=0.0, le=1.0)
     bt_score_min: float = Field(default=0.45, ge=0.0, le=1.0)
     max_auto_redo_rounds: int = Field(default=2, ge=0, le=5)
     decision_anchors: Literal["off", "auto", "risk"] = "off"

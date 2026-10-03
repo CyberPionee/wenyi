@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
+from wenyi_core.glossary.store import GlossaryTerm
 from wenyi_core.pipeline.decision_anchors import (
     distill_decision_anchors,
     render_decision_anchors,
@@ -13,6 +14,7 @@ from wenyi_core.pipeline.evaluation import (
     back_translation_similarity,
     build_machine_gate,
     quality_notes_to_autofix_issues,
+    scan_term_consistency,
     score_back_translations,
     segment_risk_reasons,
     select_risk_segments,
@@ -88,6 +90,95 @@ class GateTests(unittest.TestCase):
         )
         self.assertEqual(issues[0]["index"], 5)
         self.assertEqual(issues[0]["suggestion"], "改后的句子")
+
+
+class TermConsistencyTests(unittest.TestCase):
+    """L2 measures glossary target usage as a rate over covered segments."""
+
+    def test_rate_and_drift_items(self):
+        overrides = {
+            "田中": "田中",
+            "海豚酒店": "海豚酒店（Dolphin Hotel）",
+        }
+        terms = [
+            GlossaryTerm(source=src, target=tgt, type="place") for src, tgt in overrides.items()
+        ]
+        chapters = [
+            _chapter(
+                1,
+                [
+                    (0, "田中说。", "田中说。"),  # consistent
+                    (1, "海豚酒店很安静。", "那家旅馆很安静。"),  # drifted
+                    (2, "无关段落。", "无关段落。"),  # not covered
+                ],
+            )
+        ]
+        result = scan_term_consistency(chapters, terms)
+        self.assertEqual(result["checked"], 2)
+        self.assertEqual(result["drifted"], 1)
+        self.assertEqual(result["consistency_rate"], 0.5)
+        self.assertEqual(result["items"][0]["index"], 1)
+        self.assertIn("海豚酒店（Dolphin Hotel）", result["items"][0]["missing_targets"])
+
+    def test_empty_targets_are_not_l2(self):
+        terms = [GlossaryTerm(source="田中", target="", type="person")]
+        chapters = [_chapter(1, [(0, "田中说。", "他说。")])]
+        result = scan_term_consistency(chapters, terms)
+        self.assertEqual(result["checked"], 0)
+        self.assertEqual(result["consistency_rate"], 1.0)
+
+    def test_no_terms_is_neutral(self):
+        chapters = [_chapter(1, [(0, "甲。", "甲。")])]
+        result = scan_term_consistency(chapters, [])
+        self.assertEqual(result["checked"], 0)
+        self.assertEqual(result["items"], [])
+
+
+class GateL2Tests(unittest.TestCase):
+    def test_default_threshold_keeps_strict_behavior(self):
+        gate = build_machine_gate(
+            l0={
+                "empty_target_count": 0,
+                "open_conflict_count": 0,
+                "residual_finding_count": 1,
+                "open_issue_count": 0,
+            },
+            l2={"checked": 10, "drifted": 1, "consistency_rate": 0.9},
+        )
+        self.assertFalse(gate["l2_passed"])
+        self.assertFalse(gate["l0_passed"])
+        self.assertTrue(gate["blocking"])
+
+    def test_tolerance_shifts_drift_decision_to_l2(self):
+        gate = build_machine_gate(
+            l0={
+                "empty_target_count": 0,
+                "open_conflict_count": 0,
+                "residual_finding_count": 1,
+                "open_issue_count": 0,
+            },
+            l2={"checked": 10, "drifted": 1, "consistency_rate": 0.9},
+            l2_min_consistency=0.8,
+        )
+        # The same drift must not fail L0 twice once L2 owns the decision.
+        self.assertEqual(gate["l0_residual_finding_count"], 0)
+        self.assertTrue(gate["l0_passed"])
+        self.assertTrue(gate["l2_passed"])
+        self.assertTrue(gate["passed"])
+
+    def test_drift_above_tolerance_still_fails(self):
+        gate = build_machine_gate(
+            l0={
+                "empty_target_count": 0,
+                "open_conflict_count": 0,
+                "residual_finding_count": 2,
+                "open_issue_count": 0,
+            },
+            l2={"checked": 10, "drifted": 3, "consistency_rate": 0.7},
+            l2_min_consistency=0.8,
+        )
+        self.assertFalse(gate["l2_passed"])
+        self.assertTrue(gate["blocking"])
 
 
 class AnchorTests(unittest.TestCase):
