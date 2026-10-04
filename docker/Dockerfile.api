@@ -56,7 +56,8 @@ RUN export SETUPTOOLS_SCM_PRETEND_VERSION="$WENYI_VERSION" \
     && arq --version \
     && wenyi --version \
     && wenyi --help >/dev/null \
-    && python -c "import wenyi_api, wenyi_core, wenyi_cli"
+    && python -c "import wenyi_api, wenyi_core, wenyi_cli" \
+    && python -c "import tiktoken; from wenyi_core.ingest.tokens import ENCODING_NAME; tiktoken.get_encoding(ENCODING_NAME)"
 
 FROM base AS api
 EXPOSE 8000

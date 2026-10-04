@@ -13,7 +13,8 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/shared-schema/package.json packages/shared-schema/package.json
 COPY apps/web/package.json apps/web/package.json
 
-RUN pnpm install --frozen-lockfile
+# Install only the Web closure; other workspace packages stay out of the image.
+RUN pnpm --filter @wenyi/web... install --frozen-lockfile
 
 COPY packages/shared-schema packages/shared-schema
 COPY apps/web apps/web
