@@ -63,6 +63,7 @@ pipeline:
   glossary_extract_recent_max: 20
   glossary_extract_min_terms: 5
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
+  tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
   self_revision: false # Optional C-batch draft revision notes (analysis/events only)
   editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
   final_polish: false # Optional final polish candidates (analysis/events only)
@@ -179,6 +180,9 @@ class PipelineConfig(BaseModel):
     glossary_extract_recent_max: int = Field(default=20, ge=0)
     glossary_extract_min_terms: int = Field(default=5, ge=0)
     auto_qa_strict: bool = False  # Block export while auto_qa residuals remain
+    # auto: derive the tunable knobs from the autonomy tier, the batch budget and recorded
+    # score distributions. manual: use the configured values as written.
+    tuning: Literal["auto", "manual"] = "auto"
     self_revision: bool = False
     editorial_pass: bool = False
     final_polish: bool = False

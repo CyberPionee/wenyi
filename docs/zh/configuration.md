@@ -234,6 +234,7 @@ pipeline:
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
   review_autofix: true
+  review_scope: "all"
   glossary_scope: chapter
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
@@ -243,6 +244,8 @@ pipeline:
   glossary_extract_core_max: 12
   glossary_extract_recent_max: 20
   glossary_extract_min_terms: 5
+  tuning: "auto"
+  autonomy_tier: "standard"
   evaluation_enabled: true
   risk_back_translation: true
   risk_sample_ratio: 0.08
@@ -280,10 +283,14 @@ pipeline:
 - `glossary_always_min_occurrences`：always-on 实体在全书源文/别名中的最少出现次数（默认 `3`）。
 - `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
 - `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`：抽取时已有术语的通用灵活注入（命中优先、预算封顶、最小兜底）。详见[术语注入](glossary-injection.md)。抽取提示词不带 Note；翻译/润色/审校仍保留 Note。
+- `tuning`：默认 `auto`。此时不再要求人工填调优数值：自治档位与批次预算决定 `review_scope`、`risk_back_translation`、`max_auto_redo_rounds`、`quality_judge_dual` 与 5 个术语提示预算，历史分数分布可标定 `bt_score_min` 与 `judge_score_min`。设为 `manual` 则完全沿用配置值。这些键里只要有任何一个被写成与出厂默认不同的值，就视为人工钉住，`auto` 不会再动它。每次运行都会把全部 27 个键的生效值与来源写进 `report.evaluation.tuning`，进度页据此展示。
+- `autonomy_tier`：质量与成本的唯一旋钮。`off` 只跑 L0 规则扫描——不抽样、不回译、不自动重做，只有 L0 能阻断；`speed` 另以减半抽样报告 L1–L3，同样不阻断；`standard` 要求 L0–L3 按配置抽样全绿；`precise` 抽样加倍、两次评分取平均、允许三轮自动重做，并把接受地板抬到 `0.6` / `4.0`。
+- `review_scope`：`all` 审全部章节；`risk` 只审含机械检出风险段的章节，`off` 与 `speed` 会自动选它。
+- `max_auto_redo_rounds`：机器门未过后的自动重做轮数，`0` 到 `5`。
 - `auto_qa_strict`：默认关闭。开启后若 `report.auto_qa` 或机器评估门仍有空译、术语冲突、残留问题、未决 issue 或评估低分，则导出直接失败；默认导出不阻断。
 - `evaluation_enabled`：默认开启 L0–L3 机器评估，写入 `report.evaluation` / `report.machine_gate`。
-- `risk_back_translation` / `risk_sample_ratio`：L1 风险门控回译与每章抽样比例。
-- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`：L3 打分与阈值。
+- `risk_back_translation` / `risk_sample_ratio`：L1 风险门控回译与每章抽样比例；档位会在该比例上做缩放。
+- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`：L3 打分与阈值。回译相似度与评分跨语言对不可比，因此累积满三次运行后，观测到的低分位可以把阈值下调到档位地板——不会低于地板，也不会高于配置值。当地板（而非数据）在决定这条线时，运行会给出一个具体建议值供人工确认，而不是悄悄放宽自己的标准。
 - `decision_anchors`：`off` | `auto` | `risk`，可选译文决策锚；不替代风格指南与术语表。
 - `pdf_backend`：默认 `mineru`，经 MinerU 转 HTML。需要尽量保留版式时改用 `babeldoc`（外部 AGPL HTTP bridge）。经 BabelDOC 创建的 PDF 状态，在 `translate` 和 `assemble` 中均默认导出 PDF；MinerU 状态仍默认导出 EPUB。显式 `--format` 优先，续跑默认格式以已保存的后端为准。
 - `babeldoc_bridge_url`：BabelDOC bridge 地址，默认 `http://127.0.0.1:8765`。

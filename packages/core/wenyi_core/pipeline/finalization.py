@@ -46,30 +46,25 @@ class ReportService:
     ) -> tuple[dict[str, Any], Any]:
         """Run one L0-L3 evaluation pass and return its payload plus the result object."""
         from ..assemble.report import build_report
-        from .evaluation import EvaluationService, apply_autonomy_tier
+        from .evaluation import EvaluationService
+        from .tuning import describe_tuning, evaluation_policy, history_entries
 
         pipeline = self._runtime.config.pipeline
+        pipeline_map = pipeline.model_dump()
         pre_report = build_report(store, glossary, strict_auto_qa=strict)
-        effective = apply_autonomy_tier(
-            {
-                "risk_sample_ratio": getattr(pipeline, "risk_sample_ratio", 0.08),
-                "judge_sample_ratio": getattr(pipeline, "judge_sample_ratio", 0.05),
-                "bt_score_min": getattr(pipeline, "bt_score_min", 0.45),
-                "judge_score_min": getattr(pipeline, "judge_score_min", 3.5),
-                "l2_min_consistency": getattr(pipeline, "l2_min_consistency", 1.0),
-            },
-            str(getattr(pipeline, "autonomy_tier", "standard")),
-        )
+        # Recorded runs may move a threshold between its tier floor and the configured cap.
+        history = history_entries(store.read_artifact("evaluation_history.json") or [])
+        policy = evaluation_policy(pipeline_map, tier=str(pipeline.autonomy_tier), history=history)
         service = EvaluationService(
             store,
-            risk_sample_ratio=effective["risk_sample_ratio"],
-            judge_sample_ratio=effective["judge_sample_ratio"],
-            bt_score_min=effective["bt_score_min"],
-            judge_score_min=effective["judge_score_min"],
-            l2_min_consistency=effective["l2_min_consistency"],
-            block_on_l0_only=bool(effective["block_on_l0_only"]),
-            risk_back_translation=bool(getattr(pipeline, "risk_back_translation", True)),
-            quality_judge=bool(getattr(pipeline, "quality_judge", True)),
+            risk_sample_ratio=policy["risk_sample_ratio"],
+            judge_sample_ratio=policy["judge_sample_ratio"],
+            bt_score_min=policy["bt_score_min"],
+            judge_score_min=policy["judge_score_min"],
+            l2_min_consistency=policy["l2_min_consistency"],
+            block_on_l0_only=bool(policy["block_on_l0_only"]),
+            risk_back_translation=bool(pipeline.risk_back_translation),
+            quality_judge=bool(pipeline.quality_judge),
         )
         terms = glossary.all_terms() if hasattr(glossary, "all_terms") else []
         agent = self._runtime.quality_pass
@@ -107,6 +102,11 @@ class ReportService:
             judge=_judge if pipeline.quality_judge else None,
         )
         payload = evaluation.to_dict()
+        payload["tuning"] = describe_tuning(
+            pipeline=pipeline_map,
+            run_plan=self._runtime.run_tuning,
+            evaluation=policy,
+        )
         store.log_event(
             "evaluation_finished",
             passed=bool((evaluation.machine_gate or {}).get("passed")),
@@ -136,6 +136,13 @@ class ReportService:
             "bt_low_count": gate.get("bt_low_count"),
             "judge_avg": gate.get("judge_avg"),
             "l0_residual_finding_count": gate.get("l0_residual_finding_count"),
+            # Distribution and bar per run, so later runs can calibrate the thresholds.
+            "bt_sample_count": gate.get("bt_sample_count"),
+            "bt_p10": gate.get("bt_p10"),
+            "bt_score_min": gate.get("bt_score_min"),
+            "judge_sample_count": gate.get("judge_sample_count"),
+            "judge_p10": gate.get("judge_p10"),
+            "judge_score_min": gate.get("judge_score_min"),
         }
         history = store.read_artifact("evaluation_history.json")
         if not isinstance(history, list):

@@ -245,6 +245,7 @@ pipeline:
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
   review_autofix: true
+  review_scope: "all"
   glossary_scope: chapter
   glossary_always_types: [person]
   glossary_always_min_occurrences: 3
@@ -254,6 +255,8 @@ pipeline:
   glossary_extract_core_max: 12
   glossary_extract_recent_max: 20
   glossary_extract_min_terms: 5
+  tuning: "auto"
+  autonomy_tier: "standard"
   evaluation_enabled: true
   risk_back_translation: true
   risk_sample_ratio: 0.08
@@ -291,10 +294,14 @@ pipeline:
 - `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
 - `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
 - `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`: universal flexible injection of existing terms into extraction prompts (hit-first, budget-capped, minimum fallback). See the Chinese design doc `docs/zh/glossary-injection.md`. Extraction prompts omit notes; translate/polish/review keep notes.
+- `tuning`: `auto` by default. The tunable knobs are then derived instead of requested: the autonomy tier and the batch budget decide `review_scope`, `risk_back_translation`, `max_auto_redo_rounds`, `quality_judge_dual` and the five glossary prompt budgets, and the recorded score distribution may calibrate `bt_score_min` and `judge_score_min`. Set it to `manual` to keep every configured value in force. Writing any of those keys with a value that differs from the shipped default already counts as a deliberate choice: `auto` leaves it alone. Every run records the effective value and origin of all 27 keys in `report.evaluation.tuning`, which the progress page renders.
+- `autonomy_tier`: the quality/cost dial. `off` runs the L0 sweep alone — no sampling, no back-translation, no automatic revision, and only L0 can block. `speed` also reports L1–L3 at reduced sampling, still without blocking. `standard` requires L0–L3 to pass at the configured sampling. `precise` doubles sampling, averages two judge passes, allows three automatic revision rounds and raises the accept floors to `0.6` / `4.0`.
+- `review_scope`: `all` reviews every chapter; `risk` reviews only chapters containing mechanically detected risk segments, which `off` and `speed` select automatically.
+- `max_auto_redo_rounds`: automatic revision rounds after a failing machine gate, from `0` to `5`.
 - `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` or the machine evaluation gate still reports empty targets, glossary conflicts, residual findings, open review issues or low evaluation scores. Default export is never blocked.
 - `evaluation_enabled`: on by default. Runs the L0–L3 machine evaluation and stores `report.evaluation` / `report.machine_gate`.
-- `risk_back_translation` / `risk_sample_ratio`: L1 risk-gated back-translation and per-chapter sampling ratio.
-- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`: L3 scoring and thresholds.
+- `risk_back_translation` / `risk_sample_ratio`: L1 risk-gated back-translation and per-chapter sampling ratio; the tier scales the ratio.
+- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`: L3 scoring and thresholds. Back-translation similarity and judge scores are not comparable across language pairs, so once three runs are recorded the observed lower decile may move a threshold down to the tier floor — never below the floor and never above the configured value. When the floor, not the data, sets the bar, the run reports a concrete suggested value for an operator to confirm instead of quietly loosening its own standard.
 - `decision_anchors`: `off` | `auto` | `risk`. Optional target-side decision anchors; they do not replace style briefs or glossaries.
 - `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.

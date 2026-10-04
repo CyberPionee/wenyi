@@ -9,6 +9,7 @@ for tests.
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
@@ -17,6 +18,7 @@ from typing import Any
 from ..glossary.store import GlossaryTerm, _match_text, _source_pattern, term_match_sources
 from ..review.sweep import scan_segment
 from ..storage.protocol import Storage
+from . import tuning
 
 RiskFn = Callable[[str, str], list[dict[str, Any]]]
 
@@ -258,36 +260,39 @@ def score_back_translations(
 
 
 # Autonomy tiers shape how strictly the machine gate is enforced and how densely
-# evaluation samples the book. Explicit thresholds always win over tier defaults.
-AUTONOMY_TIERS = ("off", "speed", "standard", "precise")
+# evaluation samples the book. Tier policy lives in :mod:`wenyi_core.pipeline.tuning`.
+AUTONOMY_TIERS = tuning.AUTONOMY_TIERS
 
 
 def apply_autonomy_tier(settings: dict[str, Any], tier: str) -> dict[str, Any]:
     """Return effective evaluation settings for an autonomy tier.
 
+    - ``off``: L0 alone decides; no sampling, no redo, nothing blocking beyond L0.
     - ``speed``: L0 must pass; L1-L3 stay informational and never block.
-    - ``standard``: L0-L3 all green to pass, denser sampling than speed.
-    - ``precise``: standard enforcement with tighter thresholds and sampling.
+    - ``standard``: L0-L3 all green to pass, at the configured sampling.
+    - ``precise``: standard enforcement with tighter thresholds and denser sampling.
+
+    Without recorded history the configured thresholds are the effective ones.
     """
-    effective = {
-        "tier": tier if tier in AUTONOMY_TIERS else "standard",
-        "block_on_l0_only": False,
-        "risk_sample_ratio": float(settings.get("risk_sample_ratio") or 0.08),
-        "judge_sample_ratio": float(settings.get("judge_sample_ratio") or 0.05),
-        "bt_score_min": float(settings.get("bt_score_min") or 0.45),
-        "judge_score_min": float(settings.get("judge_score_min") or 3.5),
-        "l2_min_consistency": float(settings.get("l2_min_consistency") or 1.0),
+    policy = tuning.evaluation_policy(settings, tier=tier)
+    return {
+        "tier": policy["tier"],
+        "block_on_l0_only": policy["block_on_l0_only"],
+        "risk_sample_ratio": policy["risk_sample_ratio"],
+        "judge_sample_ratio": policy["judge_sample_ratio"],
+        "bt_score_min": policy["bt_score_min"],
+        "judge_score_min": policy["judge_score_min"],
+        "l2_min_consistency": policy["l2_min_consistency"],
     }
-    if effective["tier"] == "speed":
-        effective["block_on_l0_only"] = True
-    elif effective["tier"] == "precise":
-        # Tighter acceptance plus denser sampling; never relax below the configured floor.
-        effective["risk_sample_ratio"] = min(1.0, effective["risk_sample_ratio"] * 2)
-        effective["judge_sample_ratio"] = min(1.0, effective["judge_sample_ratio"] * 2)
-        effective["bt_score_min"] = max(effective["bt_score_min"], 0.6)
-        effective["judge_score_min"] = max(effective["judge_score_min"], 4.0)
-        effective["l2_min_consistency"] = 1.0
-    return effective
+
+
+def _percentile(values: Sequence[float], fraction: float) -> float | None:
+    """Nearest-rank percentile, so a small sample still yields a comparable number."""
+    ordered = sorted(float(value) for value in values)
+    if not ordered:
+        return None
+    index = max(0, min(len(ordered) - 1, math.ceil(len(ordered) * fraction) - 1))
+    return round(ordered[index], 4)
 
 
 def build_machine_gate(
@@ -321,7 +326,6 @@ def build_machine_gate(
     bt_scores = [float(item.get("score") or 0.0) for item in back_translation]
     bt_low = sum(1 for score in bt_scores if score < bt_score_min)
     bt_passed = (not bt_scores) or (bt_low == 0)
-
     judge_values = [
         float(item.get("score") or 0.0) for item in judge_scores if item.get("score") is not None
     ]
@@ -352,10 +356,12 @@ def build_machine_gate(
         "bt_sample_count": len(bt_scores),
         "bt_low_count": bt_low,
         "bt_score_min": bt_score_min,
+        "bt_p10": _percentile(bt_scores, 0.1),
         "judge_sample_count": len(judge_values),
         "judge_avg": judge_avg,
         "judge_low_count": judge_low,
         "judge_score_min": judge_score_min,
+        "judge_p10": _percentile(judge_values, 0.1),
     }
 
 

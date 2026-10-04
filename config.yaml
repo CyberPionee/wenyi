@@ -49,6 +49,7 @@ pipeline:
   glossary_extract_recent_max: 20
   glossary_extract_min_terms: 5
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
+  tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
   self_revision: false # Optional C-batch draft revision notes (analysis/events only)
   editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
   final_polish: false # Optional final polish candidates (analysis/events only)

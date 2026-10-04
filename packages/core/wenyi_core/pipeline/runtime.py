@@ -29,6 +29,7 @@ from ..llm.usage import empty_usage, merge_usage_summaries, usage_delta, validat
 from ..storage.protocol import Storage
 from ..timing import RunTimer
 from .runstore import source_sha256
+from .tuning import install_run_tuning, run_tuning
 
 
 class PipelineRuntime:
@@ -39,6 +40,13 @@ class PipelineRuntime:
     ):
         """Initialize the shared LLM client, usage checkpoint and pipeline agents."""
         self.storage = storage
+        # The tier and the batch budget decide the tunable knobs before any work starts, so every
+        # agent and every later stage reads the same effective values from one place.
+        self.run_tuning = run_tuning(
+            config.pipeline.model_dump(),
+            segment_max_tokens=config.segment.max_tokens_per_batch,
+        )
+        config = install_run_tuning(config, self.run_tuning)
         self.config = config
         self.llm_config = config.llm.model_copy(deep=True)
         self.client = client or build_client(config)
