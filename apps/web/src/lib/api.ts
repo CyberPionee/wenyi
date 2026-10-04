@@ -187,6 +187,24 @@ export interface EvaluationHistoryEntry {
   judge_avg?: number | null;
   l0_residual_finding_count?: number | null;
 }
+export type TuningSource = "pinned" | "tier" | "budget" | "history" | "default";
+export interface TuningItem {
+  key: string;
+  value: unknown;
+  source: TuningSource;
+  note?: string;
+}
+export interface TuningCalibration {
+  key: string;
+  suggested_value: number;
+  reason: string;
+}
+export interface TuningData {
+  mode: "auto" | "manual";
+  tier: string;
+  items: TuningItem[];
+  calibration: TuningCalibration[];
+}
 export interface EvaluationData {
   l0?: Record<string, unknown>;
   l2?: EvaluationL2Data;
@@ -196,6 +214,7 @@ export interface EvaluationData {
   history?: EvaluationHistoryEntry[];
   auto_redo?: Record<string, unknown>;
   machine_gate?: MachineGateData;
+  tuning?: TuningData;
 }
 export interface ReportData {
   summary: Record<string, unknown>;
