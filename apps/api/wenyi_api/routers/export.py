@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import importlib.util
 import mimetypes
-import os
 from urllib.parse import quote
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
-from starlette.background import BackgroundTask
 from wenyi_core.assemble.writer_common import default_output_format
 
 from .. import dal
 from ..config import settings
 from ..db import get_pool
+from ..export_response import ExportResponse
 from ..export_retention import EXPORT_LIMIT, open_export
 from ..project_service import config_document, effective_config, require_project, storage_for
 from ..schemas import AssembleEnqueued, ExportOut, ExportRequest
@@ -125,24 +123,17 @@ async def create_export(pid: str, body: ExportRequest) -> dict:
 
 
 @router.get("/{export_id}/download")
-def download_export(pid: str, export_id: int):
+def download_export(pid: str, export_id: int) -> ExportResponse:
     require_project(pid)
     try:
         stream, file = open_export(get_pool(), pid, export_id, data_dir=settings.data_dir)
     except FileNotFoundError as error:
         raise HTTPException(404, "Completed export not found") from error
 
-    def chunks():
-        with stream:
-            while chunk := stream.read(64 * 1024):
-                yield chunk
-
-    return StreamingResponse(
-        chunks(),
+    return ExportResponse(
+        stream,
         media_type=mimetypes.guess_type(file.name)[0] or "application/octet-stream",
         headers={
             "content-disposition": f"attachment; filename*=utf-8''{quote(file.name)}",
-            "content-length": str(os.fstat(stream.fileno()).st_size),
         },
-        background=BackgroundTask(stream.close),
     )
