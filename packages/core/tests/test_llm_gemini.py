@@ -306,6 +306,7 @@ def test_gemini_client_safety_block():
 
 @pytest.mark.parametrize("operation", ["translation.body", "synopsis.chapter", "synopsis.book"])
 def test_gemini_truncation_is_rejected_and_only_summary_operations_retry(operation, monkeypatch):
+    """A response cut off at the token limit must never pass as a complete answer."""
     client = RoutedLLMClient(model_config(kind="gemini", max_retries=1))
     sdk = MagicMock()
     sdk.models.generate_content.side_effect = [

@@ -8,6 +8,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from ..credentials import validate_credential
 from ..retrying import EmptyResponseError, TruncatedResponseError
 from ..transport import Messages, ProviderAdapter, RequestContext, ResolvedModel
 from ..usage import UsageSample, make_usage_sample, read_usage_int
@@ -155,6 +156,7 @@ class GeminiClient(ProviderAdapter):
             raise RuntimeError(
                 f"Environment variable {target_env} (or {FALLBACK_API_KEY_ENV}) is not set"
             )
+        validate_credential(api_key)
 
     def _ensure_client(self) -> Any:
         """Create and validate google.genai.Client lazily."""
@@ -255,6 +257,8 @@ class GeminiClient(ProviderAdapter):
 
         candidate = candidates[0]
         finish_reason = str(getattr(candidate, "finish_reason", ""))
+        # A response cut off at the token limit is not a complete answer; never return a
+        # silently truncated translation or digest.
         if "MAX_TOKENS" in finish_reason.upper():
             raise TruncatedResponseError("Gemini response was truncated at the token limit")
         if "SAFETY" in finish_reason.upper() or "BLOCK" in finish_reason.upper():

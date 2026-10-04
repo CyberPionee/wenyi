@@ -1,0 +1,10 @@
+[Style]
+$style
+
+[Glossary]
+$glossary
+
+[Paragraphs to polish] ($n paragraphs)
+$numbered_target
+
+Return JSON: {"polished":[...]}, with exactly $n items.

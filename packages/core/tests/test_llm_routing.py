@@ -285,7 +285,10 @@ def test_dynamic_output_hint_respects_explicit_profile_cap(monkeypatch):
     assert client.routes["annotation.align"].max_output_tokens == 256
     assert requested == [256]
     config = Config.from_dict({"llm": {"preset": "deepseek"}})
-    assert resolve_routes(config.llm)["synopsis.chapter"].max_output_tokens == 8192
+    routes = resolve_routes(config.llm)
+    assert routes["synopsis.chapter"].max_output_tokens == 8192
+    # Style analysis carries prose plus character and term lists; 4096 truncated it under thinking.
+    assert routes["analysis.style"].max_output_tokens == 8192
     with pytest.raises(ValueError, match="Thinking mode"):
         Config.from_dict(
             {

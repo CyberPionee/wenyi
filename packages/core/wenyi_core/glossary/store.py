@@ -6,6 +6,7 @@ records unresolved translation conflicts.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -14,6 +15,7 @@ import sqlite3
 import tempfile
 import time
 import unicodedata
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -112,6 +114,7 @@ def _match_text(text: str) -> str:
 _WORD_BOUNDARY_SCRIPTS = ("LATIN", "GREEK", "CYRILLIC")
 
 
+@functools.lru_cache(maxsize=4096)
 def _source_pattern(key: str) -> re.Pattern[str] | None:
     """Build word boundaries for space-delimited scripts; return None for substring-matched
     scripts.
@@ -257,7 +260,9 @@ class GlossaryStore:
         complete view there. Any resulting shm files or checkpoints remain outside formal
         book state.
         """
-        with tempfile.TemporaryDirectory(prefix="wenyi-glossary-review-") as directory:
+        with tempfile.TemporaryDirectory(
+            prefix="wenyi-glossary-review-", ignore_cleanup_errors=True
+        ) as directory:
             snapshot_path = f"{directory}/glossary.db"
             wal_path = f"{db_path}-wal"
             snapshot_wal_path = f"{snapshot_path}-wal"
@@ -307,10 +312,10 @@ class GlossaryStore:
         return GlossaryTerm.from_row(row) if row else None
 
     def upsert_term(self, term: GlossaryTerm, chapter: int | None = None) -> str:
-        """Insert or update a term; return inserted, unchanged or conflict.
+        """Insert or update a term; return inserted, updated, unchanged or conflict.
         For an existing source with a different target, retain the established translation
         and record the candidate. Automatic extraction must not replace confirmed mappings
-        without human resolution.
+        without human resolution. An empty existing target is filled without conflict.
         """
         try:
             # Acquire the lock before reading existing so two connections cannot decide from the same old view.
@@ -338,6 +343,24 @@ class GlossaryStore:
                     ),
                 )
                 result = "inserted"
+            elif not (existing.target or "").strip() and (term.target or "").strip():
+                # Fill a missing mapping without treating it as a conflict.
+                merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
+                self.conn.execute(
+                    """UPDATE glossary SET target=?, reading=COALESCE(NULLIF(?,''),reading),
+                       gender=COALESCE(NULLIF(?,''),gender), aliases=?,
+                       note=COALESCE(NULLIF(?,''),note), status='ok', updated_at=? WHERE source=?""",
+                    (
+                        term.target,
+                        term.reading,
+                        term.gender,
+                        json.dumps(merged_aliases, ensure_ascii=False),
+                        term.note,
+                        now,
+                        term.source,
+                    ),
+                )
+                result = "updated"
             elif existing.target == term.target:
                 # Merging aliases or filling missing fields is not a conflict.
                 merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
@@ -453,3 +476,46 @@ class GlossaryStore:
         g = self.conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
         c = self.conn.execute("SELECT COUNT(*) FROM term_conflicts WHERE resolved=0").fetchone()[0]
         return {"terms": g, "open_conflicts": c}
+
+
+def merge_always_on(
+    selected: list[GlossaryTerm],
+    all_terms: list[GlossaryTerm],
+    source_corpus: str,
+    *,
+    always_types: Sequence[str] = (TYPE_PERSON,),
+    min_occurrences: int = 3,
+    max_always: int = 12,
+) -> list[GlossaryTerm]:
+    """Append locked high-frequency always-on entities missing from a filtered list.
+
+    Always-on entities are status-ok terms of the configured types whose source or aliases
+    occur at least ``min_occurrences`` times in the book corpus. Keep chapter-filtered terms
+    in place and append extras in insertion order so main characters stay visible even when
+    a chapter does not mention them. Conflicting terms are never always-on.
+    """
+    if max_always <= 0:
+        return list(selected)
+    type_set = set(always_types)
+    selected_keys = {term.source for term in selected}
+    candidates = [
+        term
+        for term in all_terms
+        if term.type in type_set and term.status == "ok" and term.source not in selected_keys
+    ]
+    if not candidates:
+        return list(selected)
+    recurring = GlossaryStore.recurring_terms(
+        candidates,
+        source_corpus,
+        min_occurrences=min_occurrences,
+    )
+    extras: list[GlossaryTerm] = []
+    for term in recurring:
+        if len(extras) >= max_always:
+            break
+        if term.source in selected_keys:
+            continue
+        extras.append(term)
+        selected_keys.add(term.source)
+    return [*selected, *extras]

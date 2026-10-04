@@ -9,6 +9,7 @@ from typing import Literal
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse, Response
 from wenyi_core.glossary.store import GlossaryTerm
+from wenyi_core.glossary.writeback import apply_term_writeback
 from wenyi_core.i18n.metadata import normalize_term_type
 
 from ..context import current_context
@@ -67,7 +68,26 @@ def update_term(pid: str, source: str, body: TermIn) -> dict:
             raise HTTPException(409, "Another term already uses that source")
         current_context().update_term(pid, storage, source, term)
         storage.log_event("glossary_term_edited", source=term.source, previous_source=source)
-        return vars(storage.get_term(term.source))
+        writeback = None
+        if existing.target and existing.target != term.target:
+            writeback = apply_term_writeback(
+                storage,
+                term_source=source,
+                term=term,
+                old_target=existing.target,
+                new_target=term.target,
+            )
+            storage.log_event(
+                "glossary_target_written_back",
+                source=source,
+                old_target=existing.target,
+                new_target=term.target,
+                segments_replaced=writeback["segments_replaced"],
+                chapters_touched=writeback["chapters_touched"],
+            )
+        result = vars(storage.get_term(term.source))
+        result["writeback"] = writeback
+        return result
 
 
 @router.delete("/terms/{source}", response_model=Message)
@@ -109,7 +129,29 @@ def resolve_conflict(pid: str, cid: int, body: ResolveConflict) -> dict:
             storage.resolve_term(existing.source, target)
             storage.mark_conflicts_resolved(existing.source)
             storage.log_event("glossary_conflict_resolved", source=existing.source, target=target)
-    return {"message": "resolved"}
+        writeback = None
+        if existing.target and existing.target != target:
+            writeback = apply_term_writeback(
+                storage,
+                term_source=existing.source,
+                term=GlossaryTerm(
+                    source=existing.source,
+                    target=target,
+                    type=existing.type,
+                    aliases=list(existing.aliases or []),
+                ),
+                old_target=existing.target,
+                new_target=target,
+            )
+            storage.log_event(
+                "glossary_target_written_back",
+                source=existing.source,
+                old_target=existing.target,
+                new_target=target,
+                segments_replaced=writeback["segments_replaced"],
+                chapters_touched=writeback["chapters_touched"],
+            )
+    return {"message": "resolved", "detail": writeback}
 
 
 @router.get("/export")

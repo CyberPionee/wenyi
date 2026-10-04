@@ -288,7 +288,8 @@ pipeline:
   translation_mode: standard
   review: true
   polish: true
-  rolling_context_segments: 6
+  rolling_context_segments: 8
+  rolling_context_with_source: true
   book_understanding: true
   prescan_concurrency: 4
   annotation_alignment: true
@@ -302,6 +303,27 @@ pipeline:
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
   review_autofix: true
+  review_scope: "all"
+  glossary_scope: chapter
+  glossary_always_types: [person]
+  glossary_always_min_occurrences: 3
+  glossary_note_chars: 120
+  glossary_extract_inject: "smart"
+  glossary_extract_budget_chars: 4000
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
+  tuning: "auto"
+  autonomy_tier: "standard"
+  evaluation_enabled: true
+  risk_back_translation: true
+  risk_sample_ratio: 0.08
+  quality_judge: true
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5
+  bt_score_min: 0.45
+  max_auto_redo_rounds: 2
+  decision_anchors: "off"
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
   babeldoc_timeout: 600
@@ -309,7 +331,9 @@ pipeline:
 
 - `review`: enabled by default; automatically run the evidence-driven whole-book review after the complete book has been translated. Pass `--no-review` or set this to `false` to skip it in the one-command workflow. The explicit `wenyi review` command remains available.
 - `polish`: run the strong model over translated batches again for style. This may improve quality but significantly increases runtime and cost.
-- `rolling_context_segments`: number of recent translated segments included with each translation batch. Translation and polishing also receive one following source segment from the same chapter as a read-only reference, including when this setting is zero. This built-in lookahead does not change output counts or saved translation context; see [whole-book context](pipeline.md#whole-book-understanding-and-context).
+- `rolling_context_segments`: number of recent source-target pairs included with each translation batch (default `8`). Translation and polishing also receive one following source segment from the same chapter as a read-only reference, including when this setting is zero. This built-in lookahead does not change output counts or saved translation context; see [whole-book context](pipeline.md#whole-book-understanding-and-context).
+- `rolling_context_with_source`: when true (default), recent context renders `Source`/`Translation` lines; when false, only translations are shown. Older context files that stored only `recent_targets` still load and render as target-only history.
+- Chapter digest and whole-book synopsis budgets come from `digest_length` / `synopsis_length` in `i18n/data/languages/*.json` and apply to every target language. Chinese/Japanese/Korean use character ranges (`400–600 characters`); other languages use word ranges (`250–400 words`).
 - `book_understanding`: prescan the book to create chapter digests and a whole-book synopsis. Chapters with source text require a usable digest before body translation; synopsis synthesis failures allow translation to continue. Failed digests are retried on the next prepare/translate run. See [Pipeline](pipeline.md) for retry and cache behavior.
 - `prescan_concurrency`: number of chapter-digest requests that may run concurrently.
 - `annotation_alignment`: enabled by default. After each annotated logical paragraph has been fully translated and polished, immediately locate EPUB footnote/endnote links with one sequential model call against the formal target. If export punctuation normalization is enabled, the export layer remaps the persisted offsets together with the normalized in-memory copy. Split continuations are rejoined first, and segments without internal links do not call the model. When disabled, translated links remain clickable but fall back to end-of-paragraph markers; untranslated text and the source side of bilingual output retain the original link positions. This option controls link placement only; resolved source-language note content is supplied to translation automatically.
@@ -322,7 +346,21 @@ pipeline:
 - `review_fix_loop`: generate complete provisional segment replacements for confirmed issues in a run-local shadow translation, then blindly review the whole book again. Disabling it keeps the single-pass recommendation-only behavior.
 - `review_fix_max_rounds`: maximum number of provisional Fix rounds, from `0` to `4`; this is not the total number of Review passes.
 - `review_clean_confirmations`: consecutive issue-free whole-book Review passes required after shadow fixing, from `1` to `2`; the default is `2`.
-- `review_autofix`: enabled by default. After the read-only Review engine finishes, publish its folded `changes` to a working translation, run the existing bounded Review Agent Loop once more over each remaining issue against that updated text, and pass confirmed issues to the existing Review Fixer. Pass `--no-autofix` or set this to `false` to keep Review from writing formal `target` values. The resulting complete segments replace only the formal chapter `target`; the manifest and glossary remain unchanged. Full before/after chains, issue IDs, decisions, failures, and write status are kept in the Review run's `autofix/index.json` instead of adding history fields to chapter JSON.
+- `review_autofix`: enabled by default. After the read-only Review engine finishes, publish its folded `changes` to a working translation, run the existing bounded Review Agent Loop once more over each remaining issue against that updated text, and pass confirmed issues to the existing Review Fixer. Pass `--no-autofix` or set this to `false` to keep Review from writing formal `target` values. When disabled, interrupted `autofix/index.json` publication is also left unapplied instead of finishing write-back. The resulting complete segments replace only the formal chapter `target`; the manifest and glossary remain unchanged. Full before/after chains, issue IDs, decisions, failures, and write status are kept in the Review run's `autofix/index.json` instead of adding history fields to chapter JSON.
+- `glossary_scope`: `chapter` includes terms relevant to the current chapter; `full` includes the complete glossary.
+- `glossary_always_types`: glossary types kept in chapter-filtered prompts even when the chapter does not mention them (default `[person]`).
+- `glossary_always_min_occurrences`: minimum book-wide source/alias occurrences before an always-on entity is force-included (default `3`).
+- `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
+- `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`: universal flexible injection of existing terms into extraction prompts (hit-first, budget-capped, minimum fallback). See the Chinese design doc `docs/zh/glossary-injection.md`. Extraction prompts omit notes; translate/polish/review keep notes.
+- `tuning`: `auto` by default. The tunable knobs are then derived instead of requested: the autonomy tier and the batch budget decide `review_scope`, `risk_back_translation`, `max_auto_redo_rounds`, `quality_judge_dual` and the five glossary prompt budgets, and the recorded score distribution may calibrate `bt_score_min` and `judge_score_min`. Set it to `manual` to keep every configured value in force. Writing any of those keys with a value that differs from the shipped default already counts as a deliberate choice: `auto` leaves it alone. Every run records the effective value and origin of all 27 keys in `report.evaluation.tuning`, which the progress page renders.
+- `autonomy_tier`: the quality/cost dial. `off` runs the L0 sweep alone — no sampling, no back-translation, no automatic revision, and only L0 can block. `speed` also reports L1–L3 at reduced sampling, still without blocking. `standard` requires L0–L3 to pass at the configured sampling. `precise` doubles sampling, averages two judge passes, allows three automatic revision rounds and raises the accept floors to `0.6` / `4.0`.
+- `review_scope`: `all` reviews every chapter; `risk` reviews only chapters containing mechanically detected risk segments, which `off` and `speed` select automatically.
+- `max_auto_redo_rounds`: automatic revision rounds after a failing machine gate, from `0` to `5`.
+- `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` or the machine evaluation gate still reports empty targets, glossary conflicts, residual findings, open review issues or low evaluation scores. Default export is never blocked.
+- `evaluation_enabled`: on by default. Runs the L0–L3 machine evaluation and stores `report.evaluation` / `report.machine_gate`.
+- `risk_back_translation` / `risk_sample_ratio`: L1 risk-gated back-translation and per-chapter sampling ratio; the tier scales the ratio.
+- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`: L3 scoring and thresholds. Back-translation similarity and judge scores are not comparable across language pairs, so once three runs are recorded the observed lower decile may move a threshold down to the tier floor — never below the floor and never above the configured value. When the floor, not the data, sets the bar, the run reports a concrete suggested value for an operator to confirm instead of quietly loosening its own standard.
+- `decision_anchors`: `off` | `auto` | `risk`. Optional target-side decision anchors; they do not replace style briefs or glossaries.
 - `pdf_backend`: default `mineru` converts PDF via MinerU HTML. Use `babeldoc` for layout-preserving export through the external AGPL HTTP bridge. PDF state created with BabelDOC defaults to PDF output for both `translate` and `assemble`; MinerU state retains EPUB output. Explicit `--format` overrides this choice, and saved state determines the default on resume.
 - `babeldoc_bridge_url`: BabelDOC bridge base URL; default `http://127.0.0.1:8765`.
 - `babeldoc_timeout`: HTTP timeout in seconds for bridge extract and fillback.

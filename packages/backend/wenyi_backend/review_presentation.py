@@ -109,15 +109,25 @@ def review_items(storage, rid: str, result: dict, autofix: dict) -> list[dict[st
             "type": str(value.get("type") or ""),
             "detail": str(value.get("detail") or value.get("explanation") or ""),
             "suggestion": str(value.get("suggestion") or ""),
-            "status": _status(publications),
+            "status": "pending" if kind == "soft_finding" else _status(publications),
             "location": location(value.get("chapter"), value.get("index")),
             "evidence": evidence,
-            "issue": value if kind == "issue" else {},
+            "issue": value if kind in {"issue", "soft_finding"} else {},
             "changes": suggestions,
             "publications": publications,
         }
 
     items = []
+    for position, finding in enumerate(_rows(result.get("soft_findings"))):
+        items.append(
+            item(
+                f"soft_finding:{position}",
+                "soft_finding",
+                finding,
+                [],
+                [],
+            )
+        )
     for position, issue in enumerate(_rows(result.get("issues"))):
         detail = next((details[key] for key in sorted(_keys(issue)) if key in details), {})
         issue = {**detail, **issue}

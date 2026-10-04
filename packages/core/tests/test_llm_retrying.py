@@ -171,15 +171,20 @@ def test_synopsis_incomplete_response_retries_in_shared_transport(
 @pytest.mark.parametrize("max_retries", [0, 1])
 def test_summary_exhaustion_respects_provider_attempt_limit(method, max_retries, monkeypatch):
     client = RoutedLLMClient(_config(max_retries=max_retries))
-    stub = _ClientStub([_truncated_response() for _ in range(max_retries + 1)])
+    # A chapter digest leaves retrying to the shared transport, so it stops after the
+    # ladder. The whole-book synopsis retries a truncated answer itself as well, running
+    # the whole ladder once per outer attempt. Every call consumes one prepared outcome.
+    ladder = max_retries + 1
+    calls = ladder * 3 if method == "book_synopsis" else ladder
+    stub = _ClientStub([_truncated_response() for _ in range(calls)])
     client.adapter("default")._client = stub
     monkeypatch.setattr(client.limits, "wait_for_retry", lambda delay: None)
     synopsizer = Synopsizer(client, Config())
     args = ("Source chapter.",) if method == "digest_chapter" else (["Digest."], "")
 
     assert getattr(synopsizer, method)(*args) == ""
-    assert stub.completions.calls == max_retries + 1
-    assert client.usage_summary()["totals"]["calls"] == max_retries + 1
+    assert stub.completions.calls == calls
+    assert client.usage_summary()["totals"]["calls"] == calls
 
 
 @pytest.mark.parametrize("truncated_attempts", [1, 2])

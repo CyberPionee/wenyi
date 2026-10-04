@@ -52,7 +52,12 @@ class ReviewAutofixService:
         *,
         progress: ProgressFn | None = None,
     ) -> ReviewOutcome | None:
-        """Finish interrupted indexed publication before repeating review or agent calls."""
+        """Finish interrupted indexed publication before repeating review or agent calls.
+
+        Respect ``review_autofix``: when disabled, never publish or finish an index.
+        """
+        if not self._runtime.config.pipeline.review_autofix:
+            return None
         for name in ReviewRunStore.list_review_ids(store):
             if not name.startswith("review-"):
                 continue

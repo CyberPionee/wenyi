@@ -157,6 +157,8 @@ class TermOut(BaseModel):
     first_chapter: Optional[int] = None
     note: str = ""
     status: str = "ok"
+    # Populated when a target change rewrote formal translations.
+    writeback: Optional[dict[str, Any]] = None
 
 
 class TermIn(RequestModel):
@@ -296,7 +298,7 @@ class ReviewLocation(BaseModel):
 
 class ReviewItem(BaseModel):
     id: str
-    kind: Literal["issue", "change", "publication"]
+    kind: Literal["issue", "change", "publication", "soft_finding"]
     type: str = ""
     detail: str = ""
     suggestion: str = ""
@@ -308,17 +310,58 @@ class ReviewItem(BaseModel):
     publications: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class AutoQA(BaseModel):
+    passed: bool = False
+    empty_target_count: int = 0
+    open_conflict_count: int = 0
+    residual_finding_count: int = 0
+    open_issue_count: int = 0
+    blocking: bool = False
+
+
+class MachineGate(BaseModel):
+    passed: bool = False
+    blocking: bool = False
+    l0_passed: bool = True
+    bt_passed: bool = True
+    judge_passed: bool = True
+    bt_sample_count: int = 0
+    bt_low_count: int = 0
+    judge_sample_count: int = 0
+    judge_avg: float | None = None
+    judge_low_count: int = 0
+    empty_target_count: int = 0
+    open_conflict_count: int = 0
+    residual_finding_count: int = 0
+    open_issue_count: int = 0
+    bt_score_min: float = 0.45
+    judge_score_min: float = 3.5
+
+
 class ReviewRun(BaseModel):
     id: str
     review_id: str
     status: str
     created_at: str | None = None
     issues: list[dict[str, Any]] = Field(default_factory=list)
+    soft_findings: list[dict[str, Any]] = Field(default_factory=list)
     changes: list[dict[str, Any]] = Field(default_factory=list)
     autofix: dict[str, Any] = Field(default_factory=dict)
     summary: dict[str, Any] = Field(default_factory=dict)
     result: dict[str, Any] = Field(default_factory=dict)
     items: list[ReviewItem] = Field(default_factory=list)
+
+
+class ReportOut(BaseModel):
+    summary: dict[str, Any] = Field(default_factory=dict)
+    auto_qa: AutoQA | None = None
+    machine_gate: MachineGate | None = None
+    evaluation: dict[str, Any] | None = None
+    residual_findings: list[dict[str, Any]] = Field(default_factory=list)
+    open_conflicts: list[dict[str, Any]] = Field(default_factory=list)
+    empty_targets: list[dict[str, Any]] = Field(default_factory=list)
+    usage: dict[str, Any] = Field(default_factory=dict)
+    timing: dict[str, Any] = Field(default_factory=dict)
 
 
 class SubtitleCue(BaseModel):

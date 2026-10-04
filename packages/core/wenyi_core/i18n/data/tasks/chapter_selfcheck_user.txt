@@ -1,0 +1,7 @@
+[Glossary]
+$glossary
+
+[Source–target pairs] ($n paragraphs)
+$pairs
+
+Return JSON: {"findings":[...],"reviewed_segments":$n}.

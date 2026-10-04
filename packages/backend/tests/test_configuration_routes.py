@@ -1,5 +1,6 @@
 """Configuration endpoints expose routing tools and workflow statistics."""
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -123,3 +124,72 @@ def test_project_stats_read_workflow_usage_and_timing(monkeypatch, initialized):
     }
     assert configuration.project_stats("test") == expected
     assert configuration.project_stats("test") == expected
+
+
+@pytest.mark.parametrize(
+    ("initialized", "column_source", "manifest_source", "expected_source"),
+    [
+        # An initialized project recovers its detected language from the manifest, so a saved
+        # ``auto`` never overwrites the direction already in use.
+        (True, "auto", "ja", "ja"),
+        # Without a recorded manifest language there is nothing to recover.
+        (True, "auto", None, "auto"),
+        # An uninitialized project has no detected language to keep.
+        (False, "auto", "ja", "auto"),
+        (False, "en", None, "auto"),
+    ],
+)
+def test_saving_auto_source_keeps_the_detected_project_direction(
+    monkeypatch, initialized, column_source, manifest_source, expected_source
+):
+    """An initialized project keeps its detected language when the saved config asks for auto."""
+    project = {
+        "id": "p",
+        "initialized": initialized,
+        "source_lang": column_source,
+        "target_lang": "zh",
+    }
+    saved: list[tuple[str, str]] = []
+    config = SimpleNamespace(source_lang="auto", target_lang="zh")
+
+    @contextmanager
+    def project_write(pid):
+        assert pid == "p"
+        yield (
+            project,
+            SimpleNamespace(
+                load_manifest=lambda: {"source_lang": manifest_source, "target_lang": "zh"}
+            ),
+        )
+
+    @contextmanager
+    def registry_guard():
+        yield SimpleNamespace(execute=lambda *args: None)
+
+    monkeypatch.setattr(configuration, "project_write", project_write)
+    monkeypatch.setattr(configuration, "registry_guard", registry_guard)
+    monkeypatch.setattr(
+        configuration, "load_settings", lambda **kwargs: SimpleNamespace(config=None)
+    )
+    monkeypatch.setattr(configuration, "effective_config", lambda *args, **kwargs: config)
+    monkeypatch.setattr(
+        configuration,
+        "project_document",
+        lambda cfg: {"language": {"source": cfg.source_lang}},
+    )
+    monkeypatch.setattr(configuration, "config_response", lambda project, cfg: {"effective": {}})
+    monkeypatch.setattr(
+        configuration,
+        "dal",
+        SimpleNamespace(
+            set_project_config=lambda *args, **kwargs: None,
+            set_project_languages=lambda pid, source, target, connection=None: saved.append(
+                (source, target)
+            ),
+        ),
+    )
+
+    response = configuration.save_config("p", SimpleNamespace(yaml="language: {source: auto}"))
+
+    assert response == {"effective": {}}
+    assert saved == [(expected_source, "zh")]

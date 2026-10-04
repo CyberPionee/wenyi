@@ -42,12 +42,12 @@ segment:
 
 # ── Pipeline options (quality and cost)───────────────────────────────────────────
 pipeline:
-  # Body translation and Reviewer requests always use the full glossary.
   review: true # Run final review after whole-book translation; disable with --no-review
   align_retry_limit: 2
   polish: true # Polish the full translation with the strong tier; enabled by default and adds substantial cost
   translation_mode: standard # standard | best_of_three; best_of_three requires polish
-  rolling_context_segments: 6 # Number of recent translated paragraphs supplied as context
+  rolling_context_segments: 6 # Number of recent source-target pairs supplied as context
+  rolling_context_with_source: true # Include source lines with each recent context pair
   book_understanding: true # Prescan the source for a whole-book synopsis and chapter digests used during translation
   prescan_concurrency: 4 # Concurrent chapter-digest workers; chapters are independent, 1 runs serially
   annotation_alignment: true # Align EPUB annotation links per paragraph; if disabled, target links fall back to paragraph ends
@@ -61,6 +61,35 @@ pipeline:
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
   review_autofix: true # Publish review revisions to formal chapters; use --no-autofix for recommendations only
+  review_scope: "all" # all | risk — risk reviews only chapters containing risk segments
+  glossary_scope: chapter # chapter=terms relevant to this chapter; full=entire glossary
+  glossary_always_types: [person] # Term types kept in chapter-filtered prompts even when absent from the chapter
+  glossary_always_min_occurrences: 3 # Minimum book-wide source/alias occurrences for always-on entities
+  glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
+  glossary_extract_inject: "smart" # smart | all | hit_only — how existing terms enter extraction prompts
+  glossary_extract_budget_chars: 4000 # Character budget for extraction glossary injection
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
+  auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
+  tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
+  self_revision: false # Optional C-batch draft revision notes (analysis/events only)
+  editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
+  final_polish: false # Optional final polish candidates (analysis/events only)
+  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
+  back_translation: false # Optional back-translation QA notes (analysis/events only)
+  autonomy_tier: "standard" # off | speed | standard | precise
+  evaluation_enabled: true # L0-L3 machine gate for autonomous acceptance
+  risk_back_translation: true # L1 selective back-translation on risk/sampled segments
+  risk_sample_ratio: 0.08 # Per-chapter sample ratio for risk evaluation (0-1)
+  quality_judge: true # L3 LLM fluency/style scoring on sampled segments
+  quality_judge_dual: false # Average two independent judge passes to reduce rater noise
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5 # L3 pass threshold (1-5)
+  l2_min_consistency: 1.0 # L2 glossary consistency threshold; 1.0 means any drift fails
+  bt_score_min: 0.45 # L1 back-translation similarity threshold (0-1)
+  max_auto_redo_rounds: 2 # Automatic local redo rounds when the machine gate fails
+  decision_anchors: "off" # off | auto | risk — optional target-side decision anchors
   # PDF backend: mineru (default, supports scans) | babeldoc (optional, preserves layout via external AGPL HTTP bridge)
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
@@ -99,22 +128,6 @@ class SegmentConfig(BaseModel):
 class PipelineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    translation_mode: Literal["standard", "best_of_three"] = "standard"
-
-    @model_validator(mode="before")
-    @classmethod
-    def ignore_legacy_precision_concurrency(cls, value: Any) -> Any:
-        """Read existing configurations and job snapshots without exposing a retired option."""
-        if isinstance(value, dict) and "precision_concurrency" in value:
-            return {key: item for key, item in value.items() if key != "precision_concurrency"}
-        return value
-
-    @model_validator(mode="after")
-    def validate_translation_mode(self) -> PipelineConfig:
-        if self.translation_mode == "best_of_three" and not self.polish:
-            raise ValueError("best_of_three translation mode requires pipeline.polish=true")
-        return self
-
     review: bool = True
     align_retry_limit: int = (
         2  # Retry misaligned batches this many times before falling back to single paragraphs
@@ -122,7 +135,9 @@ class PipelineConfig(BaseModel):
     polish: bool = (
         True  # Polish the full translation with the strong tier by default; disable to save cost
     )
+    translation_mode: Literal["standard", "best_of_three"] = "standard"
     rolling_context_segments: int = 6
+    rolling_context_with_source: bool = True
     # Prescan for a synopsis and chapter digests; disable to save prescan cost.
     book_understanding: bool = True
     prescan_concurrency: int = (
@@ -159,11 +174,62 @@ class PipelineConfig(BaseModel):
     review_fix_max_rounds: int = Field(default=2, ge=0, le=4)
     review_clean_confirmations: int = Field(default=2, ge=1, le=2)
     review_autofix: bool = True  # Publish formal translations through a separate stage after review
+    review_scope: Literal["all", "risk"] = "all"
+    glossary_scope: str = (
+        "chapter"  # chapter=terms occurring in this chapter (saves tokens); full=entire glossary
+    )
+    glossary_always_types: list[str] = Field(
+        default_factory=lambda: ["person"],
+        description="Term types kept in chapter-filtered prompts even when absent from the chapter",
+    )
+    glossary_always_min_occurrences: int = Field(default=3, ge=1)
+    glossary_note_chars: int = Field(default=120, ge=0)
+    glossary_extract_inject: Literal["smart", "all", "hit_only"] = "smart"
+    glossary_extract_budget_chars: int = Field(default=4000, ge=0)
+    glossary_extract_core_max: int = Field(default=12, ge=0)
+    glossary_extract_recent_max: int = Field(default=20, ge=0)
+    glossary_extract_min_terms: int = Field(default=5, ge=0)
+    auto_qa_strict: bool = False  # Block export while auto_qa residuals remain
+    # auto: derive the tunable knobs from the autonomy tier, the batch budget and recorded
+    # score distributions. manual: use the configured values as written.
+    tuning: Literal["auto", "manual"] = "auto"
+    self_revision: bool = False
+    editorial_pass: bool = False
+    final_polish: bool = False
+    chapter_selfcheck: bool = False
+    back_translation: bool = False
+    autonomy_tier: Literal["off", "speed", "standard", "precise"] = "standard"
+    evaluation_enabled: bool = True
+    risk_back_translation: bool = True
+    risk_sample_ratio: float = Field(default=0.08, ge=0.0, le=1.0)
+    quality_judge: bool = True
+    quality_judge_dual: bool = False
+    judge_sample_ratio: float = Field(default=0.05, ge=0.0, le=1.0)
+    judge_score_min: float = Field(default=3.5, ge=1.0, le=5.0)
+    l2_min_consistency: float = Field(default=1.0, ge=0.0, le=1.0)
+    bt_score_min: float = Field(default=0.45, ge=0.0, le=1.0)
+    max_auto_redo_rounds: int = Field(default=2, ge=0, le=5)
+    decision_anchors: Literal["off", "auto", "risk"] = "off"
     # PDF: mineru=HTML path for scans (default); babeldoc=external AGPL HTTP bridge (no imports)
     pdf_backend: Literal["mineru", "babeldoc"] = "mineru"
     babeldoc_bridge_url: str = "http://127.0.0.1:8765"
     babeldoc_pages: str | None = None  # For example "15" / "6-8"; None=whole book
     babeldoc_timeout: float = 600.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def ignore_legacy_precision_concurrency(cls, value: Any) -> Any:
+        """Drop the retired initial-draft concurrency key instead of rejecting saved configs."""
+        if isinstance(value, dict) and "precision_concurrency" in value:
+            return {key: item for key, item in value.items() if key != "precision_concurrency"}
+        return value
+
+    @model_validator(mode="after")
+    def validate_translation_mode(self) -> PipelineConfig:
+        """Three-draft synthesis replaces the standard translate-and-polish path."""
+        if self.translation_mode == "best_of_three" and not self.polish:
+            raise ValueError("best_of_three translation mode requires pipeline.polish=true")
+        return self
 
 
 class OutputConfig(BaseModel):
@@ -243,10 +309,34 @@ class Config(BaseModel):
             )
         if phase == "translation":
             if self.pipeline.translation_mode == "best_of_three":
-                return ("precision", "title_translator", "glossary_extractor", "glossary_history")
-            return ("translator", "title_translator", "glossary_extractor", "glossary_history") + (
-                ("polisher",) if self.pipeline.polish else ()
-            )
+                # Precision mode replaces the translator and polisher with three drafts and a
+                # synthesis, so those prompts belong to this plan instead.
+                groups = ["precision", "title_translator", "glossary_extractor", "glossary_history"]
+            else:
+                groups = [
+                    "translator",
+                    "title_translator",
+                    "glossary_extractor",
+                    "glossary_history",
+                ]
+                if self.pipeline.polish:
+                    groups.append("polisher")
+            # Optional passes render their prompts from this phase, so their templates and rules
+            # belong to its revision: a prompt edit must invalidate results derived from them.
+            for enabled, group in (
+                (self.pipeline.self_revision, "self_revision"),
+                (self.pipeline.editorial_pass, "editorial_pass"),
+                (self.pipeline.final_polish, "final_polish"),
+                (self.pipeline.chapter_selfcheck, "chapter_selfcheck"),
+                (
+                    self.pipeline.back_translation or self.pipeline.risk_back_translation,
+                    "back_translation",
+                ),
+                (self.pipeline.quality_judge, "quality_judge"),
+            ):
+                if enabled:
+                    groups.append(group)
+            return tuple(groups)
         if phase == "review":
             groups = ["reviewer"]
             if self.pipeline.review_agent_loop or self.pipeline.review_autofix:

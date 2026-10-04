@@ -14,6 +14,7 @@ from typing import Any
 from ..agents.analyzer import Analyzer
 from ..agents.annotation_aligner import AnnotationAligner
 from ..agents.polisher import Polisher
+from ..agents.quality_pass import QualityPassAgent
 from ..agents.reviewer import Reviewer
 from ..agents.synopsis import Synopsizer
 from ..agents.title_translator import TitleTranslator
@@ -28,6 +29,7 @@ from ..llm.usage import empty_usage, merge_usage_summaries, usage_delta, validat
 from ..storage.protocol import Storage
 from ..timing import RunTimer
 from .runstore import source_sha256
+from .tuning import install_run_tuning, run_tuning
 
 
 class PipelineRuntime:
@@ -38,6 +40,13 @@ class PipelineRuntime:
     ):
         """Initialize the shared LLM client, usage checkpoint and pipeline agents."""
         self.storage = storage
+        # The tier and the batch budget decide the tunable knobs before any work starts, so every
+        # agent and every later stage reads the same effective values from one place.
+        self.run_tuning = run_tuning(
+            config.pipeline.model_dump(),
+            segment_max_tokens=config.segment.max_tokens_per_batch,
+        )
+        config = install_run_tuning(config, self.run_tuning)
         self.config = config
         from ..assemble.export_view import TEXT_HANDLERS
         from ..assemble.policy import WRITER_OPERATIONS
@@ -64,6 +73,7 @@ class PipelineRuntime:
         self.title_translator = TitleTranslator(self.client, config)
         self.reviewer = Reviewer(self.client, config)
         self.polisher = Polisher(self.client, config)
+        self.quality_pass = QualityPassAgent(self.client, config)
         self.extractor = GlossaryExtractor(self.client, config)
         self.annotation_aligner = AnnotationAligner(self.client, config)
 

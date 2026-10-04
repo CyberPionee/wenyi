@@ -7,10 +7,25 @@ import json
 from ..glossary.store import GlossaryTerm
 
 
-def render_glossary(terms: list[GlossaryTerm]) -> str:
-    """Render glossary objects as a line-by-line reference for prompts."""
+def render_glossary(
+    terms: list[GlossaryTerm],
+    *,
+    include_note: bool = True,
+    max_note_chars: int = 120,
+    max_terms: int | None = None,
+) -> str:
+    """Render glossary objects as a line-by-line reference for prompts.
+
+    Non-empty notes are appended as ``Note:`` fragments when ``include_note`` is true.
+    Empty notes are omitted. Notes longer than ``max_note_chars`` are clipped.
+    ``max_terms`` keeps only the first N entries (insertion order) to bound prompt size.
+    """
     if not terms:
         return "(none)"
+    if max_terms is not None and max_terms >= 0:
+        terms = terms[:max_terms]
+        if not terms:
+            return "(none)"
     lines = []
     for t in terms:
         extra = []
@@ -20,7 +35,14 @@ def render_glossary(terms: list[GlossaryTerm]) -> str:
             extra.append(f"Pronunciation: {t.reading}")
         tag = f"({t.type}{(', ' + ', '.join(extra)) if extra else ''})"
         alias = f" [Aliases:  {', '.join(t.aliases)}]" if t.aliases else ""
-        lines.append(f"- {t.source} → {t.target}{tag}{alias}")
+        note = ""
+        if include_note:
+            raw_note = (t.note or "").strip()
+            if raw_note:
+                if max_note_chars > 0 and len(raw_note) > max_note_chars:
+                    raw_note = raw_note[:max_note_chars]
+                note = f" Note: {raw_note}"
+        lines.append(f"- {t.source} → {t.target}{tag}{alias}{note}")
     return "\n".join(lines)
 
 
@@ -76,3 +98,46 @@ def numbered_pairs_with_refs(
         ref = refs[index] if index < len(refs) else ""
         out.append(f"[{index}] ref={ref or '(none)'} Source: {source}\n    Translation: {target}")
     return "\n".join(out)
+
+
+def strip_empty_sections(text: str) -> str:
+    """Remove markdown ``##`` sections that carry no body content.
+
+    A section is empty when everything between its heading and the next heading
+    (or end of text) is whitespace.  Sections with content are kept unchanged.
+    This trims digest/synopsis boilerplate before prompt injection.
+    """
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    lines = raw.split("\n")
+    sections: list[tuple[str, list[str]]] = []  # (heading, body_lines)
+    current_heading = ""
+    current_body: list[str] = []
+    for line in lines:
+        if line.startswith("## "):
+            sections.append((current_heading, current_body))
+            current_heading = line
+            current_body = []
+        else:
+            current_body.append(line)
+    sections.append((current_heading, current_body))
+    kept: list[str] = []
+    for heading, body in sections:
+        if heading:
+            if any(ln.strip() for ln in body):
+                kept.append(heading)
+                kept.extend(body)
+        else:
+            kept.extend(body)  # preamble before first heading
+    return "\n".join(kept).strip()
+
+
+def clip_context_block(value: str, max_chars: int) -> str:
+    """Clip long style/synopsis/digest blocks for review prompts; empty becomes (none)."""
+    text = strip_empty_sections(value or "")
+    if not text:
+        return "(none)"
+    if max_chars > 0 and len(text) > max_chars:
+        return text[:max_chars]
+    return text

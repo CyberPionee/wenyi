@@ -1,0 +1,87 @@
+"""Unit tests for deterministic residual sweeps and auto_qa report aggregation."""
+
+from __future__ import annotations
+
+import unittest
+
+from wenyi_core.glossary.store import GlossaryTerm
+from wenyi_core.review.sweep import (
+    scan_number_residue,
+    scan_segment,
+    scan_term_drift,
+    scan_untranslated_residue,
+)
+
+
+class TestSweep(unittest.TestCase):
+    def test_number_residue_detects_missing_digits(self):
+        finding = scan_number_residue("Chapter 12 starts in 2024", "Chapter starts")
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertEqual(finding["kind"], "number_residue")
+        self.assertEqual(finding["missing_numbers"], ["12", "2024"])
+        self.assertIsNone(scan_number_residue("Chapter 12", "第12章"))
+        # Substring lookalikes must not hide a missing number.
+        self.assertIsNotNone(scan_number_residue("room 12", "room 112"))
+        self.assertIsNotNone(scan_number_residue("room 1", "room 21"))
+        self.assertIsNone(scan_number_residue("room 12", "room 12 done"))
+
+    def test_untranslated_residue_flags_cjk_in_latin_target(self):
+        finding = scan_untranslated_residue("彼は言った", "He said something 彼は言った here")
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertEqual(finding["kind"], "untranslated_residue")
+        self.assertIsNone(scan_untranslated_residue("彼は言った", "他说"))
+
+    def test_untranslated_residue_skips_urls_and_proper_nouns(self):
+        # URLs / domain fragments in a CJK target
+        self.assertIsNone(
+            scan_untranslated_residue(
+                "版权页 permissions hbgusa com",
+                "版权声明：permissions / hbgusa / com 请遵守。",
+            )
+        )
+        self.assertIsNone(
+            scan_untranslated_residue(
+                "Copyright Little Brown Company",
+                "版权所有 Little / Brown 出版公司。",
+            )
+        )
+        # Real leftover lowercase prose is still flagged
+        finding = scan_untranslated_residue(
+            "He said hello world clearly",
+            "他认真的说完了 hello world 这一段话之后就离开了这里",
+        )
+        self.assertIsNotNone(finding)
+
+    def test_untranslated_residue_flags_latin_in_cjk_target(self):
+        finding = scan_untranslated_residue(
+            "He said Hello world clearly",
+            "他认真的说完了 Hello world 这一段话之后就离开了这里",
+        )
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertEqual(finding["kind"], "untranslated_residue")
+        # Loanwords that never appear in the source stay unflagged.
+        self.assertIsNone(scan_untranslated_residue("他开口说话了", "他说 OK 了"))
+
+    def test_untranslated_residue_flags_cyrillic_in_latin_target(self):
+        finding = scan_untranslated_residue("Он сказал привет", "He said привет now")
+        self.assertIsNotNone(finding)
+        self.assertIsNone(scan_untranslated_residue("Он сказал привет", "Он сказал"))
+
+    def test_term_drift_requires_fixed_mapping_in_target(self):
+        terms = [GlossaryTerm(source="Ann", target="安", type="person")]
+        self.assertIsNotNone(scan_term_drift("Ann left", "Anne left", terms))
+        self.assertIsNone(scan_term_drift("Ann left", "安 left", terms))
+        self.assertIsNone(scan_term_drift("Bob left", "Anne left", terms))
+
+    def test_scan_segment_collects_all_residuals(self):
+        terms = [GlossaryTerm(source="Ann", target="安", type="person")]
+        findings = scan_segment("Ann left in 1999", "Anne left", terms)
+        kinds = {item["kind"] for item in findings}
+        self.assertEqual(kinds, {"number_residue", "term_drift"})
+
+
+if __name__ == "__main__":
+    unittest.main()

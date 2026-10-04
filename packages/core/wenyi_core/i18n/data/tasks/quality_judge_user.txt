@@ -1,0 +1,5 @@
+[Source/$src_label -> $tgt_label pairs] ($n items)
+Style brief: $style
+$pairs
+
+Return JSON: {"scores":[{"index":i,"score":1-5,"note":"..."}, ...]} with exactly $n items.

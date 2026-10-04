@@ -899,13 +899,23 @@ class TestSegmentLevelResume(unittest.TestCase):
             )
             real_extract = orch._translation.extract_batch_glossary
 
+            snapshot_calls = {"n": 0}
+            real_snapshot = orch._translation.chapter_term_snapshot
+
+            def counting_snapshot(glossary, text_segs, source_corpus=""):
+                snapshot_calls["n"] += 1
+                return real_snapshot(glossary, text_segs, source_corpus)
+
             def counting_extract(*args, **kwargs):
                 extract_batch_calls["n"] += 1
                 return real_extract(*args, **kwargs)
 
             with (
-                patch.object(store, "all_terms", wraps=store.all_terms) as snapshots,
-                # Isolate translation snapshot reads from extraction's own glossary reads.
+                patch.object(
+                    orch._translation,
+                    "chapter_term_snapshot",
+                    side_effect=counting_snapshot,
+                ),
                 patch.object(orch._runtime.extractor, "extract_and_store", return_value={}),
                 patch.object(
                     orch._translation,
@@ -918,7 +928,9 @@ class TestSegmentLevelResume(unittest.TestCase):
             # Extract once for the missing checkpoint and once after the final translation; chapter fallback is separate.
             self.assertEqual(extract_batch_calls["n"], 2)
             # Read at chapter start and refresh once before real translation; checkpointed skips do not refresh.
-            self.assertEqual(snapshots.call_count, 2)
+            # Count the snapshot itself: the chapter close-out reads the glossary too, through a
+            # different path, and is not a snapshot refresh.
+            self.assertEqual(snapshot_calls["n"], 2)
             resumed = store.load_chapter(0).text_segments
             self.assertTrue((resumed[-1].target or "").startswith("R2"))
             self.assertTrue(
@@ -947,7 +959,8 @@ class TestBookUnderstanding(unittest.TestCase):
                     all(segment.target is not None for segment in chapter.text_segments)
                 )
             user = self._translate_user(client.calls)
-            self.assertIn("[Whole-book synopsis]\n(none)", user)
+            # A failed synopsis leaves the slot empty; the heading wording belongs to the template.
+            self.assertRegex(user, r"\[Whole-book synopsis\][^\n]*\n\(none\)")
             self.assertIn("本章梗概", user)
 
             resumed = FakeClient(handler=routing_handler)
@@ -1105,6 +1118,8 @@ class TestBookUnderstanding(unittest.TestCase):
                 for c in c2.calls
                 if "梗概员" in c["messages"][0]["content"]
                 or "概览员" in c["messages"][0]["content"]
+                or "chapter digest writer" in c["messages"][0]["content"]
+                or "whole-book synopsis writer" in c["messages"][0]["content"]
             ]
             self.assertEqual(len(prepass), 0)
 
@@ -1126,8 +1141,120 @@ class TestBookUnderstanding(unittest.TestCase):
                 for c in client.calls
                 if "梗概员" in c["messages"][0]["content"]
                 or "概览员" in c["messages"][0]["content"]
+                or "chapter digest writer" in c["messages"][0]["content"]
+                or "whole-book synopsis writer" in c["messages"][0]["content"]
             ]
             self.assertEqual(len(prepass), 0)
+
+    def test_v1_digest_and_synopsis_regenerate_without_retranslation(self):
+        """Legacy v1 digests/synopses regenerate on the next understanding pass only."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review = False
+            store = require_file_storage(
+                Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(txt)
+            )
+            # Simulate legacy v1 free-form understanding metadata.
+            chapter = store.load_chapter(0)
+            chapter.meta["source_digest"] = "旧梗概"
+            chapter.meta.pop("source_digest_v", None)
+            store.save_chapter(chapter)
+            analysis = store.load_analysis() or {}
+            analysis["book_synopsis"] = "旧概览"
+            analysis.pop("book_synopsis_v", None)
+            store.save_analysis(analysis)
+
+            client = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=client)._preparation.ensure_understanding(store)
+            digest_calls = [
+                c for c in client.calls if "chapter digest writer" in c["messages"][0]["content"]
+            ]
+            synopsis_calls = [
+                c
+                for c in client.calls
+                if "whole-book synopsis writer" in c["messages"][0]["content"]
+            ]
+            self.assertEqual(len(digest_calls), 1)
+            self.assertEqual(len(synopsis_calls), 1)
+            self.assertEqual(store.load_chapter(0).meta.get("source_digest_v"), 3)
+            self.assertEqual((store.load_analysis() or {}).get("book_synopsis_v"), 3)
+            self.assertNotEqual(store.load_chapter(0).meta.get("source_digest"), "旧梗概")
+            translate_calls = [
+                c for c in client.calls if "literary translator" in c["messages"][0]["content"]
+            ]
+            self.assertEqual(len(translate_calls), 0)
+
+            # v2 results are reused on the next pass.
+            again = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=again)._preparation.ensure_understanding(store)
+            self.assertEqual(
+                [c for c in again.calls if "chapter digest writer" in c["messages"][0]["content"]],
+                [],
+            )
+            self.assertEqual(
+                [
+                    c
+                    for c in again.calls
+                    if "whole-book synopsis writer" in c["messages"][0]["content"]
+                ],
+                [],
+            )
+
+    def test_glossary_edit_patches_digest_without_llm(self):
+        """Changing a glossary target patches source-anchored digests without regeneration."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review = False
+            store = require_file_storage(
+                Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(txt)
+            )
+            # Digest keeps source identity in parentheses: target (source).
+            chapter = store.load_chapter(0)
+            chapter.meta["source_digest"] = "Holden leaves Pencey (Pencey) after being expelled."
+            chapter.meta["source_digest_v"] = 3
+            chapter.meta["source_digest_gf"] = {"Pencey": "Pencey"}
+            store.save_chapter(chapter)
+            analysis = store.load_analysis() or {}
+            analysis["book_synopsis"] = "The story begins at Pencey (Pencey)."
+            analysis["book_synopsis_v"] = 3
+            analysis["book_synopsis_gf"] = {"Pencey": "Pencey"}
+            store.save_analysis(analysis)
+
+            # Change the glossary target.
+            from wenyi_core.glossary.store import GlossaryTerm
+
+            store.upsert_term(GlossaryTerm(source="Pencey", target="彭西", type="place"))
+
+            client = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=client)._preparation.ensure_understanding(store)
+            # No LLM calls for patching.
+            self.assertEqual(client.calls, [])
+            self.assertEqual(
+                store.load_chapter(0).meta["source_digest"],
+                "Holden leaves 彭西 (Pencey) after being expelled.",
+            )
+            self.assertIn("彭西 (Pencey)", (store.load_analysis() or {}).get("book_synopsis", ""))
+            self.assertEqual(
+                store.load_chapter(0).meta["source_digest_gf"].get("Pencey"),
+                "彭西",
+            )
+            store.close()
+
+    def test_glossary_edit_without_source_anchor_does_not_blind_replace(self):
+        """Targets without a source anchor are left alone so digests regenerate later."""
+        from wenyi_core.pipeline.preparation import PreparationService
+
+        text = "Holden leaves Pencey after being expelled."
+        patched, applied = PreparationService._patch_text(
+            text,
+            [("Pencey", "Pencey", "彭西")],
+        )
+        self.assertEqual(patched, text)
+        self.assertEqual(applied, {})
 
 
 class TestRunSteps(unittest.TestCase):
@@ -2911,6 +3038,7 @@ class TestFullGlossary(unittest.TestCase):
         store = require_file_storage(orch.prepare(txt))
         g = GlossaryStore(store.glossary_path)
         # Include an absent character, an unrelated term and an entity whose alias occurs in the chapter.
+        # A person entity recurs throughout the book, so it qualifies as always-on.
         g.upsert_term(GlossaryTerm(source="外部人物X", target="外部译名", type="person"))
         g.upsert_term(GlossaryTerm(source="無関係用語", target="无关术语", type="term"))
         g.upsert_term(
@@ -2931,9 +3059,14 @@ class TestFullGlossary(unittest.TestCase):
             translate_prompts = self._run_with_terms(d)
             self.assertTrue(translate_prompts)
             for p in translate_prompts:
-                self.assertIn("外部人物X", p)
-                self.assertIn("無関係用語", p)
+                # The chapter scope keeps terms that actually occur here, together with
+                # always-on entities. An entity the book never mentions is not injected,
+                # so a stray glossary entry cannot leak into unrelated batches.
+                self.assertNotIn("外部人物X", p)
+                self.assertNotIn("無関係用語", p)
+                # An entity whose alias occurs in the chapter is included with its alias.
                 self.assertIn("ホリキタ", p)
+                self.assertIn("堀北", p)
 
     def test_batch_glossary_refreshes_following_prompts(self):
         """Extract terms after each batch so later prompts immediately receive new forms of
@@ -3039,9 +3172,8 @@ class TestFullGlossary(unittest.TestCase):
                 if "terminology" in call["messages"][0]["content"]
                 and "extractor" in call["messages"][0]["content"]
             ]
-            # Skip all saved batches and retain only the chapter-end fallback extraction.
-            self.assertEqual(len(glossary_calls), 1)
-            self.assertTrue(glossary_labels)
+            # Saved batches skip extraction; chapter close-out is local (no LLM).
+            self.assertEqual(len(glossary_calls), 0)
             self.assertTrue(all(label != "Parsing document…" for label in glossary_labels))
 
     def test_final_glossary_is_available_to_review_prompt(self):
@@ -3120,7 +3252,7 @@ class TestTierRouting(unittest.TestCase):
             expect = {
                 "chapter digest writer": "fast",
                 "whole-book synopsis writer": "fast",
-                "terminology and forms-of-address extractor": "fast",
+                "terminology extractor": "fast",
                 "translation reviewer": "cheap",
                 "literary translator": "strong",
             }
@@ -3161,8 +3293,8 @@ class TestProgressLabels(unittest.TestCase):
             labels = [label for _, _, label in events]
             expected = [
                 "Parsing document…",
-                "Prescanning chapter digests",
                 "Analyzing book style…",
+                "Prescanning chapter digests",
                 "Generating whole-book synopsis…",
                 "Translating chapter titles…",
                 "Translation complete",

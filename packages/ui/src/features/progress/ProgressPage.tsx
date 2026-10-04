@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ErrorNotice, StructuredData } from "@/components/ui/data";
 import { Disclosure } from "@/components/ui/disclosure";
+import { EvaluationDetails } from "./EvaluationDetails";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { Accounting } from "./Accounting";
 import { toast } from "sonner";
@@ -203,6 +204,61 @@ export default function ProgressPage() {
                 {tr("progress.updateReport")}
               </Button>
               <ErrorNotice error={report.error || regenerate.error} />
+              {report.data?.auto_qa && (
+                <div className="mb-3 space-y-1 text-sm">
+                  <div className="font-medium">
+                    {tr("data.autoQa")}
+                    {report.data.auto_qa.passed
+                      ? ` · ${tr("data.autoQaPassed")}`
+                      : ` · ${tr("data.autoQaFailed")}`}
+                    {report.data.auto_qa.blocking ? ` · ${tr("data.autoQaBlocking")}` : ""}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {tr("data.emptyTranslations")}
+                    {": "}
+                    {report.data.auto_qa.empty_target_count ?? 0}
+                    {" · "}
+                    {tr("data.openConflicts")}
+                    {": "}
+                    {report.data.auto_qa.open_conflict_count ?? 0}
+                    {" · "}
+                    {tr("data.residualFindings")}
+                    {": "}
+                    {report.data.auto_qa.residual_finding_count ?? 0}
+                    {" · "}
+                    {tr("common.reviewIssues")}
+                    {": "}
+                    {report.data.auto_qa.open_issue_count ?? 0}
+                  </div>
+                </div>
+              )}
+              {report.data?.machine_gate && (
+                <div className="mb-3 space-y-1 text-sm">
+                  <div className="font-medium">
+                    {tr("data.machineGate")}
+                    {report.data.machine_gate.passed
+                      ? ` · ${tr("data.machineGatePassed")}`
+                      : ` · ${tr("data.machineGateFailed")}`}
+                    {report.data.machine_gate.blocking
+                      ? ` · ${tr("data.autoQaBlocking")}`
+                      : ""}
+                  </div>
+                  <div className="text-muted-foreground">
+                    {tr("data.evalBackTranslation")}
+                    {": "}
+                    {report.data.machine_gate.bt_low_count ?? 0}
+                    {" / "}
+                    {report.data.machine_gate.bt_sample_count ?? 0}
+                    {" · "}
+                    {tr("data.evalJudge")}
+                    {": "}
+                    {report.data.machine_gate.judge_avg ?? "—"}
+                    {report.data.machine_gate.judge_score_min != null
+                      ? ` (≥ ${report.data.machine_gate.judge_score_min})`
+                      : ""}
+                  </div>
+                </div>
+              )}
               <StructuredData
                 value={
                   report.data?.summary &&
@@ -214,6 +270,7 @@ export default function ProgressPage() {
                 }
               />
             </Disclosure>
+            <EvaluationDetails evaluation={report.data?.evaluation} />
             <ChapterTable pid={pid} chapters={chapters} busy={busy} />
           </>
         )}

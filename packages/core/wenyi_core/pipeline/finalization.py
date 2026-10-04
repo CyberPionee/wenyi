@@ -37,6 +37,121 @@ class ReportService:
         """Borrow the injected glossary; its lifetime belongs to the caller."""
         yield store if needed else None
 
+    def _run_evaluation(
+        self,
+        store: Storage,
+        glossary: Storage | GlossaryStore,
+        *,
+        strict: bool,
+    ) -> tuple[dict[str, Any], Any]:
+        """Run one L0-L3 evaluation pass and return its payload plus the result object."""
+        from ..assemble.report import build_report
+        from .evaluation import EvaluationService
+        from .tuning import describe_tuning, evaluation_policy, history_entries
+
+        pipeline = self._runtime.config.pipeline
+        pipeline_map = pipeline.model_dump()
+        pre_report = build_report(store, glossary, strict_auto_qa=strict)
+        # Recorded runs may move a threshold between its tier floor and the configured cap.
+        history = history_entries(store.read_artifact("evaluation_history.json") or [])
+        policy = evaluation_policy(pipeline_map, tier=str(pipeline.autonomy_tier), history=history)
+        service = EvaluationService(
+            store,
+            risk_sample_ratio=policy["risk_sample_ratio"],
+            judge_sample_ratio=policy["judge_sample_ratio"],
+            bt_score_min=policy["bt_score_min"],
+            judge_score_min=policy["judge_score_min"],
+            l2_min_consistency=policy["l2_min_consistency"],
+            block_on_l0_only=bool(policy["block_on_l0_only"]),
+            risk_back_translation=bool(pipeline.risk_back_translation),
+            quality_judge=bool(pipeline.quality_judge),
+        )
+        terms = glossary.all_terms() if hasattr(glossary, "all_terms") else []
+        agent = self._runtime.quality_pass
+
+        def _back(targets: list[str]) -> list[str]:
+            return agent.back_translate(targets)
+
+        def _judge(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
+            style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
+            first = agent.quality_judge(pairs, style=style)
+            if not bool(getattr(pipeline, "quality_judge_dual", False)):
+                return first
+            # Dual judging reduces single-rater noise by averaging two independent passes.
+            second = agent.quality_judge(pairs, style=style)
+            merged: list[dict[str, Any]] = []
+            for position in range(min(len(first), len(second), len(pairs))):
+                left = first[position] if isinstance(first[position], dict) else {}
+                right = second[position] if isinstance(second[position], dict) else {}
+                scores = [
+                    float(value)
+                    for value in (left.get("score"), right.get("score"))
+                    if isinstance(value, (int, float)) and not isinstance(value, bool)
+                ]
+                record = dict(left)
+                if scores:
+                    record["score"] = round(sum(scores) / len(scores), 2)
+                record["judge_passes"] = len(scores)
+                merged.append(record)
+            return merged
+
+        evaluation = service.run(
+            l0=pre_report.get("auto_qa") or {},
+            terms=terms,
+            back_translate=_back if pipeline.risk_back_translation else None,
+            judge=_judge if pipeline.quality_judge else None,
+        )
+        payload = evaluation.to_dict()
+        payload["tuning"] = describe_tuning(
+            pipeline=pipeline_map,
+            run_plan=self._runtime.run_tuning,
+            evaluation=policy,
+        )
+        store.log_event(
+            "evaluation_finished",
+            passed=bool((evaluation.machine_gate or {}).get("passed")),
+            blocking=bool((evaluation.machine_gate or {}).get("blocking")),
+            risk_count=len(evaluation.risk_segments),
+            bt_count=len(evaluation.back_translation),
+            judge_count=len(evaluation.judge_scores),
+        )
+        return payload, evaluation
+
+    @staticmethod
+    def _record_evaluation_trend(store: Storage, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        """Append a compact summary to the evaluation history and return the recent tail.
+
+        The history is a rolling list so the report can show whether the machine gate is
+        improving without asking anyone to diff runs by hand.
+        """
+        from datetime import datetime
+
+        gate = payload.get("machine_gate") or {}
+        entry = {
+            "ts": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "passed": bool(gate.get("passed")),
+            "blocking": bool(gate.get("blocking")),
+            "tier": gate.get("tier") or gate.get("block_on_l0_only"),
+            "l2_consistency_rate": gate.get("l2_consistency_rate"),
+            "bt_low_count": gate.get("bt_low_count"),
+            "judge_avg": gate.get("judge_avg"),
+            "l0_residual_finding_count": gate.get("l0_residual_finding_count"),
+            # Distribution and bar per run, so later runs can calibrate the thresholds.
+            "bt_sample_count": gate.get("bt_sample_count"),
+            "bt_p10": gate.get("bt_p10"),
+            "bt_score_min": gate.get("bt_score_min"),
+            "judge_sample_count": gate.get("judge_sample_count"),
+            "judge_p10": gate.get("judge_p10"),
+            "judge_score_min": gate.get("judge_score_min"),
+        }
+        history = store.read_artifact("evaluation_history.json")
+        if not isinstance(history, list):
+            history = []
+        history.append(entry)
+        history = history[-20:]
+        store.write_artifact("evaluation_history.json", history)
+        return history
+
     def build_and_save(
         self,
         store: Storage,
@@ -46,13 +161,76 @@ class ReportService:
     ) -> dict[str, Any]:
         """Generate and persist report.json and record the corresponding event."""
         from ..assemble.report import build_report
+        from .evaluation_redo import EvaluationRedoService
 
         if progress:
             progress(0, 0, "Generating report…")
-        report = build_report(store, glossary)
+        strict = bool(getattr(self._runtime.config.pipeline, "auto_qa_strict", False))
+        pipeline = self._runtime.config.pipeline
+        evaluation_payload: dict[str, Any] | None = None
+        redo_summary: dict[str, Any] = {"rounds": 0, "published_segment_count": 0}
+        if getattr(pipeline, "evaluation_enabled", True):
+            if progress:
+                progress(0, 0, "Running machine evaluation…")
+            evaluation_payload, evaluation = self._run_evaluation(store, glossary, strict=strict)
+            # Autonomous redo: repair failing findings through the Autofix channel and
+            # re-evaluate. Publishes only when review_autofix is allowed; otherwise the
+            # gate just reports.
+            max_rounds = int(getattr(pipeline, "max_auto_redo_rounds", 0) or 0)
+            if (
+                max_rounds > 0
+                and getattr(pipeline, "review_autofix", True)
+                and evaluation_payload.get("machine_gate", {}).get("passed") is False
+            ):
+                redo = EvaluationRedoService(self._runtime)
+                for round_number in range(1, max_rounds + 1):
+                    if progress:
+                        progress(0, 0, f"Automatic revision round {round_number}")
+                    summary = redo.repair_once(store, evaluation_payload, progress=progress)
+                    redo_summary["rounds"] = round_number
+                    redo_summary["published_segment_count"] += int(
+                        summary.get("published_segment_count") or 0
+                    )
+                    store.log_event(
+                        "evaluation_redo_round",
+                        round=round_number,
+                        **{key: value for key, value in summary.items() if key != "reason"},
+                    )
+                    if summary.get("published_segment_count", 0) == 0:
+                        break
+                    evaluation_payload, evaluation = self._run_evaluation(
+                        store, glossary, strict=strict
+                    )
+                    if evaluation_payload.get("machine_gate", {}).get("passed"):
+                        break
+                store.log_event(
+                    "evaluation_redo_finished",
+                    rounds=redo_summary["rounds"],
+                    published_segment_count=redo_summary["published_segment_count"],
+                    passed=bool(evaluation_payload.get("machine_gate", {}).get("passed")),
+                )
+        if evaluation_payload is not None:
+            evaluation_payload["auto_redo"] = redo_summary
+            evaluation_payload["history"] = self._record_evaluation_trend(store, evaluation_payload)
+        report = build_report(
+            store,
+            glossary,
+            strict_auto_qa=strict,
+            evaluation=evaluation_payload,
+        )
         assert report is not None
         store.save_report(report)
         store.log_event("report_saved", artifact="report.json")
+        auto_qa = report.get("auto_qa") or {}
+        store.log_event(
+            "auto_qa_finished",
+            passed=bool(auto_qa.get("passed")),
+            blocking=bool(auto_qa.get("blocking")),
+            empty_target_count=int(auto_qa.get("empty_target_count") or 0),
+            open_conflict_count=int(auto_qa.get("open_conflict_count") or 0),
+            residual_finding_count=int(auto_qa.get("residual_finding_count") or 0),
+            open_issue_count=int(auto_qa.get("open_issue_count") or 0),
+        )
         return report
 
 
@@ -78,6 +256,19 @@ class AssemblyService:
         from ..assemble.writer import assemble
         from ..assemble.writer_common import bilingual_out_path
 
+        if getattr(self._runtime.config.pipeline, "auto_qa_strict", False):
+            from ..assemble.report import build_report
+
+            report = build_report(store, store, strict_auto_qa=True)
+            qa = report.get("auto_qa") or {}
+            saved = store.load_report() or {}
+            gate = saved.get("machine_gate") or {}
+            if qa.get("blocking") or gate.get("blocking"):
+                raise ValueError(
+                    "auto_qa_strict is enabled and residual or evaluation findings remain; "
+                    "resolve empty targets, glossary conflicts, open issues or low evaluation "
+                    "scores before export"
+                )
         if progress:
             progress(0, 0, "Assembling translation…")
         out_cfg = self._runtime.config.output

@@ -73,12 +73,16 @@ OPERATIONS = register_operations(
             "analysis.style",
             "Analyze style, characters and seed terms",
             "strong",
+            # Response is prose plus character and term lists, and thinking tokens share
+            # this budget, so a small cap truncates the analysis before the JSON closes.
+            output_tokens=8192,
             workflows=("prepare", "translate"),
         ),
         OperationSpec(
             "synopsis.chapter",
             "Summarize one chapter",
             "fast",
+            # Thinking tokens share this budget, so a small cap truncates the digest.
             output_tokens=8192,
             workflows=("prepare", "translate"),
             flags=("book_understanding",),
@@ -101,6 +105,42 @@ OPERATIONS = register_operations(
             "strong",
             flags=("polish",),
             protocol_version=2,
+        ),
+        OperationSpec(
+            "quality.self_revision",
+            "Self-revise draft translations",
+            "strong",
+            flags=("self_revision",),
+        ),
+        OperationSpec(
+            "quality.editorial",
+            "Whole-book editorial notes",
+            "cheap",
+            flags=("editorial_pass",),
+        ),
+        OperationSpec(
+            "quality.final_polish",
+            "Final polish candidates",
+            "strong",
+            flags=("final_polish",),
+        ),
+        OperationSpec(
+            "quality.chapter_selfcheck",
+            "Chapter-level LLM self-check",
+            "cheap",
+            flags=("chapter_selfcheck",),
+        ),
+        OperationSpec(
+            "quality.back_translation",
+            "Back-translation QA",
+            "cheap",
+            flags=("back_translation",),
+        ),
+        OperationSpec(
+            "quality.judge",
+            "Score sampled translations for fluency and style fit",
+            "cheap",
+            flags=("quality_judge",),
         ),
         OperationSpec("glossary.extract", "Extract glossary candidates", "fast"),
         OperationSpec("glossary.align_history", "Align terms with earlier translations", "fast"),

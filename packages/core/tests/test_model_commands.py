@@ -34,6 +34,7 @@ def test_preview_needs_no_keys_or_sdk(tmp_path, monkeypatch):
     result = _invoke(tmp_path, {"llm": {"preset": "deepseek"}}, "list", "--json")
     assert result.exit_code == 0, result.output
     routes = json.loads(result.output)
+    # Compare against the registry instead of a count that every new operation must bump.
     assert set(routes) == set(OPERATIONS)
     assert {route["model"] for route in routes.values()} == {"deepseek-flash"}
     assert routes["synopsis.chapter"]["max_output_tokens"] == 8192
@@ -81,7 +82,7 @@ def test_config_conversion_is_explicit_and_writes_separate_file(tmp_path):
     result = _invoke(tmp_path, {}, "migrate-config", str(source), "--out", str(out))
     assert result.exit_code == 0, result.output
     assert Config.load(str(out)).llm == config.llm
-    assert yaml.safe_load(source.read_text()) == old
+    assert yaml.safe_load(source.read_text(encoding="utf-8")) == old
     again = _invoke(tmp_path, {}, "migrate-config", str(source), "--out", str(out))
     assert again.exit_code == 1
 
@@ -113,7 +114,7 @@ def test_usage_conversion_preserves_totals_and_unknown_identities(tmp_path):
     before = ledger.read_bytes()
     result = _invoke(tmp_path, {}, "migrate-usage", str(run))
     assert result.exit_code == 0, result.output
-    assert json.loads(ledger.read_text()) == converted
+    assert json.loads(ledger.read_text(encoding="utf-8")) == converted
     assert next(run.glob("usage.before-routing-*.json")).read_bytes() == before
     again = _invoke(tmp_path, {}, "migrate-usage", str(run))
     assert again.exit_code == 0

@@ -18,7 +18,7 @@ from ..review.models import (
 from . import prompts
 from .review_actions import ReviewActionLoop, ReviewLoopProtocolError, validate_evidence_refs
 
-_ISSUE_TYPES = {"missing", "added", "mistranslation", "terminology", "pronoun"}
+_ISSUE_TYPES = {"missing", "added", "mistranslation", "terminology", "pronoun", "voice", "style"}
 
 
 class ReviewAgentLoop:

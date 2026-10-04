@@ -7,12 +7,14 @@ import os
 import tempfile
 import unittest
 import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from wenyi_core.assemble.about import append_about_page
 from wenyi_core.assemble.epub_presentation import _inject_bilingual_style, _rewrite_html_document
+from wenyi_core.assemble.export_view import ExportViewStore
 from wenyi_core.assemble.html_renderer import _render_chapter_html, _render_segments_html
 from wenyi_core.assemble.report import build_report
 from wenyi_core.assemble.writer import assemble
@@ -939,6 +941,60 @@ data-tn-annotation-id="ann-0" href="chapter.xhtml#part">Chapter
         self.assertIsNotNone(rendered.find(id="kobo.1.1"))
         self.assertIsNone(rendered.select_one("[data-tn-inline-id]"))
 
+    def test_export_view_rejects_inherited_writers(self):
+        """Export overlays inherit RunStore writers; those must not touch formal state."""
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "book.txt")
+            write_sample_txt(txt)
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "zh",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            view = ExportViewStore(store, punctuation_normalize=False)
+            for name, call in (
+                ("save_manifest", lambda: view.save_manifest({})),
+                ("save_chapter", lambda: view.save_chapter(None)),
+                ("set_chapter_status", lambda: view.set_chapter_status(0, "done")),
+                ("log_event", lambda: view.log_event("x")),
+                ("_write_json", lambda: view._write_json("x.json", {})),
+            ):
+                with self.subTest(name=name):
+                    with self.assertRaisesRegex(RuntimeError, "read-only"):
+                        call()
+
+    def test_assemble_rejects_out_path_same_as_source(self):
+        """F02: export must refuse to overwrite the source book."""
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "book.txt")
+            write_sample_txt(txt)
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "zh",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            original = Path(txt).read_text(encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "source book"):
+                assemble(store, txt, txt, out_format="txt")
+            self.assertEqual(Path(txt).read_text(encoding="utf-8"), original)
+
+            with self.assertRaisesRegex(ValueError, "source book"):
+                assemble(store, txt, os.path.join(directory, ".", "book.txt"), out_format="txt")
+            self.assertEqual(Path(txt).read_text(encoding="utf-8"), original)
+
     def test_epub_export_rejects_source_state_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             epub = os.path.join(directory, "inline.epub")
@@ -1584,6 +1640,49 @@ class TestEpubTocMisdetectRegression(unittest.TestCase):
         self.assertNotIn("↩", heading.get_text())
         self.assertNotIn("目录", heading.get_text())
         self.assertIsNone(rendered.select_one("[data-tn-annotation-id]"))
+
+
+class TestReportAutoQA(unittest.TestCase):
+    def test_auto_qa_aggregates_residuals_without_blocking_export(self):
+        from wenyi_core.assemble.report import build_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "book.txt")
+            write_sample_txt(txt)
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "en",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            chapter = Chapter(
+                index=0,
+                title="c",
+                segments=[
+                    Segment(index=0, source="Chapter 12", target="Chapter"),
+                    Segment(index=1, source="ok", target="fine"),
+                ],
+            )
+            store.save_chapter(chapter)
+            glossary = GlossaryStore(os.path.join(directory, "g.db"))
+            try:
+                report = build_report(store, glossary)
+                strict = build_report(store, glossary, strict_auto_qa=True)
+            finally:
+                glossary.close()
+            self.assertIn("auto_qa", report)
+            qa = report["auto_qa"]
+            self.assertFalse(qa["passed"])
+            self.assertFalse(qa["blocking"])
+            self.assertEqual(qa["empty_target_count"], 0)
+            self.assertEqual(qa["residual_finding_count"], 1)
+            self.assertEqual(report["residual_findings"][0]["kind"], "number_residue")
+            self.assertTrue(strict["auto_qa"]["blocking"])
 
 
 class TestReport(unittest.TestCase):

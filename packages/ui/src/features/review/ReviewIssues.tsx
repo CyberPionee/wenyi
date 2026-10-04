@@ -5,7 +5,7 @@ import { Input, Label } from "@/components/ui/form";
 import { Select, SelectItem } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { ReviewItemDetails } from "./ReviewItemDetails";
-import { itemStatuses, itemType } from "./reviewData";
+import { isSoftFinding, itemStatuses, itemType } from "./reviewData";
 
 export function ReviewIssues({
   pid,
@@ -17,12 +17,19 @@ export function ReviewIssues({
   const { t } = useI18n();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
+  const softFindings = items.filter((item) => isSoftFinding(item));
   const filtered = items.filter(
     (item) =>
+      !isSoftFinding(item) &&
       (status === "all" || item.status === status) &&
       JSON.stringify(item)
         .toLocaleLowerCase()
         .includes(search.trim().toLocaleLowerCase()),
+  );
+  const filteredSoft = softFindings.filter((item) =>
+    JSON.stringify(item)
+      .toLocaleLowerCase()
+      .includes(search.trim().toLocaleLowerCase()),
   );
   return (
     <div className="space-y-4">
@@ -100,6 +107,43 @@ export function ReviewIssues({
       </ul>
       {!filtered.length && (
         <p className="text-sm text-muted-foreground">{t("list.noMatches")}</p>
+      )}
+      {!!filteredSoft.length && (
+        <section className="space-y-3" aria-label={t("review.softFindings")}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-medium">{t("review.softFindings")}</h3>
+            <Badge variant="secondary">{t("review.softFindingsHint")}</Badge>
+          </div>
+          <ul className="divide-y border-y">
+            {filteredSoft.map((item) => (
+              <li key={item.id} className="py-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {item.location
+                      ? t("review.paragraph", {
+                          title: item.location.chapter_title,
+                          number: item.location.text_index + 1,
+                        })
+                      : t("review.locationUnknown")}{" "}
+                    · {t(itemType(item))}
+                    {item.type ? ` · ${item.type}` : ""}
+                  </span>
+                </div>
+                <p className="text-sm whitespace-pre-wrap [overflow-wrap:anywhere]">
+                  {item.detail}
+                </p>
+                {item.suggestion && (
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap [overflow-wrap:anywhere]">
+                    {item.suggestion}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {t("review.softFindingNoAutofix")}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
     </div>
   );

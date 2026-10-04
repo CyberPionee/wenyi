@@ -250,11 +250,40 @@ def test_every_profile_renders_all_tasks_without_missing_fields(target):
             assert "中文译" not in rendered
 
 
+def test_zh_digest_and_synopsis_use_moderate_structured_lengths():
+    lang_profile = profile("zh")
+    assert lang_profile["digest_length"] == "400–600 characters"
+    assert lang_profile["synopsis_length"] == "800–1200 characters"
+    digest_system = render("chapter_digest_system", src="ja", tgt="zh")
+    assert "chapter digest writer" in digest_system
+    for heading in ("## Plot", "## Characters", "## Foreshadowing", "## Address"):
+        assert heading in digest_system
+    synopsis_system = render("book_synopsis_system", src="ja", tgt="zh")
+    assert "whole-book synopsis writer" in synopsis_system
+    assert "flowing prose" in synopsis_system
+
+
+def test_all_languages_use_moderate_structured_lengths():
+    """Every language profile exposes a ranged digest/synopsis budget for structured digests."""
+    for code in supported_languages():
+        lang_profile = profile(code)
+        digest = lang_profile["digest_length"]
+        synopsis = lang_profile["synopsis_length"]
+        assert "–" in digest, (code, digest)
+        assert "–" in synopsis, (code, synopsis)
+        unit = "characters" if "characters" in digest else "words"
+        assert unit in synopsis, (code, synopsis)
+        if code in {"zh", "zh-Hant", "ja", "ko"}:
+            assert unit == "characters", (code, digest)
+        else:
+            assert unit == "words", (code, digest)
+
+
 def test_strict_template_and_literal_source_payload():
     with pytest.raises(ValueError, match="missing argument"):
         render("translator_user", src="en", tgt="ja")
     source = '${tgt_label} $n {"translations": []}'
-    assert source in render("chapter_digest_user", source=source)
+    assert source in render("chapter_digest_user", source=source, glossary="(none)")
     with pytest.raises(ValueError, match="Unsupported"):
         render("translator_system", src="en", tgt="zz")
     with pytest.raises(ValueError):
@@ -270,7 +299,7 @@ def test_all_targets_ignore_old_root_state(tmp_path, target, root_manifest):
     manifest.write_text(root_manifest)
 
     assert translation_run_dir(str(tmp_path), "book", target) == str(root / "targets" / target)
-    assert manifest.read_text() == root_manifest
+    assert manifest.read_text(encoding="utf-8") == root_manifest
     assert not (root / "targets").exists()
 
 

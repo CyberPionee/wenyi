@@ -1,4 +1,7 @@
+[Glossary] (use these translations for names)
+$glossary
+
 [Chapter source ($src_label)]
 $source
 
-Return the chapter digest in $tgt_label, at most $digest_length.
+Return the chapter digest in $tgt_label, at most $digest_length. If this is a story chapter, use markdown sections ## Plot, ## Characters, ## Foreshadowing and ## Address in that order. If this is NOT story content (contents, dedication, copyright, acknowledgments, etc.), write exactly one short sentence identifying what it is — no sections, no analysis.

@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/form";
 import { ErrorNotice } from "@/components/ui/data";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/misc";
+import { QualityPassCard } from "./QualityPassCard";
 
 export default function StylePage() {
   const { t: tr } = useI18n();
@@ -78,6 +79,9 @@ export default function StylePage() {
           </TabsList>
 
           <TabsContent value="style" className="mt-4 space-y-4">
+            <QualityPassCard
+              qualityPass={analysis.quality_pass as Record<string, unknown> | null}
+            />
             <Card>
               <CardHeader>
                 <CardTitle>{tr("style.styleOverview")}</CardTitle>

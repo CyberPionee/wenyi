@@ -263,6 +263,18 @@ class ReviewActionLoop:
                     and isinstance(cached_turn.get("raw_response"), str)
                     and isinstance(cached_turn.get("parsed"), dict)
                 ):
+                    try:
+                        reparsed = parse_json_result(cached_turn["raw_response"])
+                    except ValueError:
+                        reparsed = None
+                    if reparsed is None or reparsed.value != cached_turn["parsed"]:
+                        # Tampered or stale cache; re-derive from the raw text.
+                        cached_turn = None
+                if (
+                    cached_turn is not None
+                    and isinstance(cached_turn.get("raw_response"), str)
+                    and isinstance(cached_turn.get("parsed"), dict)
+                ):
                     data = cached_turn["parsed"]
                     try:
                         parsed = parse_json_result(raw)
@@ -282,7 +294,11 @@ class ReviewActionLoop:
                         raise ReviewLoopProtocolError("unsafe_json_repair")
                     turn["parsed"] = data
                     turn["json_repaired"] = parsed.repaired
-                    turn["json_repair_kind"] = parsed.repair_kind
+                    turn["json_repair_kind"] = str(cached_turn.get("json_repair_kind") or "none")
+                    turn["safe_json"] = turn["json_repair_kind"] in {
+                        "none",
+                        "boundary_only",
+                    }
                 else:
                     try:
                         parsed = parse_json_result(raw)
@@ -292,11 +308,14 @@ class ReviewActionLoop:
                     turn["parsed"] = data
                     turn["json_repaired"] = parsed.repaired
                     turn["json_repair_kind"] = parsed.repair_kind
+                    turn["safe_json"] = parsed.safe_for_complete_payload
                 self.trace.save(agent_id, trace)
                 if not parsed.safe_for_complete_payload:
                     raise ReviewLoopProtocolError("unsafe_json_repair")
                 if not isinstance(data, dict):
                     raise ReviewLoopProtocolError("response_not_object")
+                if not turn.get("safe_json", True):
+                    raise ReviewLoopProtocolError("unsafe_json_repair")
 
                 action = data.get("action")
                 if action == "final":

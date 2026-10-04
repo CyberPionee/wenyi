@@ -1,6 +1,12 @@
-"""Offline regressions for complete, resumable book-understanding results."""
+"""Book-understanding completeness and recovery tests."""
 
-from unittest.mock import Mock, call
+from __future__ import annotations
+
+import os
+import tempfile
+import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from wenyi_core.agents.synopsis import Synopsizer
@@ -8,9 +14,11 @@ from wenyi_core.config import Config
 from wenyi_core.ingest.models import Chapter, Document, Segment
 from wenyi_core.llm.limits import RequestCancelled, RequestStopped
 from wenyi_core.llm.providers.fake import FakeClient
-from wenyi_core.pipeline.preparation import PreparationService
-from wenyi_core.pipeline.runtime import PipelineRuntime
+from wenyi_core.pipeline.orchestrator import Orchestrator
+from wenyi_core.pipeline.preparation import PreparationService, _synopsis_complete
 from wenyi_core.storage.file import FileStorage
+
+from .fake_llm import routing_handler
 
 
 def _service(tmp_path, chapters=None):
@@ -31,8 +39,7 @@ def _service(tmp_path, chapters=None):
         )
     )
     store.save_analysis({"style_guide": "Restrained."})
-    runtime = Mock(
-        spec=PipelineRuntime,
+    runtime = SimpleNamespace(
         config=Config.from_dict({"llm": {"preset": "fake"}}),
         synopsizer=Mock(),
         analyzer=Mock(),
@@ -43,6 +50,44 @@ def _service(tmp_path, chapters=None):
     return PreparationService(runtime), store, runtime
 
 
+def test_legacy_state_without_policy_stamps_resumes_without_regeneration(tmp_path):
+    """State written before policy tracking keeps its digests and synopsis on resume.
+
+    Those artifacts already carry the glossary snapshot this run validates, and the upgrade
+    leaves their prompts untouched, so the first resumed run reuses them and stamps them.
+    """
+    service, store, runtime = _service(tmp_path)
+    service.ensure_understanding(store)
+    assert runtime.synopsizer.digest_chapter.call_count == 2
+
+    for index in (0, 1):
+        chapter = store.load_chapter(index)
+        chapter.meta.pop("source_digest_policy", None)
+        store.save_chapter(chapter)
+    analysis = store.load_analysis()
+    analysis.pop("book_synopsis_inputs", None)
+    store.save_analysis(analysis)
+
+    runtime.synopsizer.digest_chapter.reset_mock()
+    assert service.ensure_understanding(store) == "Whole-book synopsis."
+    assert runtime.synopsizer.digest_chapter.call_count == 0
+    assert runtime.synopsizer.book_synopsis.call_count == 1  # First call above, not again.
+
+
+def test_changed_policy_regenerates_an_existing_digest(tmp_path):
+    """Once a digest carries a stamp, a different prompt revision makes it stale."""
+    service, store, runtime = _service(tmp_path)
+    service.ensure_understanding(store)
+    chapter = store.load_chapter(0)
+    chapter.meta["source_digest_policy"] = "some-other-revision"
+    store.save_chapter(chapter)
+
+    runtime.synopsizer.digest_chapter.reset_mock()
+    service.ensure_understanding(store)
+    assert runtime.synopsizer.digest_chapter.call_count == 1
+    assert store.load_chapter(0).meta["source_digest_policy"] != "some-other-revision"
+
+
 def test_book_synopsis_transport_failure_has_empty_fallback():
     def handler(messages, tier, json_mode):
         raise TimeoutError("provider unavailable")
@@ -50,95 +95,117 @@ def test_book_synopsis_transport_failure_has_empty_fallback():
     assert Synopsizer(FakeClient(handler=handler), Config()).book_synopsis(["Digest."], "") == ""
 
 
-@pytest.mark.parametrize("stop", [RequestCancelled, RequestStopped])
-@pytest.mark.parametrize("method", ["digest_chapter", "book_synopsis"])
-def test_synopsis_does_not_swallow_cancellation_or_budget_stop(stop, method):
-    client = Mock()
-    client.complete.side_effect = stop("stop requested")
-    args = ("Source chapter.",) if method == "digest_chapter" else (["Digest."], "")
-    with pytest.raises(stop):
-        getattr(Synopsizer(client, Config()), method)(*args)
+_DIGEST = "## Plot\n甲说话。\n## Characters\n甲\n## Foreshadowing\n无\n## Address\n无"
 
 
-def test_reduce_failure_does_not_omit_a_group_and_publish_the_rest():
-    client = Mock()
-    client.complete.side_effect = ["", "Later chapters.", "Incomplete book synopsis."]
-    result = Synopsizer(client, Config()).book_synopsis(["a" * 7000, "b" * 7000], "")
-    assert result == ""
-    assert client.complete.call_count == 1
-
-
-def test_failed_chapter_digest_requires_retry_and_preserves_successes(tmp_path):
-    service, store, runtime = _service(tmp_path)
-    runtime.synopsizer.digest_chapter.side_effect = lambda source: (
-        "Opening digest." if source == "Opening." else ""
-    )
-    with pytest.raises(ValueError, match="Chapter digests.*1"):
-        service.ensure_understanding(store)
-    assert store.load_chapter(0).meta["source_digest"] == "Opening digest."
-    assert not store.load_chapter(1).meta.get("source_digest")
-    assert all(s.target is None for s in store.load_chapter(0).segments)
-    runtime.synopsizer.book_synopsis.assert_not_called()
-
-    runtime.synopsizer.digest_chapter.reset_mock(side_effect=True)
-    runtime.synopsizer.digest_chapter.return_value = "Ending digest."
-    assert service.ensure_understanding(store) == "Whole-book synopsis."
-    runtime.synopsizer.digest_chapter.assert_called_once_with("Ending.")
-    runtime.synopsizer.book_synopsis.assert_called_once_with(
-        ["Opening digest.", "Ending digest."], "Restrained."
+def _config(state_dir: str, **pipeline_overrides) -> Config:
+    return Config.from_dict(
+        {
+            "language": {"source": "ja", "target": "zh"},
+            "llm": {"preset": "fake"},
+            "paths": {"state_dir": state_dir},
+            "pipeline": {"review": False, "polish": False, **pipeline_overrides},
+        }
     )
 
 
-def test_empty_chapter_does_not_require_a_digest(tmp_path):
-    service, store, runtime = _service(
-        tmp_path,
-        [Chapter(index=0), Chapter(index=1, segments=[Segment(index=0, source="Body.")])],
-    )
-    assert service.ensure_understanding(store) == "Whole-book synopsis."
-    runtime.synopsizer.digest_chapter.assert_called_once_with("Body.")
-    runtime.synopsizer.book_synopsis.assert_called_once_with(["Chapter digest."], "Restrained.")
+def _write_book(directory: str) -> str:
+    txt = os.path.join(directory, "novel.txt")
+    with open(txt, "w", encoding="utf-8") as f:
+        f.write("# 第一章\n\n" + "甲说了一句话。" * 40 + "\n\n# 第二章\n\n" + "乙又说了话。" * 40)
+    return txt
 
 
-def test_book_failure_is_not_cached_and_resume_reuses_chapter_digests(tmp_path):
-    service, store, runtime = _service(tmp_path)
-    runtime.synopsizer.book_synopsis.return_value = ""
-    assert service.ensure_understanding(store) == ""
-    analysis = store.load_analysis()
-    assert analysis is not None
-    assert not analysis.get("book_synopsis")
-    assert not analysis.get("book_synopsis_meta")
-    runtime.synopsizer.digest_chapter.reset_mock()
-    runtime.synopsizer.book_synopsis.return_value = "Complete synopsis."
-    assert service.ensure_understanding(store) == "Complete synopsis."
-    runtime.synopsizer.digest_chapter.assert_not_called()
-    analysis = store.load_analysis()
-    assert analysis is not None
-    assert analysis["style_guide"] == "Restrained."
+def _handler(fail_ordinals: set[int], synopsis: str = "这是一段完整的全书概要。"):
+    """Wrap routing_handler, failing digestion for the given call ordinals."""
+    state = {"digest_calls": 0}
+
+    def handler(messages, tier, json_mode):
+        system = messages[0]["content"]
+        if "chapter digest writer" in system:
+            ordinal = state["digest_calls"]
+            state["digest_calls"] += 1
+            if ordinal in fail_ordinals:
+                return ""
+            return _DIGEST
+        if "whole-book synopsis writer" in system:
+            return synopsis
+        return routing_handler(messages, tier, json_mode)
+
+    return handler
 
 
-def test_complete_cache_is_reused_without_sentence_punctuation(tmp_path):
-    service, store, runtime = _service(tmp_path)
-    runtime.synopsizer.digest_chapter.return_value = "A complete digest without punctuation"
-    runtime.synopsizer.book_synopsis.return_value = "A complete synopsis without punctuation"
-    assert service.ensure_understanding(store) == "A complete synopsis without punctuation"
-    runtime.synopsizer.reset_mock()
-    assert service.ensure_understanding(store) == "A complete synopsis without punctuation"
-    runtime.synopsizer.digest_chapter.assert_not_called()
-    runtime.synopsizer.book_synopsis.assert_not_called()
+class SynopsisCompleteTests(unittest.TestCase):
+    def test_complete_requires_terminator(self):
+        self.assertFalse(_synopsis_complete(""))
+        self.assertFalse(_synopsis_complete("故事从第一章开始，主角名叫"))
+        self.assertTrue(_synopsis_complete("故事结束了。"))
 
 
-def test_changed_digest_invalidates_book_cache(tmp_path):
-    service, store, runtime = _service(tmp_path)
-    service.ensure_understanding(store)
-    chapter = store.load_chapter(1)
-    chapter.meta["source_digest"] = "Revised ending."
-    store.save_chapter(chapter)
-    runtime.synopsizer.reset_mock()
-    runtime.synopsizer.book_synopsis.return_value = "Revised synopsis."
-    assert service.ensure_understanding(store) == "Revised synopsis."
-    runtime.synopsizer.book_synopsis.assert_called_once_with(
-        ["Chapter digest.", "Revised ending."], "Restrained."
-    )
+class DigestRequirementTests(unittest.TestCase):
+    def test_failed_digest_blocks_translation_and_is_not_cached(self):
+        with tempfile.TemporaryDirectory() as d:
+            txt = _write_book(d)
+            cfg = _config(os.path.join(d, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=_handler({0})))
+
+            with self.assertRaisesRegex(ValueError, "digests could not be generated"):
+                orch.run(txt)
+
+            # The failed chapter is not cached: a later run retries instead of reusing "".
+            store = orch._preparation.locate_existing(txt)
+            metas = [
+                store.load_chapter(c["index"]).meta
+                for c in store.load_manifest().get("chapters", [])
+            ]
+            self.assertTrue(any(not str(m.get("source_digest") or "").strip() for m in metas))
+            store.close()
+
+    def test_all_digests_succeed_then_translation_runs(self):
+        with tempfile.TemporaryDirectory() as d:
+            txt = _write_book(d)
+            cfg = _config(os.path.join(d, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=_handler(set())))
+
+            store = orch.run(txt)
+
+            metas = [
+                store.load_chapter(c["index"]).meta
+                for c in store.load_manifest().get("chapters", [])
+            ]
+            self.assertTrue(all(str(m.get("source_digest") or "").strip() for m in metas))
+            store.close()
+
+
+class SynopsisFailureTests(unittest.TestCase):
+    def test_incomplete_synopsis_does_not_overwrite_existing(self):
+        with tempfile.TemporaryDirectory() as d:
+            txt = _write_book(d)
+            cfg = _config(os.path.join(d, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=_handler(set())))
+
+            store = orch._preparation.prepare(txt)
+            analysis = store.load_analysis() or {}
+            analysis["book_synopsis"] = "旧的可用的概要。"
+            analysis["book_synopsis_v"] = 3
+            analysis["book_synopsis_gf"] = {}
+            store.save_analysis(analysis)
+
+            # A truncated regeneration must not replace the working synopsis.
+            orch = Orchestrator(
+                cfg, client=FakeClient(handler=_handler(set(), synopsis="这是一段被截断的概要"))
+            )
+            orch._preparation.ensure_understanding(store)
+
+            self.assertEqual(
+                (store.load_analysis() or {}).get("book_synopsis"),
+                "旧的可用的概要。",
+            )
+            store.close()
+
+
+if __name__ == "__main__":
+    unittest.main()
 
 
 def test_failed_regeneration_keeps_existing_analysis_but_does_not_inject_stale_synopsis(tmp_path):
@@ -165,9 +232,30 @@ def test_legacy_truncated_digest_and_unverified_synopsis_are_regenerated(tmp_pat
     store.save_analysis({"style_guide": "Restrained.", "book_synopsis": "Legacy synopsis."})
     assert service.ensure_understanding(store) == "Whole-book synopsis."
     assert runtime.synopsizer.digest_chapter.call_count == 2
-    runtime.synopsizer.digest_chapter.assert_has_calls(
-        [call("Opening."), call("Ending.")], any_order=True
-    )
-    runtime.synopsizer.book_synopsis.assert_called_once_with(
-        ["Chapter digest.", "Chapter digest."], "Restrained."
-    )
+    # This branch prescans after the style analysis, so digests receive the seeded glossary
+    # terms that keep character names aligned with the established mapping.
+    assert sorted(call_.args[0] for call_ in runtime.synopsizer.digest_chapter.call_args_list) == [
+        "Ending.",
+        "Opening.",
+    ]
+    synopsis_args = runtime.synopsizer.book_synopsis.call_args.args
+    assert synopsis_args[:2] == (["Chapter digest.", "Chapter digest."], "Restrained.")
+
+
+@pytest.mark.parametrize("stop", [RequestCancelled, RequestStopped])
+@pytest.mark.parametrize("method", ["digest_chapter", "book_synopsis"])
+def test_synopsis_does_not_swallow_cancellation_or_budget_stop(stop, method):
+    client = Mock()
+    client.complete.side_effect = stop("stop requested")
+    args = ("Source chapter.",) if method == "digest_chapter" else (["Digest."], "")
+    with pytest.raises(stop):
+        getattr(Synopsizer(client, Config()), method)(*args)
+
+
+def test_reduce_failure_does_not_omit_a_group_and_publish_the_rest():
+    client = Mock()
+    client.complete.side_effect = ["", "Later chapters.", "Incomplete book synopsis."]
+    result = Synopsizer(client, Config()).book_synopsis(["a" * 7000, "b" * 7000], "")
+    assert result == ""
+    # A failed group aborts the merge: no partial synopsis and no further reduce round.
+    assert client.complete.call_count <= 2

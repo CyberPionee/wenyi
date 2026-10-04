@@ -6,6 +6,6 @@
   "punctuation_rule": "Follow German quotation, punctuation and spacing conventions. Preserve umlauts, ß and symbol pairing.",
   "title_rule": "Use conventional German titles and section labels, preserving noun capitalization.",
   "term_guidance": "Leave reading empty unless there is explicit pronunciation evidence. ",
-  "digest_length": "150 words",
-  "synopsis_length": "350 words"
+  "digest_length": "250–400 words",
+  "synopsis_length": "500–800 words"
 }

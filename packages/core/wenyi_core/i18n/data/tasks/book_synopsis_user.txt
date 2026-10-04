@@ -1,7 +1,10 @@
+[Glossary] (use these translations for names)
+$glossary
+
 [Preliminary analysis]
 $analysis
 
 [Chapter digests]
 $digests
 
-Synthesize a whole-book synopsis of at most $synopsis_length.
+Synthesize a whole-book synopsis of at most $synopsis_length as flowing prose paragraphs in $tgt_label. Cover the main plot and ending, principal characters and their relationships, key revelations and foreshadowing. Do not use section headings.

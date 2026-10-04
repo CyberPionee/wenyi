@@ -96,8 +96,14 @@ def save_config(pid: str, body: ConfigInput) -> dict:
         except (ValueError, yaml.YAMLError) as error:
             raise HTTPException(422, str(error)) from error
         dal.set_project_config(pid, project_document(config), connection=conn)
-        # The project direction must also drive upload, list and worker dispatch.
-        dal.set_project_languages(pid, config.source_lang, config.target_lang, connection=conn)
+        # The project direction must also drive upload, list and worker dispatch. An
+        # initialized project keeps its detected source language even when the saved
+        # configuration still asks for auto detection, recovering it from the manifest
+        # when the column already holds the auto placeholder.
+        source_lang = config.source_lang
+        if project.get("initialized") and source_lang == "auto":
+            source_lang = _storage.load_manifest().get("source_lang") or "auto"
+        dal.set_project_languages(pid, source_lang, config.target_lang, connection=conn)
         return config_response(project, config)
 
 

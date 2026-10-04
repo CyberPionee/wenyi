@@ -7,7 +7,6 @@ import unittest
 from pathlib import Path
 
 import yaml
-from pydantic import ValidationError
 from wenyi_core.config import _DEFAULT_CONFIG_YAML, Config
 from wenyi_core.llm.registry import provider_spec
 from wenyi_core.llm.routing import resolve_routes
@@ -80,14 +79,10 @@ class TestConfigFileCreation(unittest.TestCase):
             self.assertIn("max_tokens_per_batch: 1800", generated)
             self.assertIn("max_tokens_per_segment: 1200", generated)
             self.assertNotIn("max_chars_per_batch", generated)
-            self.assertNotIn("glossary_scope", generated)
-            self.assertNotIn("glossary_scope", cfg.pipeline.model_dump())
-
-    def test_removed_glossary_scope_is_rejected(self):
-        for scope in ("chapter", "full", None):
-            with self.subTest(scope=scope):
-                with self.assertRaisesRegex(ValidationError, "glossary_scope"):
-                    Config.from_dict({"pipeline": {"glossary_scope": scope}})
+            # This branch keeps the glossary scope selector; the shipped template documents
+            # it and the model exposes it with a chapter default.
+            self.assertIn("glossary_scope", generated)
+            self.assertEqual(cfg.pipeline.glossary_scope, "chapter")
 
     def test_removed_segment_char_keys_are_rejected(self):
         with self.assertRaises(Exception):
@@ -124,6 +119,12 @@ class TestConfigFileCreation(unittest.TestCase):
         self.assertEqual(cfg.pipeline.review_clean_confirmations, 2)
         self.assertTrue(cfg.pipeline.review_autofix)
         self.assertEqual(cfg.pipeline.pdf_backend, "mineru")
+        self.assertEqual(cfg.pipeline.glossary_always_types, ["person"])
+        self.assertEqual(cfg.pipeline.glossary_always_min_occurrences, 3)
+        self.assertEqual(cfg.pipeline.glossary_note_chars, 120)
+        self.assertEqual(cfg.pipeline.rolling_context_segments, 6)
+        self.assertTrue(cfg.pipeline.rolling_context_with_source)
+        self.assertFalse(cfg.pipeline.auto_qa_strict)
 
     def test_about_page_can_be_disabled(self):
         cfg = Config.from_dict({"output": {"about_page": False}})

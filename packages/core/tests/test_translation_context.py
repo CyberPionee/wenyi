@@ -61,8 +61,8 @@ def test_following_source_is_quoted_reference_outside_translation_count(
     user = client.calls[0]["messages"][-1]["content"]
     assert _next_source(user) == reference
     assert _numbered_sources(user) == ["unfinished source"]
-    assert "[Recent translations]\nprevious translation" in user
-    assert user.index("[Recent translations]") < user.index("[0] unfinished source")
+    assert "[Recent source–target pairs]\nprevious translation" in user
+    assert user.index("[Recent source–target pairs]") < user.index("[0] unfinished source")
     assert user.index("[0] unfinished source") < user.index("[Following source paragraph]")
 
 
@@ -112,6 +112,21 @@ def test_polisher_receives_reference_without_extra_output(config):
     assert _numbered_sources(user) == ["unfinished translation"]
 
 
+def test_polisher_with_sources_pairs_source_and_target(config):
+    client = FakeClient(handler=lambda m, t, j: '{"polished":["polished"]}')
+    result = Polisher(client, config).polish(
+        ["draft"],
+        sources=["source line"],
+        next_source="continuation source",
+    )
+
+    assert result == ["polished"]
+    user = client.calls[0]["messages"][-1]["content"]
+    assert _next_source(user) == "continuation source"
+    assert "[0] Source: source line" in user
+    assert "    Translation: draft" in user
+
+
 def test_polish_continue_reuses_translation_transcript(config):
     def handler(messages, tier, json_mode):
         user = messages[-1]["content"]
@@ -146,6 +161,7 @@ def test_split_fragments_and_chapter_ends_supply_one_reference_to_both_stages(
     tmp_path, config, recent_count
 ):
     config.pipeline.polish = True
+    config.pipeline.glossary_scope = "full"
     config.pipeline.rolling_context_segments = recent_count
     # 14 tokens under cl100k_base; a 10-token segment budget forces a continuation split.
     config.segment.max_tokens_per_segment = 10
@@ -191,11 +207,14 @@ def test_split_fragments_and_chapter_ends_supply_one_reference_to_both_stages(
     context = store.load_context()
     assert context is not None
     assert set(context["recent_targets"]) == {"润0"}
+    assert context.get("recent_pairs")
+    assert all(pair.get("target") == "润0" for pair in context["recent_pairs"])
 
 
 def test_resume_rebuilds_reference_after_batch_budget_change_without_saving_it_early(
     tmp_path, config
 ):
+    config.pipeline.glossary_scope = "full"
     sources = [
         "First unfinished part",
         "Second source segment",
@@ -234,7 +253,10 @@ def test_resume_rebuilds_reference_after_batch_budget_change_without_saving_it_e
         sources[2:],
     ]
     assert [_next_source(call["messages"][-1]["content"]) for call in calls] == [sources[2], ""]
-    assert "[Recent translations]\n译0" in calls[0]["messages"][-1]["content"]
+    assert (
+        "[Recent source–target pairs]\nSource: First unfinished part\nTranslation: 译0"
+        in (calls[0]["messages"][-1]["content"])
+    )
     assert store.load_chapter(0).text_segments[0].target == "译0"
     assert all(segment.target for segment in store.load_chapter(0).text_segments)
 
@@ -285,6 +307,7 @@ def test_resume_refreshes_full_glossary_before_pending_batches(
     tmp_path, config, monkeypatch, checkpoint_saved, polish
 ):
     """Keep saved targets and refresh the full glossary after recovering extraction."""
+    config.pipeline.glossary_scope = "full"
     config.pipeline.polish = polish
     source = tmp_path / "book.txt"
     source.write_text(

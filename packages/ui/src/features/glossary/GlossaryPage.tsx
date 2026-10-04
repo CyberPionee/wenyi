@@ -137,9 +137,14 @@ export default function GlossaryPage() {
       decision: string;
       target?: string;
     }) => api.resolveConflict(pid, cid, { decision, target }),
-    onSuccess: () => {
+    onSuccess: (result) => {
       invalidate();
-      toast.success(tr("glossary.conflictResolved"));
+      const replaced = result?.detail?.segments_replaced ?? 0;
+      toast.success(
+        replaced > 0
+          ? tr("glossary.conflictResolvedWithWriteback", { count: replaced })
+          : tr("glossary.conflictResolved"),
+      );
     },
     onError: (e) => toast.error(e.message),
   });
@@ -372,6 +377,11 @@ export default function GlossaryPage() {
                     <td className="p-3">
                       <Badge variant="outline">
                         {termTypes()[t.type || ""] || t.type}
+                        {(t.type || "") === "person" && (
+                          <Badge variant="secondary" className="ml-1">
+                            {tr("glossary.autoLockEligible")}
+                          </Badge>
+                        )}
                       </Badge>
                     </td>
                     <td className="p-3 text-right">
@@ -642,8 +652,13 @@ function EditTermDialog({
           .map((s) => s.trim())
           .filter(Boolean),
       }),
-    onSuccess: () => {
-      toast.success(tr("glossary.updated"));
+    onSuccess: (result) => {
+      const replaced = result?.writeback?.segments_replaced ?? 0;
+      toast.success(
+        replaced > 0
+          ? tr("glossary.updatedWithWriteback", { count: replaced })
+          : tr("glossary.updated"),
+      );
       onSaved();
     },
     onError: (e) =>

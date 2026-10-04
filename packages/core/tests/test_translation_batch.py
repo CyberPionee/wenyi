@@ -72,6 +72,32 @@ def test_batch_polish_preserves_filtered_positions_and_fallback(invalid_continua
     assert client.calls[1]["messages"][2]["role"] == "assistant"
 
 
+def test_batch_independent_polish_passes_plan_sources():
+    def handler(messages, tier, json_mode):
+        user = messages[-1]["content"]
+        if "Polish the translations from your previous JSON response" in user:
+            return json.dumps({"polished": ["wrong count"]})
+        if "literary translator" in messages[0]["content"]:
+            return json.dumps({"translations": ["one", "two"]})
+        return json.dumps({"polished": ["ONE", "TWO"]})
+
+    config = Config.from_dict({"llm": {"preset": "fake"}})
+    client = FakeClient(handler=handler)
+    executor = TranslationBatchExecutor(Translator(client, config), Polisher(client, config))
+    plan = _plan(["alpha", "beta"])
+    result = executor.execute(plan, polish=True)
+
+    assert result.targets == ("ONE", "TWO")
+    assert plan.sources == ("alpha", "beta")
+    polish_call = client.calls[-1]
+    assert polish_call["operation"] == "polish.body"
+    user = polish_call["messages"][-1]["content"]
+    assert "[0] Source: alpha" in user
+    assert "    Translation: one" in user
+    assert "[1] Source: beta" in user
+    assert "    Translation: two" in user
+
+
 def test_batch_passes_mineru_blank_allowance_to_translator():
     config = Config.from_dict({"llm": {"preset": "fake"}})
     client = FakeClient(handler=lambda *_: '{"translations": [""]}')

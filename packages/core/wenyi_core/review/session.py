@@ -21,6 +21,7 @@ class ReviewRoundResult:
     conflict_groups: list[dict[str, Any]]
     residual_conflicts: list[dict[str, Any]]
     fallback_agent_count: int
+    soft_findings: list[dict[str, Any]] = field(default_factory=list)
 
 
 def review_overlay_digest(

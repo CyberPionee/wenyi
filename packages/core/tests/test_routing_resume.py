@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 from wenyi_core.config import Config
@@ -157,6 +158,7 @@ def _review_with_absent_term(tmp_path, interrupted):
     )
     config = _config(tmp_path)
     config.segment.max_tokens_per_batch = 1
+    config.pipeline.glossary_scope = "full"
     config.pipeline.review_concurrency = 1
     store = require_file_storage(
         Orchestrator(config, FakeClient(handler=routing_handler)).run(str(source))
@@ -324,4 +326,4 @@ def test_completed_translation_is_kept_and_changed_review_model_gets_new_run(tmp
     assert {
         path.name: path.read_bytes() for path in (tmp_path / "state").rglob("ch*.json")
     } == translated
-    assert json.loads(open(store.manifest_path).read())["target_lang"] == "zh"
+    assert json.loads(Path(store.manifest_path).read_text(encoding="utf-8"))["target_lang"] == "zh"

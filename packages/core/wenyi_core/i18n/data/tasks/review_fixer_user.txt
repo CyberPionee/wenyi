@@ -1,10 +1,10 @@
 [Characters / Style guide]
 $style
 
-[Whole-book synopsis]
+[Whole-book synopsis] (flowing summary of plot, characters, relationships, revelations and foreshadowing)
 $book_synopsis
 
-[Chapter digest]
+[Chapter digest] (## Plot: events in this chapter; ## Characters: who appears and their state; ## Foreshadowing: clues planted here; ## Address: revelations or turning points in this chapter)
 $chapter_digest
 
 [Relevant glossary] (required mappings)
@@ -27,4 +27,4 @@ $source
 [Complete current $tgt_label translation]
 $current_target
 
-Make only the minimum edits that address every confirmed issue and return the complete revised paragraph. Follow the system JSON protocol exactly.
+Make only the minimum edits that address every confirmed issue and return the complete revised paragraph. Follow the system JSON protocol exactly, and set complete to true only when the replacement is whole; JSON object field order has no meaning.

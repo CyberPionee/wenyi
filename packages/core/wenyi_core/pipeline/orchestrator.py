@@ -20,6 +20,7 @@ from ..storage.protocol import Storage
 from .annotations import AnnotationService
 from .finalization import AssemblyService, ReportService
 from .preparation import PreparationService
+from .quality_pass import QualityPassService
 from .review_autofix import ReviewAutofixService
 from .review_workflow import ReviewService
 from .runtime import LLMClient, PipelineRuntime
@@ -44,6 +45,7 @@ class Orchestrator:
         self._translation = TranslationService(self._runtime, self._annotations)
         self._review = ReviewService(self._runtime)
         self._review_autofix = ReviewAutofixService(self._runtime, self._annotations)
+        self._quality_pass = QualityPassService(self._runtime)
         self._report = ReportService(self._runtime)
         self._assembly = AssemblyService(self._runtime)
 
@@ -60,9 +62,9 @@ class Orchestrator:
         progress: ProgressFn | None = None,
     ) -> Storage:
         """Complete all preparation without translating body text.
-        Parse the document, detect language, optionally prescan chapters, analyze style and
-        initial terms, and optionally synthesize a synopsis. Initialized runs reuse persisted
-        results; incomplete initialization is rebuilt on retry.
+        Parse the document, detect language, analyze style and initial terms, and optionally
+        prescan chapters and synthesize a synopsis. The prescan follows the analysis so digests
+        can use the seeded terms; every stage resumes by reusing persisted results.
         """
         with self._runtime.track_workflow("prepare"):
             store = self._preparation.prepare(input_path, progress=progress)
@@ -118,12 +120,14 @@ class Orchestrator:
                 )
             self._preparation.activate(store, phase="translation")
             book_synopsis = self._preparation.ensure_understanding(store, progress=progress)
-            return self._translation.run(
+            translated = self._translation.run(
                 store,
                 book_synopsis=book_synopsis,
                 only_chapter=only_chapter,
                 progress=progress,
             )
+            self._quality_pass.run_after_translate(translated, progress=progress)
+            return translated
         finally:
             # Prescan can stop before translation's own usage checkpoint is reached.
             self._runtime.flush_usage(store, scope="translate")

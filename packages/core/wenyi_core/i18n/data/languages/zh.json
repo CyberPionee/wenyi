@@ -6,8 +6,8 @@
   "punctuation_rule": "Unless another explicit task format requires otherwise, preserve the structural role of punctuation and symbols. Ordinary stops and commas may follow Chinese word order. Do not omit quotation marks, brackets, questions, exclamations, colons, semicolons, dashes, ellipses, middle dots, tildes, slashes, asterisks, musical notes or other special symbols. Preserve their position, hierarchy, count, repetition and pairing. Use mainland Simplified Chinese full-width punctuation: ，。！？：；、, quotation marks “”‘’, ellipses …… and dashes ——. Do not retain half-width punctuation, Japanese 「」『』 or straight English quotes.",
   "title_rule": "Use concise titles following Chinese book and chapter conventions. Translate labels such as 第3章, 序章 and エピローグ by meaning as 第3章, 序章 and 尾声; do not transliterate them.",
   "term_guidance": "Leave reading empty unless there is explicit pronunciation evidence. ",
-  "digest_length": "200 characters",
-  "synopsis_length": "500 characters",
+  "digest_length": "400–600 characters",
+  "synopsis_length": "800–1200 characters",
   "policy": {
     "target": {
       "punctuation.zh_cn": {

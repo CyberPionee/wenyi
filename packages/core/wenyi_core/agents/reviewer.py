@@ -6,7 +6,7 @@ mistranslations, glossary violations and pronoun errors.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from ..llm.json_parser import parse_json_result
@@ -27,6 +27,7 @@ class ReviewResult:
     """Structured result of one review call, including whether local JSON repair was used."""
 
     issues: list[dict[str, Any]]
+    soft_findings: list[dict[str, Any]] = field(default_factory=list)
     repaired: bool = False
 
 
@@ -45,19 +46,31 @@ class Reviewer(Agent):
         targets: list[str],
         glossary_terms=None,
         *,
+        style: str = "",
+        book_synopsis: str = "",
+        chapter_digest: str = "",
         trace: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> ReviewResult:
-        """Return issues with recovery metadata; leave service exceptions to the caller."""
+        """Return issues and soft findings with recovery metadata.
+
+        Soft findings are uncertain notes; they never enter fix/autofix/arbiter.
+        """
         if not sources:
-            return ReviewResult([])
+            return ReviewResult([], soft_findings=[])
         system = self.render("reviewer_system", src=self.src, tgt=self.tgt, n=len(sources))
         user = self.render(
             "reviewer_user",
             src=self.src,
             tgt=self.tgt,
-            glossary=prompts.render_glossary(glossary_terms or []),
+            glossary=prompts.render_glossary(
+                glossary_terms or [],
+                max_note_chars=self.config.pipeline.glossary_note_chars,
+            ),
             n=len(sources),
             pairs=prompts.numbered_pairs(sources, targets),
+            style=prompts.clip_context_block(style, 500),
+            book_synopsis=prompts.clip_context_block(book_synopsis, 600),
+            chapter_digest=prompts.clip_context_block(chapter_digest, 400),
         )
         messages = [
             {"role": "system", "content": system},
@@ -103,6 +116,9 @@ class Reviewer(Agent):
             raise ReviewOutputError("unsafe_json_repair")
         if not isinstance(data, dict):
             raise ReviewOutputError("response_not_object")
+        if not parsed.safe_for_complete_payload:
+            # Structural repair means the payload may be an invented fragment.
+            raise ReviewOutputError("unsafe_json_repair")
         reviewed_segments = data.get("reviewed_segments")
         if (
             isinstance(reviewed_segments, bool)
@@ -119,7 +135,28 @@ class Reviewer(Agent):
         if any(not isinstance(item, dict) for item in issues):
             raise ReviewOutputError("issue_not_object")
         validated = self._validate_issues(issues, len(sources))
-        return ReviewResult(validated, repaired=repaired)
+        raw_soft = data.get("soft_findings", [])
+        if raw_soft is None:
+            raw_soft = []
+        if not isinstance(raw_soft, list):
+            raise ReviewOutputError("soft_findings_not_list")
+        if any(not isinstance(item, dict) for item in raw_soft):
+            raise ReviewOutputError("soft_finding_not_object")
+        soft_findings = self._validate_soft_findings(raw_soft, len(sources))
+        return ReviewResult(validated, soft_findings=soft_findings, repaired=repaired)
+
+    @staticmethod
+    def _issue_types() -> set[str]:
+        """Keep in sync with review_loop._ISSUE_TYPES."""
+        return {
+            "missing",
+            "added",
+            "mistranslation",
+            "terminology",
+            "pronoun",
+            "voice",
+            "style",
+        }
 
     @staticmethod
     def _validate_issues(
@@ -129,13 +166,7 @@ class Reviewer(Agent):
         """Normalize and validate every candidate so malformed fields cannot silently mean no
         issues.
         """
-        allowed_types = {
-            "missing",
-            "added",
-            "mistranslation",
-            "terminology",
-            "pronoun",
-        }
+        allowed_types = Reviewer._issue_types()
         for item in issues:
             index = item.get("index")
             if isinstance(index, str):
@@ -151,10 +182,10 @@ class Reviewer(Agent):
                 raise ReviewOutputError("invalid_issue_index")
             if item.get("type") not in allowed_types:
                 raise ReviewOutputError("invalid_issue_type")
-            for field in ("detail", "suggestion"):
-                value = item.get(field)
+            for field_name in ("detail", "suggestion"):
+                value = item.get(field_name)
                 if not isinstance(value, str) or not value.strip():
-                    raise ReviewOutputError(f"invalid_issue_{field}")
+                    raise ReviewOutputError(f"invalid_issue_{field_name}")
         return [
             {
                 "index": int(str(item["index"]).strip()),
@@ -164,3 +195,38 @@ class Reviewer(Agent):
             }
             for item in issues
         ]
+
+    @staticmethod
+    def _validate_soft_findings(
+        findings: list[dict[str, Any]],
+        segment_count: int,
+    ) -> list[dict[str, Any]]:
+        """Normalize uncertain notes. Suggestion is optional; empty findings are dropped."""
+        allowed_types = Reviewer._issue_types()
+        validated: list[dict[str, Any]] = []
+        for item in findings:
+            detail = item.get("detail")
+            if not isinstance(detail, str) or not detail.strip():
+                continue
+            finding_type = item.get("type")
+            if finding_type is not None and finding_type not in allowed_types:
+                continue
+            raw_index = item.get("index")
+            index: int | None = None
+            if raw_index is not None and not isinstance(raw_index, bool):
+                try:
+                    parsed = int(str(raw_index).strip())
+                except ValueError:
+                    parsed = None
+                if parsed is not None and 0 <= parsed < segment_count:
+                    index = parsed
+            suggestion = item.get("suggestion")
+            validated.append(
+                {
+                    "index": index,
+                    "type": str(finding_type or ""),
+                    "detail": detail.strip(),
+                    "suggestion": suggestion.strip() if isinstance(suggestion, str) else "",
+                }
+            )
+        return validated

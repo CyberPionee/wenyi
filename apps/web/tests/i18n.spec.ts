@@ -186,9 +186,13 @@ for (const locale of ["en", "zh-CN"] as const) {
       }),
     ).toBeVisible();
     await expect(page.getByText("原文角色", { exact: true })).toBeVisible();
+    // The type filter is a select, so its option labels live in the opened popup.
+    const typeFilter = page.getByRole("combobox", { name: /Type|类型/ });
+    await typeFilter.click();
     await expect(
-      page.getByText(chinese ? "人物" : "Person", { exact: true }).last(),
+      page.getByRole("option", { name: chinese ? "人物" : "Person", exact: true }),
     ).toBeVisible();
+    await page.keyboard.press("Escape");
     await page
       .getByRole("button", {
         name: chinese ? "添加术语" : "Add term",

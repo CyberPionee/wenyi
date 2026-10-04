@@ -6,6 +6,7 @@ epub_writer.
 
 from __future__ import annotations
 
+import os
 from typing import Literal
 
 from ..i18n.policy.models import PolicyContext, PolicyPlan
@@ -30,6 +31,32 @@ from .writer_common import (
 )
 
 __all__ = ["assemble"]
+
+
+def _reject_source_out_collision(source_path: str, out_path: str) -> None:
+    """Refuse to overwrite the input book with export output.
+
+    Compare resolved paths and ``samefile`` so aliases and relative spellings cannot
+    destroy the source. Raise before any writer opens the destination.
+    """
+    source_abs = os.path.realpath(os.path.abspath(source_path))
+    out_abs = os.path.realpath(os.path.abspath(out_path))
+    if source_abs == out_abs or os.path.normcase(source_abs) == os.path.normcase(out_abs):
+        raise ValueError(
+            f"Output path must differ from the source book: {source_path} (refusing to overwrite the input)"
+        )
+    try:
+        same = (
+            os.path.exists(source_abs)
+            and os.path.exists(out_abs)
+            and os.path.samefile(source_abs, out_abs)
+        )
+    except OSError:
+        same = False
+    if same:
+        raise ValueError(
+            f"Output path resolves to the source book: {out_path} (refusing to overwrite the input)"
+        )
 
 
 def assemble(
@@ -89,6 +116,9 @@ def assemble(
         )
     if language_policy.context.phase != "export" or language_policy.context.format != out_format:
         raise ValueError("Export language policy does not match the actual output format")
+    if out_path is not None:
+        # Refuse before any snapshot work reads the book: a rejected export must not touch it.
+        _reject_source_out_collision(source_path, out_path)
     view: AssembleStore
     if isinstance(store, ExportViewStore):
         view = store
@@ -99,17 +129,19 @@ def assemble(
     m = view.load_manifest()
     view.prepare()
     target_lang = _manifest_target_lang(m)
-    if out_format == "txt":
-        out_path = out_path or _default_out(
-            source_path, "txt", "", bilingual=bilingual, target_lang=target_lang
+    if out_path is None:
+        out_path = _default_out(
+            source_path,
+            out_format,
+            "",
+            bilingual=bilingual,
+            target_lang=target_lang,
         )
-        _ensure_parent_dir(out_path)
+        _reject_source_out_collision(source_path, out_path)
+    _ensure_parent_dir(out_path)
+    if out_format == "txt":
         return _assemble_text(view, out_path, bilingual=bilingual, order=order)
     if out_format == "html":
-        out_path = out_path or _default_out(
-            source_path, "html", "", bilingual=bilingual, target_lang=target_lang
-        )
-        _ensure_parent_dir(out_path)
         return _assemble_html(
             view,
             source_path,
@@ -119,16 +151,8 @@ def assemble(
             preserve_source_style=preserve_source_style,
         )
     if out_format == "markdown":
-        out_path = out_path or _default_out(
-            source_path, "markdown", "", bilingual=bilingual, target_lang=target_lang
-        )
-        _ensure_parent_dir(out_path)
         return _assemble_markdown(view, out_path, bilingual=bilingual, order=order)
     if out_format == "pdf":
-        out_path = out_path or _default_out(
-            source_path, "pdf", "", bilingual=bilingual, target_lang=target_lang
-        )
-        _ensure_parent_dir(out_path)
         return _assemble_pdf(
             view,
             source_path,
@@ -140,15 +164,7 @@ def assemble(
             babeldoc_timeout=babeldoc_timeout,
         )
     if out_format == "docx":
-        out_path = out_path or _default_out(
-            source_path, "docx", "", bilingual=bilingual, target_lang=target_lang
-        )
-        _ensure_parent_dir(out_path)
         return _assemble_docx(view, out_path, bilingual=bilingual, order=order)
-    out_path = out_path or _default_out(
-        source_path, "epub", "", bilingual=bilingual, target_lang=target_lang
-    )
-    _ensure_parent_dir(out_path)
     if m["fmt"] == "epub":
         result = _assemble_epub(
             view,

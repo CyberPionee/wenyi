@@ -236,6 +236,7 @@ def write_completed(debug: ReviewRunStore, state: ReviewSessionState, loaded) ->
         "pre_arbitration_issue_count": len(latest.pre_arbitration_issues),
         "arbitration_superseded_count": len(latest.arbitration_superseded),
         "issue_count": len(public_issues),
+        "soft_finding_count": len(latest.soft_findings or []),
         "conflict_count": len(final_conflicts),
         "unresolved_conflict_count": len(final_residual_conflicts),
         "fallback_agent_count": final_fallback_agent_count,
@@ -251,12 +252,14 @@ def write_completed(debug: ReviewRunStore, state: ReviewSessionState, loaded) ->
         "clean_streak": state.clean_streak,
     }
     debug.write_json("rounds/final/summary.json", summary)
+    debug.write_json("rounds/final/soft_findings.json", latest.soft_findings or [])
     result = debug.finish(
         status="completed",
         termination=state.termination,
         summary=summary,
         issues=public_issues,
         changes=changes,
+        soft_findings=list(latest.soft_findings or []),
     )
     return result
 
@@ -280,6 +283,9 @@ def write_partial(
     )
     summary = {
         "issue_count": len(public_issues),
+        "soft_finding_count": len(state.latest.soft_findings or [])
+        if state.latest is not None
+        else 0,
         "change_count": len(partial_changes),
         "conflict_count": (len(state.latest.conflict_groups) if state.latest is not None else 0),
         "fallback_agent_count": (
@@ -287,12 +293,14 @@ def write_partial(
         ),
     }
     error_payload = {"type": type(error).__name__, "message": str(error)}
+    soft_findings = list(state.latest.soft_findings or []) if state.latest is not None else []
     debug.write_json("rounds/final/initial_issues.json", initial_issues)
     debug.write_json("rounds/final/dismissed_issues.json", dismissed)
     debug.write_json(
         "rounds/final/partial_issues.json",
         partial_issues,
     )
+    debug.write_json("rounds/final/soft_findings.json", soft_findings)
     debug.write_json("rounds/final/partial_patches.json", state.patch_records)
     debug.write_json("rounds/final/fix_failures.json", state.fix_failures)
     if resumable:
@@ -309,6 +317,7 @@ def write_partial(
             summary=summary,
             issues=public_issues,
             changes=partial_changes,
+            soft_findings=soft_findings,
             error=error_payload,
         )
     return public_issues, partial_changes

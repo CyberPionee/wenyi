@@ -883,6 +883,39 @@ export interface components {
             /** Export Id */
             export_id: number;
         };
+        /** AutoQA */
+        AutoQA: {
+            /**
+             * Passed
+             * @default false
+             */
+            passed: boolean;
+            /**
+             * Empty Target Count
+             * @default 0
+             */
+            empty_target_count: number;
+            /**
+             * Open Conflict Count
+             * @default 0
+             */
+            open_conflict_count: number;
+            /**
+             * Residual Finding Count
+             * @default 0
+             */
+            residual_finding_count: number;
+            /**
+             * Open Issue Count
+             * @default 0
+             */
+            open_issue_count: number;
+            /**
+             * Blocking
+             * @default false
+             */
+            blocking: boolean;
+        };
         /** Body_create_project_projects_post */
         Body_create_project_projects_post: {
             /** Project */
@@ -1381,6 +1414,34 @@ export interface components {
             };
             live?: components["schemas"]["LiveStatsMetadata"] | null;
         };
+        /** ReportOut */
+        ReportOut: {
+            /** Summary */
+            summary?: {
+                [key: string]: unknown;
+            };
+            auto_qa?: components["schemas"]["AutoQA"] | null;
+            /** Residual Findings */
+            residual_findings?: {
+                [key: string]: unknown;
+            }[];
+            /** Open Conflicts */
+            open_conflicts?: {
+                [key: string]: unknown;
+            }[];
+            /** Empty Targets */
+            empty_targets?: {
+                [key: string]: unknown;
+            }[];
+            /** Usage */
+            usage?: {
+                [key: string]: unknown;
+            };
+            /** Timing */
+            timing?: {
+                [key: string]: unknown;
+            };
+        };
         /** ResolveConflict */
         ResolveConflict: {
             /**
@@ -1399,7 +1460,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "issue" | "change" | "publication";
+            kind: "issue" | "change" | "publication" | "soft_finding";
             /**
              * Type
              * @default
@@ -1463,6 +1524,10 @@ export interface components {
             created_at?: string | null;
             /** Issues */
             issues?: {
+                [key: string]: unknown;
+            }[];
+            /** Soft Findings */
+            soft_findings?: {
                 [key: string]: unknown;
             }[];
             /** Changes */
@@ -2577,9 +2642,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ReportOut"];
                 };
             };
             /** @description Validation Error */
@@ -2610,9 +2673,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ReportOut"];
                 };
             };
             /** @description Validation Error */

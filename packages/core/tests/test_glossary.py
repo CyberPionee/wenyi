@@ -8,11 +8,13 @@ import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 
+from wenyi_core.agents.prompts import render_glossary, strip_empty_sections
 from wenyi_core.glossary.store import (
     TYPE_APPELLATION,
     TYPE_PERSON,
     GlossaryStore,
     GlossaryTerm,
+    merge_always_on,
     source_matches_text,
 )
 
@@ -142,6 +144,20 @@ class TestGlossary(unittest.TestCase):
             [cyrillic],
         )
 
+    def test_upsert_fills_empty_target_without_conflict(self):
+        self.store.upsert_term(GlossaryTerm(source="Ann", target=""), chapter=0)
+        result = self.store.upsert_term(GlossaryTerm(source="Ann", target="安"), chapter=1)
+        self.assertEqual(result, "updated")
+        term = self.store.get_term("Ann")
+        assert term is not None
+        self.assertEqual(term.target, "安")
+        self.assertEqual(term.status, "ok")
+        self.assertEqual(len(self.store.open_conflicts()), 0)
+        # A different non-empty target remains a conflict and does not overwrite.
+        result = self.store.upsert_term(GlossaryTerm(source="Ann", target="安娜"), chapter=2)
+        self.assertEqual(result, "conflict")
+        self.assertEqual(self.store.get_term("Ann").target, "安")
+
     def test_conflict_keeps_current_until_resolved(self):
         self.store.upsert_term(GlossaryTerm(source="堀北", target="堀北"), chapter=0)
         # An alternate translation preserves the established mapping and records a candidate.
@@ -221,6 +237,73 @@ class TestGlossary(unittest.TestCase):
             [term.source for term in self.store.all_terms()],
             ["乙", "甲", "丙"],
         )
+
+    def test_render_glossary_includes_truncated_note(self):
+        terms = [
+            GlossaryTerm(source="Ann", target="安", type=TYPE_PERSON, note="Main heroine"),
+            GlossaryTerm(source="Bob", target="鲍勃", type=TYPE_PERSON, note=""),
+            GlossaryTerm(source="Cy", target="赛", type=TYPE_PERSON, note="x" * 50),
+        ]
+        rendered = render_glossary(terms, max_note_chars=12)
+        self.assertIn("Note: Main heroine", rendered)
+        self.assertNotIn("Note:", rendered.split("- Bob")[1].split("\n")[0])
+        self.assertIn(f"Note: {'x' * 12}", rendered)
+        self.assertNotIn("x" * 13, rendered)
+        without_notes = render_glossary(terms, include_note=False)
+        self.assertNotIn("Note:", without_notes)
+
+    def test_merge_always_on_appends_frequent_locked_persons(self):
+        chapter_hit = GlossaryTerm(source="Local", target="本地", type=TYPE_PERSON)
+        hero = GlossaryTerm(source="Ann", target="安", type=TYPE_PERSON, note="hero")
+        rare = GlossaryTerm(source="OneOff", target="路人", type=TYPE_PERSON)
+        place = GlossaryTerm(source="Tokyo", target="东京", type="term")
+        conflicted = GlossaryTerm(source="Cy", target="赛", type=TYPE_PERSON, status="conflict")
+        all_terms = [chapter_hit, hero, rare, place, conflicted]
+        corpus = "Ann meets Ann and Ann again. Local stays. Cy appears Cy."
+
+        merged = merge_always_on([chapter_hit], all_terms, corpus, min_occurrences=3)
+        self.assertEqual([term.source for term in merged], ["Local", "Ann"])
+
+    def test_merge_always_on_respects_type_and_max_cap(self):
+        persons = [
+            GlossaryTerm(source=f"P{i}", target=f"人{i}", type=TYPE_PERSON) for i in range(3)
+        ]
+        all_terms = [*persons, GlossaryTerm(source="Org", target="组织", type="term")]
+        corpus = " ".join(f"P{i} P{i} P{i}" for i in range(3)) + " Org Org Org"
+
+        merged = merge_always_on(
+            [],
+            all_terms,
+            corpus,
+            always_types=[TYPE_PERSON],
+            min_occurrences=3,
+            max_always=2,
+        )
+        self.assertEqual([term.source for term in merged], ["P0", "P1"])
+
+    def test_strip_empty_sections_removes_blank_headings(self):
+        text = (
+            "## Plot\nHolden leaves school.\n\n"
+            "## Characters\n   \n\n"
+            "## Foreshadowing\n\n"
+            "## Address\nHe calls Phoebe.\n"
+        )
+        stripped = strip_empty_sections(text)
+        self.assertIn("## Plot", stripped)
+        self.assertIn("## Address", stripped)
+        self.assertNotIn("## Characters", stripped)
+        self.assertNotIn("## Foreshadowing", stripped)
+
+    def test_strip_empty_sections_keeps_nonempty_sections(self):
+        text = "## Plot\nSomething happens.\n## Characters\nAnn appears.\n"
+        self.assertEqual(strip_empty_sections(text).count("## "), 2)
+
+    def test_strip_empty_sections_handles_no_headings(self):
+        self.assertEqual(strip_empty_sections("Just a sentence."), "Just a sentence.")
+
+    def test_strip_empty_sections_handles_empty_input(self):
+        self.assertEqual(strip_empty_sections(""), "")
+        self.assertEqual(strip_empty_sections("   \n  "), "")
 
 
 if __name__ == "__main__":

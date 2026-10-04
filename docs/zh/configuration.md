@@ -268,7 +268,8 @@ pipeline:
   translation_mode: standard
   review: true
   polish: true
-  rolling_context_segments: 6
+  rolling_context_segments: 8
+  rolling_context_with_source: true
   book_understanding: true
   prescan_concurrency: 4
   annotation_alignment: true
@@ -282,6 +283,27 @@ pipeline:
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
   review_autofix: true
+  review_scope: "all"
+  glossary_scope: chapter
+  glossary_always_types: [person]
+  glossary_always_min_occurrences: 3
+  glossary_note_chars: 120
+  glossary_extract_inject: "smart"
+  glossary_extract_budget_chars: 4000
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
+  tuning: "auto"
+  autonomy_tier: "standard"
+  evaluation_enabled: true
+  risk_back_translation: true
+  risk_sample_ratio: 0.08
+  quality_judge: true
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5
+  bt_score_min: 0.45
+  max_auto_redo_rounds: 2
+  decision_anchors: "off"
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765
   babeldoc_timeout: 600
@@ -289,7 +311,9 @@ pipeline:
 
 - `review`：默认开启；全书翻译完成时自动执行取证式全书审校。一键流程可用 `--no-review` 或设为 `false` 跳过。仍可显式调用 `wenyi review`。
 - `polish`：翻译后再调用强模型润色，质量可能提升，但显著增加耗时和成本。
-- `rolling_context_segments`：每批翻译附带的前文译文段数。翻译与润色还会内置附带同章下一条原文片段作为只读参考，此值为零时也保留后文参考；它不改变输出段数，也不写入滚动译文上下文。详见[全书理解与上下文](pipeline.md#全书理解与上下文)。
+- `rolling_context_segments`：每批翻译附带的最近源译对数量（默认 `8`）。翻译与润色还会内置附带同章下一条原文片段作为只读参考，此值为零时也保留后文参考；它不改变输出段数，也不写入滚动上下文。详见[全书理解与上下文](pipeline.md#全书理解与上下文)。
+- `rolling_context_with_source`：为真（默认）时，滚动上下文按 `Source`/`Translation` 成对渲染；为假时仅输出译文。仅含 `recent_targets` 的旧上下文文件仍可加载，并降级为仅译文。
+- 章节梗概与全书概览的目标长度由 `i18n/data/languages/*.json` 的 `digest_length` / `synopsis_length` 决定，对所有目标语言生效。中文/日文/韩文使用字符区间（如 `400–600 characters`），其他语言使用词数区间（如 `250–400 words`）。
 - `book_understanding`：预扫全书，生成章节梗概和全书概览。有原文内容的章节必须具备可用梗概才能开始正文翻译；全书概览合成失败时翻译继续。失败的章节梗概会在下次 prepare/translate 时补齐。重试与缓存行为见[流程文档](pipeline.md)。
 - `prescan_concurrency`：预扫章节梗概的并发数。
 - `annotation_alignment`：默认开启。EPUB 中存在脚注、尾注等内部链接时，每个含注释的逻辑段在翻译和润色后立即针对正式译文串行调用一次模型定位。开启导出标点规范化时，导出层会在规范化内存副本的同时重映射已保存的偏移。超长续段会先重新合并，不含注释的段落不会调用模型。关闭后，译文侧仍保留链接但退化为段末可点击标记；未翻译原文及双语版原文侧保留源 EPUB 中的原始位置。该选项只控制链接定位；已经解析出的原语言注释正文始终会自动提供给对应翻译段落。
@@ -302,7 +326,21 @@ pipeline:
 - `review_fix_loop`：针对确认的问题在本次运行的影子译文中生成完整单段替换，再从头盲审全书；关闭后保持单轮、只给建议的行为。
 - `review_fix_max_rounds`：最多生成的临时 Fix 轮数，范围为 `0` 到 `4`；它不是 Review 总轮数。
 - `review_clean_confirmations`：开启影子 Fix 后，需要连续无问题的全书 Review 次数，范围为 `1` 到 `2`，默认 `2`。
-- `review_autofix`：默认开启。只读 Review 引擎结束后，先把折叠后的 `changes` 叠加到工作译文，再让每段剩余 issue 基于更新后的译文复用现有有界 Review Agent Loop，确认项继续交给现有 Review Fixer。可用 `--no-autofix` 或设为 `false`，避免写回正式 `target`。生成的完整单段译文只覆盖正式章节的 `target`，不修改 manifest 和术语库。完整前后版本链、issue ID、判定、失败原因和写回状态保存在本次 Review 的 `autofix/index.json`，不会给章节 JSON 新增历史字段。
+- `review_autofix`：默认开启。只读 Review 引擎结束后，先把折叠后的 `changes` 叠加到工作译文，再让每段剩余 issue 基于更新后的译文复用现有有界 Review Agent Loop，确认项继续交给现有 Review Fixer。可用 `--no-autofix` 或设为 `false`，避免写回正式 `target`。关闭时，中断的 `autofix/index.json` 发布也不会继续写回。生成的完整单段译文只覆盖正式章节的 `target`，不修改 manifest 和术语库。完整前后版本链、issue ID、判定、失败原因和写回状态保存在本次 Review 的 `autofix/index.json`，不会给章节 JSON 新增历史字段。
+- `glossary_scope`：`chapter` 仅带本章相关术语，`full` 带全量术语表。
+- `glossary_always_types`：章过滤后仍强制保留的术语类型（默认 `[person]`），避免本章未出场的主要人物名被滤掉。
+- `glossary_always_min_occurrences`：always-on 实体在全书源文/别名中的最少出现次数（默认 `3`）。
+- `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
+- `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`：抽取时已有术语的通用灵活注入（命中优先、预算封顶、最小兜底）。详见[术语注入](glossary-injection.md)。抽取提示词不带 Note；翻译/润色/审校仍保留 Note。
+- `tuning`：默认 `auto`。此时不再要求人工填调优数值：自治档位与批次预算决定 `review_scope`、`risk_back_translation`、`max_auto_redo_rounds`、`quality_judge_dual` 与 5 个术语提示预算，历史分数分布可标定 `bt_score_min` 与 `judge_score_min`。设为 `manual` 则完全沿用配置值。这些键里只要有任何一个被写成与出厂默认不同的值，就视为人工钉住，`auto` 不会再动它。每次运行都会把全部 27 个键的生效值与来源写进 `report.evaluation.tuning`，进度页据此展示。
+- `autonomy_tier`：质量与成本的唯一旋钮。`off` 只跑 L0 规则扫描——不抽样、不回译、不自动重做，只有 L0 能阻断；`speed` 另以减半抽样报告 L1–L3，同样不阻断；`standard` 要求 L0–L3 按配置抽样全绿；`precise` 抽样加倍、两次评分取平均、允许三轮自动重做，并把接受地板抬到 `0.6` / `4.0`。
+- `review_scope`：`all` 审全部章节；`risk` 只审含机械检出风险段的章节，`off` 与 `speed` 会自动选它。
+- `max_auto_redo_rounds`：机器门未过后的自动重做轮数，`0` 到 `5`。
+- `auto_qa_strict`：默认关闭。开启后若 `report.auto_qa` 或机器评估门仍有空译、术语冲突、残留问题、未决 issue 或评估低分，则导出直接失败；默认导出不阻断。
+- `evaluation_enabled`：默认开启 L0–L3 机器评估，写入 `report.evaluation` / `report.machine_gate`。
+- `risk_back_translation` / `risk_sample_ratio`：L1 风险门控回译与每章抽样比例；档位会在该比例上做缩放。
+- `quality_judge` / `judge_sample_ratio` / `judge_score_min` / `bt_score_min`：L3 打分与阈值。回译相似度与评分跨语言对不可比，因此累积满三次运行后，观测到的低分位可以把阈值下调到档位地板——不会低于地板，也不会高于配置值。当地板（而非数据）在决定这条线时，运行会给出一个具体建议值供人工确认，而不是悄悄放宽自己的标准。
+- `decision_anchors`：`off` | `auto` | `risk`，可选译文决策锚；不替代风格指南与术语表。
 - `pdf_backend`：默认 `mineru`，经 MinerU 转 HTML。需要尽量保留版式时改用 `babeldoc`（外部 AGPL HTTP bridge）。经 BabelDOC 创建的 PDF 状态，在 `translate` 和 `assemble` 中均默认导出 PDF；MinerU 状态仍默认导出 EPUB。显式 `--format` 优先，续跑默认格式以已保存的后端为准。
 - `babeldoc_bridge_url`：BabelDOC bridge 地址，默认 `http://127.0.0.1:8765`。
 - `babeldoc_timeout`：bridge extract / fillback 的 HTTP 超时秒数。

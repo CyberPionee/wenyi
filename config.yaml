@@ -25,7 +25,8 @@ pipeline:
   align_retry_limit: 2
   polish: true # Polish the full translation with the strong tier; enabled by default and adds substantial cost
   translation_mode: standard # standard | best_of_three; best_of_three requires polish
-  rolling_context_segments: 6 # Number of recent translated paragraphs supplied as context
+  rolling_context_segments: 6 # Number of recent source-target pairs supplied as context
+  rolling_context_with_source: true # Include source lines with each recent context pair
   book_understanding: true # Prescan the source for a whole-book synopsis and chapter digests; disable to save prescan cost
   prescan_concurrency: 4 # Concurrent chapter-digest workers; chapters are independent, 1 runs serially
   annotation_alignment: true # Align links after each annotated logical paragraph; if disabled, target links fall back to paragraph ends
@@ -39,6 +40,35 @@ pipeline:
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
   review_autofix: true # Publish review revisions to formal chapters; use --no-autofix for recommendations only
+  review_scope: "all" # all | risk — risk reviews only chapters containing risk segments
+  glossary_scope: chapter # chapter=terms occurring in this chapter (saves tokens); full=entire glossary
+  glossary_always_types: [person] # Term types kept in chapter-filtered prompts even when absent from the chapter
+  glossary_always_min_occurrences: 3 # Minimum book-wide source/alias occurrences for always-on entities
+  glossary_note_chars: 120 # Maximum glossary note characters rendered into prompts
+  glossary_extract_inject: "smart" # smart | all | hit_only — how existing terms enter extraction prompts
+  glossary_extract_budget_chars: 4000 # Character budget for extraction glossary injection
+  glossary_extract_core_max: 12
+  glossary_extract_recent_max: 20
+  glossary_extract_min_terms: 5
+  auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
+  tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
+  self_revision: false # Optional C-batch draft revision notes (analysis/events only)
+  editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
+  final_polish: false # Optional final polish candidates (analysis/events only)
+  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
+  back_translation: false # Optional back-translation QA notes (analysis/events only)
+  autonomy_tier: "standard" # off | speed | standard | precise
+  evaluation_enabled: true # L0-L3 machine gate for autonomous acceptance
+  risk_back_translation: true # L1 selective back-translation on risk/sampled segments
+  risk_sample_ratio: 0.08 # Per-chapter sample ratio for risk evaluation (0-1)
+  quality_judge: true # L3 LLM fluency/style scoring on sampled segments
+  quality_judge_dual: false # Average two independent judge passes to reduce rater noise
+  judge_sample_ratio: 0.05
+  judge_score_min: 3.5 # L3 pass threshold (1-5)
+  l2_min_consistency: 1.0 # L2 glossary consistency threshold; 1.0 means any drift fails
+  bt_score_min: 0.45 # L1 back-translation similarity threshold (0-1)
+  max_auto_redo_rounds: 2 # Automatic local redo rounds when the machine gate fails
+  decision_anchors: "off" # off | auto | risk — optional target-side decision anchors
   # PDF backend: mineru (default, supports scans) | babeldoc (optional, preserves layout via external AGPL HTTP bridge)
   pdf_backend: mineru
   babeldoc_bridge_url: http://127.0.0.1:8765

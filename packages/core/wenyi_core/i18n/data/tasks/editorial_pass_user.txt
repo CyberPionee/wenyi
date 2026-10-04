@@ -1,0 +1,10 @@
+[Whole-book synopsis] (flowing summary of plot, characters, relationships, revelations and foreshadowing)
+$book_synopsis
+
+[Style]
+$style
+
+[Sampled source–target pairs]
+$pairs
+
+Return JSON: {"notes":[...]}, with at most $n notes.

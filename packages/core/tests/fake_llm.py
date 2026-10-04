@@ -27,7 +27,7 @@ def routing_handler(messages, tier, json_mode):
             {
                 "genre": "校园",
                 "tone": "冷峻",
-                "style_guide": "克制",
+                "style_guide": "克制。",
                 "characters": [{"source": "綾小路", "target": "绫小路", "gender": "male"}],
                 "terms": [],
             },
@@ -62,6 +62,27 @@ def routing_handler(messages, tier, json_mode):
     if "prose editor" in system:
         n = _count_numbered(user)
         return json.dumps({"polished": [f"润{i}" for i in range(n)]}, ensure_ascii=False)
+
+    if "self-revision editor" in system:
+        n = _count_numbered(user)
+        if not n:
+            match = re.search(r"exactly (\d+) items", user)
+            n = int(match.group(1)) if match else 0
+        return json.dumps({"revised": [f"修{i}" for i in range(n)]}, ensure_ascii=False)
+
+    if "final polish editor" in system:
+        n = _count_numbered(user)
+        return json.dumps({"polished": [f"终{i}" for i in range(n)]}, ensure_ascii=False)
+
+    if "editorial pass critic" in system:
+        return json.dumps({"notes": ["保持人名一致。"]}, ensure_ascii=False)
+
+    if "chapter self-check auditor" in system:
+        return json.dumps({"findings": [], "reviewed_segments": _count_numbered(user)})
+
+    if "back-translation checker" in system:
+        n = _count_numbered(user)
+        return json.dumps({"back": [f"src{i}" for i in range(n)]}, ensure_ascii=False)
 
     if "translation reviewer" in system:
         n = _count_numbered(user)

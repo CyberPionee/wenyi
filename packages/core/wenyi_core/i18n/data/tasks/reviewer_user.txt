@@ -1,7 +1,16 @@
+[Characters / Style guide]
+$style
+
+[Whole-book synopsis] (flowing summary of plot, characters, relationships, revelations and foreshadowing)
+$book_synopsis
+
+[Chapter digest] (## Plot: events in this chapter; ## Characters: who appears and their state; ## Foreshadowing: clues planted here; ## Address: revelations or turning points in this chapter)
+$chapter_digest
+
 [Glossary]
 $glossary
 
 [Paragraph pairs] ($n paragraphs)
 $pairs
 
-Review all $n paragraphs and return JSON containing "reviewed_segments":$n and "complete":true. They assert that the payload is semantically complete; JSON object field order has no meaning.
+Review all $n paragraphs and return JSON. Set reviewed_segments to $n and complete to true only when every required field holds its full semantic value. The receipt must not be emitted early. reviewed_segments and complete assert that the payload is semantically complete, and JSON object field order has no meaning. Use issues for definite errors and soft_findings for uncertain notes.

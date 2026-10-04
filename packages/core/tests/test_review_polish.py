@@ -16,6 +16,7 @@ from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
 from wenyi_core.ingest.models import Segment
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.pipeline.orchestrator import Orchestrator
+from wenyi_core.pipeline.review_chunks import ReviewChunkService
 from wenyi_core.review.run_store import ReviewRunStore
 from wenyi_core.storage.file import FileStorage
 from wenyi_core.storage.protocol import Storage
@@ -400,6 +401,7 @@ class TestReviewer(unittest.TestCase):
                 cfg = _cfg()
                 cfg.segment.max_tokens_per_batch = 1
                 cfg.pipeline.review_concurrency = 2
+                cfg.pipeline.glossary_scope = "full"
                 expected_calls = {"none": 2, "chunk": 1, "initial": 1, "all": 0}[cache_kind]
                 barrier = threading.Barrier(max(1, expected_calls))
 
@@ -455,6 +457,226 @@ class TestReviewer(unittest.TestCase):
                     self.assertIs(call.args[2], terms)
 
 
+class TestChapterTermSnapshot(unittest.TestCase):
+    def test_chapter_filter_keeps_always_on_persons(self):
+        cfg = _cfg()
+        cfg.pipeline.glossary_scope = "chapter"
+        cfg.pipeline.glossary_always_min_occurrences = 2
+        orch = Orchestrator(cfg, client=FakeClient(handler=lambda m, t, j: "{}"))
+        hero = GlossaryTerm(source="Ann", target="安", type="person")
+        local = GlossaryTerm(source="Local", target="本地", type="term")
+        rare = GlossaryTerm(source="Zed", target="泽德", type="person")
+
+        class FakeGlossary:
+            def all_terms(self):
+                return [hero, local, rare]
+
+        segments = [Segment(index=0, source="Local place only")]
+        corpus = "Ann and Ann again. Local. Zed."
+        snapshot = orch._translation.chapter_term_snapshot(FakeGlossary(), segments, corpus)
+        self.assertEqual([term.source for term in snapshot], ["Local", "Ann"])
+
+
+class TestGlossaryFingerprint(unittest.TestCase):
+    def test_fingerprint_includes_note_and_aliases(self):
+        from wenyi_core.pipeline.review_workflow import ReviewService
+
+        base = GlossaryTerm(source="Ann", target="安", type="person")
+        with_note = GlossaryTerm(source="Ann", target="安", type="person", note="hero")
+        with_alias = GlossaryTerm(source="Ann", target="安", type="person", aliases=["Annie"])
+        other_target = GlossaryTerm(source="Ann", target="安妮", type="person")
+
+        fingerprints = {
+            ReviewService._review_glossary_fingerprint([term])
+            for term in (base, with_note, with_alias, other_target)
+        }
+        self.assertEqual(len(fingerprints), 4)
+        self.assertEqual(
+            ReviewService._review_glossary_fingerprint([base]),
+            ReviewService._review_glossary_fingerprint(
+                [GlossaryTerm(source="Ann", target="安", type="person")]
+            ),
+        )
+
+
+class TestSoftFindingsResumeMapping(unittest.TestCase):
+    def test_cached_soft_findings_remap_like_fresh_results(self):
+        """Cached initial traces store chunk-local indices; resume must remap them."""
+        cfg = _cfg()
+        cfg.segment.max_tokens_per_batch = 1
+        cfg.pipeline.review_concurrency = 1
+        client = FakeClient(
+            handler=lambda m, t, j: '{"issues":[],"reviewed_segments":1,"complete":true}'
+        )
+        orch = Orchestrator(cfg, client=client)
+        segments = [
+            Segment(index=0, source="alpha", target="A"),
+            Segment(index=1, source="beta", target="B"),
+        ]
+        out: list[dict] = []
+        orch._review._chunks.review_chapter(
+            segments,
+            [],
+            chapter_index=7,
+            source_corpus="alpha beta",
+            soft_findings_out=out,
+        )
+        # Fresh path with empty soft_findings; simulate a reused trace instead.
+        reused = [
+            {"index": 0, "type": "style", "detail": "cached local", "suggestion": ""},
+            {"index": 1, "type": "voice", "detail": "cached local 2", "suggestion": ""},
+        ]
+        mapped: list[dict] = []
+        chunk_base = 10
+        chapter_index = 7
+        for finding in reused:
+            item = dict(finding)
+            local_index = item.get("index")
+            if isinstance(local_index, int) and not isinstance(local_index, bool):
+                item["index"] = chunk_base + local_index
+            item["chapter"] = chapter_index
+            mapped.append(item)
+        self.assertEqual([item["index"] for item in mapped], [10, 11])
+        self.assertTrue(all(item["chapter"] == 7 for item in mapped))
+
+    def test_chunk_cache_restores_mapped_soft_findings(self):
+        """mark_chunk_done must persist soft_findings so resume does not drop them."""
+        from wenyi_core.review.run_store import ReviewRunStore
+
+        with tempfile.TemporaryDirectory() as directory:
+            debug = ReviewRunStore(directory)
+            debug.start(reviewed_content_digest="d", metadata={})
+            debug.mark_chunk_done(
+                "ch0-base0-n1",
+                {
+                    "issues": [],
+                    "initial_issues": [],
+                    "dismissed": [],
+                    "soft_findings": [
+                        {
+                            "index": 5,
+                            "chapter": 0,
+                            "type": "style",
+                            "detail": "kept",
+                            "suggestion": "",
+                        }
+                    ],
+                },
+            )
+            cached = debug.load_chunk_result("ch0-base0-n1")
+            assert isinstance(cached, dict)
+            findings = cached.get("soft_findings") or []
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0]["index"], 5)
+            self.assertEqual(findings[0]["chapter"], 0)
+
+    def test_subchunk_cache_merges_child_soft_findings(self):
+        from wenyi_core.review.run_store import ReviewRunStore
+
+        with tempfile.TemporaryDirectory() as directory:
+            debug = ReviewRunStore(directory)
+            debug.start(reviewed_content_digest="d", metadata={})
+            debug.mark_chunk_done(
+                "r1-ch0-base0-n1",
+                {
+                    "issues": [],
+                    "initial_issues": [],
+                    "dismissed": [],
+                    "soft_findings": [{"index": 0, "chapter": 0, "type": "style", "detail": "a"}],
+                },
+            )
+            debug.mark_chunk_done(
+                "r1-ch0-base1-n1",
+                {
+                    "issues": [],
+                    "initial_issues": [],
+                    "dismissed": [],
+                    "soft_findings": [{"index": 1, "chapter": 0, "type": "voice", "detail": "b"}],
+                },
+            )
+            out: list[dict] = []
+            merged = ReviewChunkService.try_cached_subchunks(
+                0,
+                [object(), object()],
+                debug,
+                "r1-",
+                0,
+                soft_findings_out=out,
+            )
+            self.assertIsNotNone(merged)
+            self.assertEqual([item["detail"] for item in out], ["a", "b"])
+
+
+class TestReviewerSoftFindings(unittest.TestCase):
+    def test_voice_and_style_issues_and_soft_findings(self):
+        payload = {
+            "issues": [
+                {
+                    "index": 0,
+                    "type": "voice",
+                    "detail": "文风偏离",
+                    "suggestion": "改回原叙述口吻",
+                },
+                {
+                    "index": 0,
+                    "type": "style",
+                    "detail": "翻译腔",
+                    "suggestion": "改为自然中文",
+                },
+            ],
+            "soft_findings": [
+                {"index": 1, "type": "style", "detail": "可能过译", "suggestion": ""},
+                {"type": "voice", "detail": "全局语气疑虑"},
+            ],
+            "reviewed_segments": 2,
+            "complete": True,
+        }
+        client = FakeClient(handler=lambda m, t, j: json.dumps(payload, ensure_ascii=False))
+        result = Reviewer(client, _cfg()).review_result(["a", "b"], ["甲", "乙"])
+        self.assertEqual([issue["type"] for issue in result.issues], ["voice", "style"])
+        self.assertTrue(all(issue["suggestion"] for issue in result.issues))
+        self.assertEqual(len(result.soft_findings), 2)
+        self.assertEqual(result.soft_findings[0]["index"], 1)
+        self.assertIsNone(result.soft_findings[1]["index"])
+        self.assertEqual(result.soft_findings[1]["suggestion"], "")
+
+    def test_soft_findings_do_not_require_suggestion(self):
+        payload = {
+            "issues": [],
+            "soft_findings": [{"index": 0, "type": "style", "detail": "不确定"}],
+            "reviewed_segments": 1,
+            "complete": True,
+        }
+        client = FakeClient(handler=lambda m, t, j: json.dumps(payload, ensure_ascii=False))
+        result = Reviewer(client, _cfg()).review_result(["a"], ["甲"])
+        self.assertEqual(result.issues, [])
+        self.assertEqual(len(result.soft_findings), 1)
+
+    def test_reviewer_user_injects_truncated_context(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps(
+                {"issues": [], "reviewed_segments": 1, "complete": True}
+            )
+        )
+        Reviewer(client, _cfg()).review_result(
+            ["a"],
+            ["甲"],
+            style="x" * 600,
+            book_synopsis="y" * 700,
+            chapter_digest="z" * 500,
+        )
+        user = client.calls[-1]["messages"][-1]["content"]
+        self.assertIn("[Characters / Style guide]", user)
+        self.assertIn("[Whole-book synopsis]", user)
+        self.assertIn("[Chapter digest]", user)
+        self.assertIn("x" * 500, user)
+        self.assertNotIn("x" * 501, user)
+        self.assertIn("y" * 600, user)
+        self.assertNotIn("y" * 601, user)
+        self.assertIn("z" * 400, user)
+        self.assertNotIn("z" * 401, user)
+
+
 class TestPolisher(unittest.TestCase):
     def test_polish_ok(self):
         client = FakeClient(
@@ -466,6 +688,35 @@ class TestPolisher(unittest.TestCase):
         out = p.polish(["甲", "乙"])
         self.assertEqual(out, ["润色甲", "润色乙"])
         self.assertEqual(client.calls[-1]["tier"], "strong")
+        user = client.calls[-1]["messages"][-1]["content"]
+        self.assertIn("[0] 甲", user)
+        self.assertNotIn("Source:", user)
+
+    def test_polish_with_sources_renders_source_target_pairs(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps(
+                {"polished": ["润色甲", "润色乙"]}, ensure_ascii=False
+            )
+        )
+        p = Polisher(client, _cfg())
+        out = p.polish(["甲", "乙"], sources=["alpha", "beta"])
+        self.assertEqual(out, ["润色甲", "润色乙"])
+        user = client.calls[-1]["messages"][-1]["content"]
+        self.assertIn("[0] Source: alpha", user)
+        self.assertIn("    Translation: 甲", user)
+        self.assertIn("[1] Source: beta", user)
+        self.assertIn("    Translation: 乙", user)
+
+    def test_polish_system_keeps_role_sentence_and_adds_literary_goals(self):
+        client = FakeClient(
+            handler=lambda m, t, j: json.dumps({"polished": ["甲"]}, ensure_ascii=False)
+        )
+        Polisher(client, _cfg()).polish(["甲"])
+        system = client.calls[-1]["messages"][0]["content"]
+        self.assertIn("prose editor", system)
+        self.assertIn("Literary goals:", system)
+        self.assertIn("minimal edits", system)
+        self.assertIn("never merge, split or reorder paragraphs", system)
 
     def test_polish_mismatch_keeps_original(self):
         client = FakeClient(

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from ..config import PipelineConfig
 from ..events import ProgressFn
 from ..glossary.extractor import TranslatedSegmentEvidence
-from ..glossary.store import GlossaryStore
+from ..glossary.store import GlossaryStore, merge_always_on
 from ..ingest.models import Chapter, Segment
 from ..storage.protocol import Storage
 from .context import RollingContext
@@ -71,6 +71,12 @@ class TranslationService:
             min_recent_keep=max(40, self._runtime.config.pipeline.rolling_context_segments),
         )
         style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
+        if self._runtime.config.pipeline.decision_anchors != "off":
+            from .decision_anchors import load_decision_anchors, render_decision_anchors
+
+            anchor_text = render_decision_anchors(load_decision_anchors(store))
+            if anchor_text:
+                style = f"{style}\n\n{anchor_text}" if style else anchor_text
         allow_empty_translations = _is_mineru_pdf(manifest)
 
         if only_chapter is not None:
@@ -232,7 +238,7 @@ class TranslationService:
         # Refresh lazily only if the glossary may have changed and another batch needs translation.
         # Fully checkpointed skips neither extract nor refresh. Saved translations lacking extraction
         # still extract and mark the snapshot stale, preserving resume completeness without redundant reads.
-        term_snapshot = glossary.all_terms()
+        term_snapshot = self.chapter_term_snapshot(glossary, text_segs, source_corpus)
         term_snapshot_stale = False
 
         # Process batches serially: render current context, translate and immediately append targets.
@@ -259,7 +265,7 @@ class TranslationService:
                     len(b),
                     store,
                 )
-                context.add_targets([s.target or "" for s in b])
+                context.add_pairs([s.source for s in b], [s.target or "" for s in b])
                 self.sync_context_chapter_prefix(
                     context,
                     text_segs,
@@ -304,10 +310,13 @@ class TranslationService:
                 continue
 
             if term_snapshot_stale:
-                term_snapshot = glossary.all_terms()
+                term_snapshot = self.chapter_term_snapshot(glossary, text_segs, source_corpus)
                 term_snapshot_stale = False
 
-            ctx_text = context.render(self._runtime.config.pipeline.rolling_context_segments)
+            ctx_text = context.render(
+                self._runtime.config.pipeline.rolling_context_segments,
+                with_source=self._runtime.config.pipeline.rolling_context_with_source,
+            )
             next_index = batch_start + len(b)
             # Read the immediate source neighbor without changing batches or saved context.
             next_source = text_segs[next_index].source if next_index < len(text_segs) else ""
@@ -346,6 +355,9 @@ class TranslationService:
             else:
                 result = self._batches.execute(plan, polish=self._runtime.config.pipeline.polish)
                 for segment, target, before_polish in zip(b, result.targets, result.before_polish):
+                    if segment.target is not None:
+                        # Resume grouping should keep complete segments out of this batch.
+                        continue
                     segment.target = target
                     segment.target_before_polish = before_polish
                 # Persist translations incrementally so interruption resumes after this batch.
@@ -367,7 +379,7 @@ class TranslationService:
                 len(b),
                 store,
             )
-            context.add_targets([s.target or "" for s in b])
+            context.add_pairs([s.source for s in b], [s.target or "" for s in b])
             self.sync_context_chapter_prefix(
                 context,
                 text_segs,
@@ -408,19 +420,23 @@ class TranslationService:
             # The glossary may have changed; refresh before the next real translation, not after the final batch.
             term_snapshot_stale = True
 
-        # Keep chapter-wide extraction as a fallback for address, speech and fixed expressions needing context.
-        # Final review reads the stable glossary after the entire book finishes translating.
-        src_text = "\n".join(s.source for s in text_segs)
-        tgt_text = "\n".join(s.target or "" for s in text_segs)
-        chapter_glossary_summary = self._runtime.extractor.extract_and_store(
+        # Chapter close-out is local only: batches already extracted. Avoid a second
+        # full-chapter LLM extraction that roughly doubles glossary token cost.
+        locked: list[tuple[str, str]] = []
+
+        def _on_auto_lock(source: str, target: str) -> None:
+            locked.append((source, target))
+
+        chapter_glossary_summary = self._runtime.extractor.finalize_chapter_glossary(
             glossary,
-            src_text,
-            tgt_text,
             ci,
             history=translation_history.values(),
             before=(ci, len(text_segs)),
             source_corpus=source_corpus,
+            on_auto_lock=_on_auto_lock,
         )
+        for source, target in locked:
+            store.log_event("term_auto_locked", chapter=ci, source=source, target=target)
         store.log_event(
             "chapter_glossary_extracted",
             chapter=ci,
@@ -473,6 +489,28 @@ class TranslationService:
             store.save_chapter(chapter)
             return chapter
 
+    def chapter_term_snapshot(
+        self,
+        glossary: Storage | GlossaryStore,
+        text_segs,
+        source_corpus: str = "",
+    ) -> list:
+        """Return the glossary snapshot for this chapter; call again after writes to refresh it."""
+        terms = glossary.all_terms()
+        if self._runtime.config.pipeline.glossary_scope != "chapter":
+            return terms
+        src_text = "\n".join(s.source for s in text_segs)
+        hit = {t.source for t in GlossaryStore.terms_in(terms, src_text)}
+        selected = [t for t in terms if t.source in hit]
+        pipeline = self._runtime.config.pipeline
+        return merge_always_on(
+            selected,
+            terms,
+            source_corpus,
+            always_types=pipeline.glossary_always_types,
+            min_occurrences=pipeline.glossary_always_min_occurrences,
+        )
+
     @staticmethod
     def chapter_progress_label(title: str, index: int) -> str:
         """Prefer the book's chapter title for progress so internal indices cannot contradict
@@ -496,6 +534,11 @@ class TranslationService:
         """
         src_text = "\n".join(s.source for s in batch)
         tgt_text = "\n".join(s.target or "" for s in batch)
+        locked: list[tuple[str, str]] = []
+
+        def _on_auto_lock(source: str, target: str) -> None:
+            locked.append((source, target))
+
         summary = self._runtime.extractor.extract_and_store(
             glossary,
             src_text,
@@ -504,7 +547,16 @@ class TranslationService:
             history=translation_history.values(),
             before=(chapter, start_index),
             source_corpus=source_corpus,
+            on_auto_lock=_on_auto_lock,
         )
+        for source, target in locked:
+            store.log_event(
+                "term_auto_locked",
+                chapter=chapter,
+                start_index=start_index,
+                source=source,
+                target=target,
+            )
         store.log_event(
             "batch_glossary_extracted",
             chapter=chapter,
@@ -523,10 +575,22 @@ class TranslationService:
         """Refresh recent context from the chapter's completed prefix.
         When an annotated logical paragraph spans batches, completing its final continuation
         can finalize earlier targets too. Copy those updates into context so the next batch
-        sees current formal text.
+        sees current formal text. Overwrite trailing source-target pairs together; legacy
+        target-only history keeps the previous target override.
         """
         prefix = segments[: max(0, min(end, len(segments)))]
         if not prefix or any(segment.target is None for segment in prefix):
+            return
+        if context.recent_pairs:
+            pairs = [
+                {"source": segment.source, "target": segment.target or ""}
+                for segment in prefix
+                if (segment.target or "").strip()
+            ]
+            retained = min(len(pairs), len(context.recent_pairs))
+            if retained:
+                context.recent_pairs[-retained:] = pairs[-retained:]
+                context.recent_targets = [pair["target"] for pair in context.recent_pairs]
             return
         targets = [segment.target or "" for segment in prefix]
         retained = min(len(targets), len(context.recent_targets))

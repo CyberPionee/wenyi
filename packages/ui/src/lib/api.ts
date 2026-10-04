@@ -16,7 +16,15 @@ export type ChapterSummary = Output<"ChapterSummary">;
 export type ChapterSegments = Output<"ChapterSegments">;
 export type SegmentRevision = Output<"SegmentRevision">;
 export type PrecisionDrafts = Output<"PrecisionDraftsOut">;
-export type Term = Output<"TermOut">;
+export interface GlossaryWriteback {
+  source?: string;
+  old_target?: string;
+  new_target?: string;
+  segments_replaced?: number;
+  chapters_touched?: number;
+  matched_segments?: number;
+}
+export type Term = Output<"TermOut"> & { writeback?: GlossaryWriteback | null };
 export type Conflict = Output<"ConflictOut">;
 export type StrategyTemplate = Output<"StrategyTemplateOut">;
 export type ExportFormat = NonNullable<
@@ -37,8 +45,115 @@ export type Workflow = Output<"WorkflowOut">;
 export type SubtitleData = Output<"SubtitleResult">;
 export type UploadPreview = Output<"UploadPreview">;
 export type AnalysisPayload = Output<"AnalysisOut">;
+export interface AutoQAData {
+  passed?: boolean;
+  empty_target_count?: number;
+  open_conflict_count?: number;
+  residual_finding_count?: number;
+  open_issue_count?: number;
+  blocking?: boolean;
+}
+export interface MachineGateData {
+  passed?: boolean;
+  blocking?: boolean;
+  l0_passed?: boolean;
+  l2_passed?: boolean;
+  bt_passed?: boolean;
+  judge_passed?: boolean;
+  bt_sample_count?: number;
+  bt_low_count?: number;
+  l2_checked_count?: number;
+  l2_drift_count?: number;
+  l2_consistency_rate?: number;
+  l2_min_consistency?: number;
+  l0_residual_finding_count?: number;
+  judge_sample_count?: number;
+  judge_avg?: number | null;
+  judge_low_count?: number;
+  empty_target_count?: number;
+  open_conflict_count?: number;
+  residual_finding_count?: number;
+  open_issue_count?: number;
+  bt_score_min?: number;
+  judge_score_min?: number;
+}
+export interface EvaluationRiskSegment {
+  chapter: number;
+  index: number;
+  source_preview?: string;
+  target_preview?: string;
+  reasons?: string[];
+}
+export interface EvaluationL2Item {
+  chapter: number;
+  index: number;
+  source_term?: string;
+  expected_target?: string;
+  missing_targets?: string[];
+  source_preview?: string;
+  target_preview?: string;
+}
+export interface EvaluationL2Data {
+  checked?: number;
+  drifted?: number;
+  consistency_rate?: number;
+  items?: EvaluationL2Item[];
+}
+export interface EvaluationBackTranslation {
+  source_preview?: string;
+  back_preview?: string;
+  score?: number;
+}
+export interface EvaluationJudgeScore {
+  index?: number | null;
+  score?: number;
+  note?: string;
+}
+export interface EvaluationHistoryEntry {
+  ts?: string;
+  passed?: boolean;
+  blocking?: boolean;
+  tier?: unknown;
+  l2_consistency_rate?: number | null;
+  bt_low_count?: number | null;
+  judge_avg?: number | null;
+  l0_residual_finding_count?: number | null;
+}
+export type TuningSource = "pinned" | "tier" | "budget" | "history" | "default";
+export interface TuningItem {
+  key: string;
+  value: unknown;
+  source: TuningSource;
+  note?: string;
+}
+export interface TuningCalibration {
+  key: string;
+  suggested_value: number;
+  reason: string;
+}
+export interface TuningData {
+  mode: "auto" | "manual";
+  tier: string;
+  items: TuningItem[];
+  calibration: TuningCalibration[];
+}
+export interface EvaluationData {
+  l0?: Record<string, unknown>;
+  l2?: EvaluationL2Data;
+  back_translation?: EvaluationBackTranslation[];
+  judge_scores?: EvaluationJudgeScore[];
+  risk_segments?: EvaluationRiskSegment[];
+  history?: EvaluationHistoryEntry[];
+  auto_redo?: Record<string, unknown>;
+  machine_gate?: MachineGateData;
+  tuning?: TuningData;
+}
 export interface ReportData {
   summary: Record<string, unknown>;
+  auto_qa?: AutoQAData;
+  machine_gate?: MachineGateData;
+  evaluation?: EvaluationData;
+  residual_findings?: Array<Record<string, unknown>>;
   usage?: Record<string, unknown>;
   timing?: Record<string, unknown>;
   [key: string]: unknown;
@@ -63,8 +178,14 @@ export const api = {
   getWorkflow: (pid: string) =>
     request<Output<"WorkflowOut">>(`/projects/${pid}/workflow`),
   capabilities: () => request<Capabilities>("/capabilities"),
-  getPreview: (pid: string) =>
-    request<UploadPreview>(`/projects/${pid}/preview`),
+  getPreview: async (pid: string): Promise<UploadPreview | null> => {
+    try {
+      return await request<UploadPreview>(`/projects/${pid}/preview`);
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("409:")) return null;
+      throw error;
+    }
+  },
   getConfig: (pid: string) => request<ProjectConfig>(`/projects/${pid}/config`),
   saveConfig: (pid: string, yaml: string) =>
     request<ProjectConfig>(`/projects/${pid}/config`, {
@@ -168,7 +289,7 @@ export const api = {
     cid: number,
     body: { decision: string; target?: string },
   ) =>
-    request<{ message: string }>(
+    request<{ message: string; detail?: GlossaryWriteback | null }>(
       `/projects/${pid}/glossary/conflicts/${cid}/resolve`,
       { method: "POST", body: JSON.stringify(body) },
     ),
