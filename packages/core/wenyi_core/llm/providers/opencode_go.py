@@ -7,7 +7,6 @@ compatibility notes.
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any
 
@@ -74,7 +73,7 @@ class OpenCodeGoClient(OpenAICompatibleBaseClient[OpenCodeGoOptions]):
                 from openai import OpenAI
 
                 self.validate_credentials()
-                api_key = os.environ.get(self.api_key_env) if self.api_key_env else None
+                api_key = self.api_key()
                 self._client = OpenAI(
                     api_key=api_key or "no-key",
                     base_url=self.base_url,

@@ -12,6 +12,7 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, ConfigDict
 
 from .configuration import ProviderConfig
+from .credentials import validate_credential
 from .retrying import RetryReporter, provider_retry
 from .usage import UsageSample
 
@@ -66,12 +67,19 @@ class ProviderAdapter(ABC):
         if cls.requires_base_url and not (cfg.base_url or cls.default_base_url):
             raise ValueError(f"Provider {cfg.kind} requires base_url")
 
+    def api_key(self) -> str | None:
+        """Read the provider key from its environment variable."""
+        return os.environ.get(self.api_key_env) if self.api_key_env else None
+
     def validate_credentials(self) -> None:
         if self.api_key_env:
-            if not os.environ.get(self.api_key_env, "").strip():
+            secret = os.environ.get(self.api_key_env)
+            if not (secret or "").strip():
                 raise RuntimeError(
                     f"Environment variable {self.api_key_env} ({self.cfg.kind} API key) is not set"
                 )
+            # Validate the raw value the adapter will send, not the trimmed one.
+            validate_credential(secret)
         elif self.requires_api_key:
             raise RuntimeError(f"Provider {self.cfg.kind} requires api_key_env")
 

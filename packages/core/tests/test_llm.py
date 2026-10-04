@@ -444,6 +444,20 @@ class TestProviderFactory(unittest.TestCase):
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "secret"}, clear=True):
             client.validate_credentials()
 
+    def test_api_key_with_control_characters_is_rejected(self):
+        """A key pasted from a Windows environment file can carry a trailing CR."""
+        from wenyi_core.llm.factory import build_client
+
+        client = build_client(self._config("deepseek"))
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-secret\r"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "control characters"):
+                client.validate_credentials()
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-secret\n"}, clear=True):
+            with self.assertRaisesRegex(ValueError, "control characters"):
+                client.validate_credentials()
+        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": "sk-secret"}, clear=True):
+            client.validate_credentials()
+
     def test_generic_provider_requires_base_url(self):
         from wenyi_core.llm.factory import build_client
 
