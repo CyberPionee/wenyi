@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from .base import LLMClient, Messages
 from .configuration import LLMConfig
+from .errors import describe_provider_failure
 from .limits import RequestLimits
 from .operations import require_operation
 from .registry import provider_spec
@@ -113,6 +114,10 @@ class RoutedLLMClient(LLMClient):
                 "provider": route.provider_kind,
                 "model": route.model,
                 "inference_fingerprint": route.fingerprint,
+                "max_output_tokens": route.max_output_tokens,
+                "adapter_protocol": (
+                    provider_spec(route.provider_kind).adapter_type().protocol_version
+                ),
             }
 
             def emit(event: str, **payload) -> None:
@@ -171,7 +176,11 @@ class RoutedLLMClient(LLMClient):
                     context=context,
                 )
             except Exception as error:
-                emit("llm_request_failed", error_type=type(error).__name__)
+                emit(
+                    "llm_request_failed",
+                    error_type=type(error).__name__,
+                    **describe_provider_failure(error).log_fields(),
+                )
                 if position == len(routes) - 1 or not is_retryable_provider_error(error):
                     raise
                 emit("llm_model_failover", next_profile=routes[position + 1].profile)

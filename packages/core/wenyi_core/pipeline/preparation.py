@@ -19,6 +19,7 @@ from ..i18n.prompts import render
 from ..ingest.epub_reader import peek_epub_title
 from ..ingest.models import Document
 from ..ingest.segmenter import load_document
+from ..llm.errors import ProviderFailure, describe_provider_failure
 from ..storage.protocol import Storage
 from .context import RollingContext
 from .language_policies import commit_revision, initialize_policies, translation_revision
@@ -28,6 +29,15 @@ if TYPE_CHECKING:
     from .runtime import PipelineRuntime
 
 ProgressFn = Callable[[int, int, str], None]
+
+
+class LanguageDetectionError(ValueError):
+    """Preserve a safe provider diagnostic instead of reporting an invalid language."""
+
+    def __init__(self, failure: ProviderFailure):
+        self.failure = failure
+        status = f" (HTTP {failure.status_code})" if failure.status_code is not None else ""
+        super().__init__(f"Source language detection request failed{status}: {failure.message}")
 
 
 def _synopsis_complete(text: str) -> bool:
@@ -247,9 +257,24 @@ class PreparationService:
         if self._runtime.config.source_lang in ("auto", "", None):
             if progress:
                 progress(0, 0, "Detecting language…")
-            detected = self.detect_language_ai(doc)
+            try:
+                detected = self.detect_language_ai(doc)
+            except LanguageDetectionError as error:
+                store.log_event(
+                    "language_detection_failed",
+                    source_lang=doc.source_lang,
+                    operation="language.detect",
+                    error_type=type(error.__cause__).__name__,
+                    **error.failure.log_fields(),
+                )
+                raise
             if not detected:
-                store.log_event("language_detection_failed", source_lang=doc.source_lang)
+                store.log_event(
+                    "language_detection_failed",
+                    source_lang=doc.source_lang,
+                    operation="language.detect",
+                    reason="unsupported_language_result",
+                )
                 raise ValueError(
                     "Source language detection failed. Check model settings or set "
                     "language.source in config.yaml to a supported code, such as ja/en/zh-Hant/ko/fr/de/es."
@@ -349,9 +374,7 @@ class PreparationService:
         )
 
     def detect_language_ai(self, doc) -> str:
-        """Detect the primary source language with the model; return its code or empty on
-        failure.
-        """
+        """Return a supported language code, or surface model request failures distinctly."""
         # Use unlabeled source samples so sampling labels cannot contaminate language detection.
         sample = self.sample_text(doc, labeled=False)[:1500]
         if not sample.strip():
@@ -367,8 +390,10 @@ class PreparationService:
             )
             code = (data.get("language") if isinstance(data, dict) else "") or ""
             return normalize_language(str(code))
-        except Exception:  # noqa: BLE001 - provider errors mean detection failed
-            return ""
+        except Exception as error:
+            # A provider failure is not an unknown source language: report the diagnostic
+            # instead of pointing the operator at language.source.
+            raise LanguageDetectionError(describe_provider_failure(error)) from error
 
     @staticmethod
     def sample_text(doc, *, labeled: bool = True) -> str:
