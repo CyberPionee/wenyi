@@ -12,7 +12,6 @@ from __future__ import annotations
 import re
 
 from ..glossary.store import GlossaryTerm
-from ..i18n.prompts import render
 from . import prompts
 from .base import Agent
 
@@ -28,6 +27,8 @@ _NON_STORY_PATTERNS = re.compile(
 
 
 class Synopsizer(Agent):
+    policy_phase = "analysis"
+
     def digest_chapter(
         self,
         source_text: str,
@@ -43,8 +44,8 @@ class Synopsizer(Agent):
             max_note_chars=self.config.pipeline.glossary_note_chars,
         )
         if _looks_non_story(source_text):
-            system = render("chapter_digest_system", src=self.src, tgt=self.tgt)
-            user = render(
+            system = self.render("chapter_digest_system", src=self.src, tgt=self.tgt)
+            user = self.render(
                 "chapter_digest_user",
                 src=self.src,
                 tgt=self.tgt,
@@ -53,8 +54,8 @@ class Synopsizer(Agent):
             )
             result = self._ask_text(system, user, operation="synopsis.chapter")
             return _collapse_to_sentence(result)
-        system = render("chapter_digest_system", src=self.src, tgt=self.tgt)
-        user = render(
+        system = self.render("chapter_digest_system", src=self.src, tgt=self.tgt)
+        user = self.render(
             "chapter_digest_user",
             src=self.src,
             tgt=self.tgt,
@@ -119,8 +120,8 @@ class Synopsizer(Agent):
             glossary_terms or [],
             max_note_chars=self.config.pipeline.glossary_note_chars,
         )
-        system = render("book_synopsis_system", src=self.src, tgt=self.tgt)
-        user = render(
+        system = self.render("book_synopsis_system", src=self.src, tgt=self.tgt)
+        user = self.render(
             "book_synopsis_user",
             src=self.src,
             tgt=self.tgt,
@@ -132,7 +133,11 @@ class Synopsizer(Agent):
         return self._ask_synopsis_book(system, user)
 
     def _ask_synopsis_book(self, system: str, user: str) -> str:
-        """Call synopsis.book with retries; truncated thinking budgets are not final answers."""
+        """Call synopsis.book with retries; truncated thinking budgets are not final answers.
+
+        Any other failure degrades to an empty synopsis: a missing whole-book synopsis is
+        reported, but never blocks the translation that depends on it.
+        """
         for _attempt in range(3):
             try:
                 return (
@@ -145,9 +150,9 @@ class Synopsizer(Agent):
                     )
                     or ""
                 ).strip()
-            except RuntimeError as error:
+            except Exception as error:  # noqa: BLE001 - see the docstring above.
                 if "truncated" not in str(error).lower():
-                    raise
+                    return ""
         return ""
 
 

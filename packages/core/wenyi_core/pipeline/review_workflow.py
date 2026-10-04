@@ -16,7 +16,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from ..glossary.store import GlossaryStore, GlossaryTerm
-from ..i18n.resources import prompt_fingerprint
 from ..llm.retrying import is_resumable_provider_interrupt
 from ..review.evidence import BookEvidenceIndex
 from ..review.models import ReviewOutcome
@@ -24,6 +23,7 @@ from ..review.run_store import ReviewRunStore
 from ..review.session import ReviewPolicy, content_digest, review_overlay_digest
 from ..storage.protocol import Storage
 from . import review_results
+from .language_policies import persist_plan
 from .review_checkpoint import ReviewCheckpoint, ReviewInputs
 from .review_chunks import ReviewChunkService
 from .review_rounds import ReviewRoundService
@@ -64,7 +64,7 @@ class ReviewService:
             "source_lang": self._runtime.config.source_lang,
             "target_lang": self._runtime.config.target_lang,
             "honorific_strategy": self._runtime.config.honorific_strategy,
-            "prompt_fingerprint": prompt_fingerprint(),
+            "language_policy": self._runtime.config.language_policy("review").fingerprint,
             # Bind reuse and resume to the glossary scope actually used for this review.
             "review_glossary_policy": self._runtime.config.pipeline.glossary_scope,
             "review_output_retries": self._runtime.config.pipeline.review_output_retries,
@@ -254,6 +254,7 @@ class ReviewService:
         receives revised shadow text without previous issue descriptions. Persist summaries,
         usage and formal events at session end.
         """
+        persist_plan(store, self._runtime.config.language_policy("review"))
         opened = self._open_session(store, all_terms, progress)
         if isinstance(opened, ReviewOutcome):
             return opened

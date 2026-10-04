@@ -9,7 +9,6 @@ from __future__ import annotations
 from typing import Any
 
 from ..glossary.store import GlossaryTerm
-from ..i18n.prompts import render
 from . import prompts
 from .base import Agent
 
@@ -29,8 +28,8 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = render("self_revision_system", src=self.src, tgt=self.tgt, n=n)
-        user = render(
+        system = self.render("self_revision_system", src=self.src, tgt=self.tgt, n=n)
+        user = self.render(
             "self_revision_user",
             src=self.src,
             tgt=self.tgt,
@@ -57,8 +56,8 @@ class QualityPassAgent(Agent):
         """Return whole-book editorial notes in the target language."""
         if not pairs:
             return []
-        system = render("editorial_pass_system", src=self.src, tgt=self.tgt)
-        user = render(
+        system = self.render("editorial_pass_system", src=self.src, tgt=self.tgt)
+        user = self.render(
             "editorial_pass_user",
             src=self.src,
             tgt=self.tgt,
@@ -83,8 +82,8 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = render("final_polish_system", src=self.src, tgt=self.tgt, n=n)
-        user = render(
+        system = self.render("final_polish_system", src=self.src, tgt=self.tgt, n=n)
+        user = self.render(
             "final_polish_user",
             src=self.src,
             tgt=self.tgt,
@@ -111,8 +110,8 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = render("chapter_selfcheck_system", src=self.src, tgt=self.tgt, n=n)
-        user = render(
+        system = self.render("chapter_selfcheck_system", src=self.src, tgt=self.tgt, n=n)
+        user = self.render(
             "chapter_selfcheck_user",
             src=self.src,
             tgt=self.tgt,
@@ -150,8 +149,8 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = render("back_translation_system", src=self.src, tgt=self.tgt, n=n)
-        user = render(
+        system = self.render("back_translation_system", src=self.src, tgt=self.tgt, n=n)
+        user = self.render(
             "back_translation_user",
             src=self.src,
             tgt=self.tgt,
@@ -175,8 +174,8 @@ class QualityPassAgent(Agent):
         if not pairs:
             return []
         n = len(pairs)
-        system = render("quality_judge_system", src=self.src, tgt=self.tgt, n=n)
-        user = render(
+        system = self.render("quality_judge_system", src=self.src, tgt=self.tgt, n=n)
+        user = self.render(
             "quality_judge_user",
             src=self.src,
             tgt=self.tgt,

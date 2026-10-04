@@ -71,8 +71,8 @@ class Orchestrator:
         with self._runtime.track_workflow("prepare"):
             store = self._preparation.prepare(input_path, progress=progress)
             with store.lock():
-                self._preparation.activate(store)
                 try:
+                    self._preparation.activate(store, phase="translation")
                     self._preparation.ensure_understanding(store, progress=progress)
                     self._runtime.log_event(
                         store,
@@ -111,23 +111,28 @@ class Orchestrator:
         """Restore languages, validate chapter selection, build the synopsis and delegate
         translation.
         """
-        manifest = self._preparation.activate(store)
-        chapter_indices = {chapter.get("index") for chapter in manifest.get("chapters", [])}
-        if only_chapter is not None and only_chapter not in chapter_indices:
-            available = sorted(index for index in chapter_indices if isinstance(index, int))
-            valid_range = f"0–{available[-1]}" if available else "no translatable chapters"
-            raise ValueError(
-                f"Chapter index {only_chapter} does not exist; available range: {valid_range}"
+        try:
+            manifest = store.load_manifest()
+            chapter_indices = {chapter.get("index") for chapter in manifest.get("chapters", [])}
+            if only_chapter is not None and only_chapter not in chapter_indices:
+                available = sorted(index for index in chapter_indices if isinstance(index, int))
+                valid_range = f"0–{available[-1]}" if available else "no translatable chapters"
+                raise ValueError(
+                    f"Chapter index {only_chapter} does not exist; available range: {valid_range}"
+                )
+            self._preparation.activate(store, phase="translation")
+            book_synopsis = self._preparation.ensure_understanding(store, progress=progress)
+            translated = self._translation.run(
+                store,
+                book_synopsis=book_synopsis,
+                only_chapter=only_chapter,
+                progress=progress,
             )
-        book_synopsis = self._preparation.ensure_understanding(store, progress=progress)
-        translated = self._translation.run(
-            store,
-            book_synopsis=book_synopsis,
-            only_chapter=only_chapter,
-            progress=progress,
-        )
-        self._quality_pass.run_after_translate(translated, progress=progress)
-        return translated
+            self._quality_pass.run_after_translate(translated, progress=progress)
+            return translated
+        finally:
+            # Prescan can stop before translation's own usage checkpoint is reached.
+            self._runtime.flush_usage(store, scope="translate")
 
     def run_review(
         self,

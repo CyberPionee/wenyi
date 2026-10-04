@@ -5,12 +5,93 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
+from wenyi_core.agents.synopsis import Synopsizer
 from wenyi_core.config import Config
+from wenyi_core.ingest.models import Chapter, Document, Segment
+from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.pipeline.orchestrator import Orchestrator
-from wenyi_core.pipeline.preparation import _synopsis_complete
+from wenyi_core.pipeline.preparation import PreparationService, _synopsis_complete
+from wenyi_core.storage.file import FileStorage
 
-from .fake_llm import FakeClient, routing_handler
+from .fake_llm import routing_handler
+
+
+def _service(tmp_path, chapters=None):
+    source = tmp_path / "source.txt"
+    source.write_text("Temporary source text.", encoding="utf-8")
+    store = FileStorage(str(tmp_path / "state"))
+    store.init_from_document(
+        Document(
+            source_lang="en",
+            target_lang="zh",
+            fmt="text",
+            source_path=str(source),
+            chapters=chapters
+            or [
+                Chapter(index=0, segments=[Segment(index=0, source="Opening.")]),
+                Chapter(index=1, segments=[Segment(index=0, source="Ending.")]),
+            ],
+        )
+    )
+    store.save_analysis({"style_guide": "Restrained."})
+    runtime = SimpleNamespace(
+        config=Config.from_dict({"llm": {"preset": "fake"}}),
+        synopsizer=Mock(),
+        analyzer=Mock(),
+    )
+    runtime.synopsizer.digest_chapter.return_value = "Chapter digest."
+    runtime.synopsizer.book_synopsis.return_value = "Whole-book synopsis."
+    runtime.analyzer.style_brief.return_value = "Restrained."
+    return PreparationService(runtime), store, runtime
+
+
+def test_legacy_state_without_policy_stamps_resumes_without_regeneration(tmp_path):
+    """State written before policy tracking keeps its digests and synopsis on resume.
+
+    Those artifacts already carry the glossary snapshot this run validates, and the upgrade
+    leaves their prompts untouched, so the first resumed run reuses them and stamps them.
+    """
+    service, store, runtime = _service(tmp_path)
+    service.ensure_understanding(store)
+    assert runtime.synopsizer.digest_chapter.call_count == 2
+
+    for index in (0, 1):
+        chapter = store.load_chapter(index)
+        chapter.meta.pop("source_digest_policy", None)
+        store.save_chapter(chapter)
+    analysis = store.load_analysis()
+    analysis.pop("book_synopsis_inputs", None)
+    store.save_analysis(analysis)
+
+    runtime.synopsizer.digest_chapter.reset_mock()
+    assert service.ensure_understanding(store) == "Whole-book synopsis."
+    assert runtime.synopsizer.digest_chapter.call_count == 0
+    assert runtime.synopsizer.book_synopsis.call_count == 1  # First call above, not again.
+
+
+def test_changed_policy_regenerates_an_existing_digest(tmp_path):
+    """Once a digest carries a stamp, a different prompt revision makes it stale."""
+    service, store, runtime = _service(tmp_path)
+    service.ensure_understanding(store)
+    chapter = store.load_chapter(0)
+    chapter.meta["source_digest_policy"] = "some-other-revision"
+    store.save_chapter(chapter)
+
+    runtime.synopsizer.digest_chapter.reset_mock()
+    service.ensure_understanding(store)
+    assert runtime.synopsizer.digest_chapter.call_count == 1
+    assert store.load_chapter(0).meta["source_digest_policy"] != "some-other-revision"
+
+
+def test_book_synopsis_transport_failure_has_empty_fallback():
+    def handler(messages, tier, json_mode):
+        raise TimeoutError("provider unavailable")
+
+    assert Synopsizer(FakeClient(handler=handler), Config()).book_synopsis(["Digest."], "") == ""
+
 
 _DIGEST = "## Plot\n甲说话。\n## Characters\n甲\n## Foreshadowing\n无\n## Address\n无"
 
@@ -123,3 +204,35 @@ class SynopsisFailureTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_failed_regeneration_keeps_existing_analysis_but_does_not_inject_stale_synopsis(tmp_path):
+    service, store, runtime = _service(tmp_path)
+    service.ensure_understanding(store)
+    runtime.analyzer.style_brief.return_value = "New style."
+    runtime.synopsizer.book_synopsis.return_value = ""
+    assert service.ensure_understanding(store) == ""
+    assert store.load_analysis()["book_synopsis"] == "Whole-book synopsis."
+    runtime.synopsizer.book_synopsis.return_value = "Revised synopsis."
+    assert service.ensure_understanding(store) == "Revised synopsis."
+
+
+def test_legacy_truncated_digest_and_unverified_synopsis_are_regenerated(tmp_path):
+    service, store, runtime = _service(tmp_path)
+    chapter = store.load_chapter(0)
+    chapter.meta["source_digest"] = "Legacy unfinished sentence"
+    store.save_chapter(chapter)
+    chapter = store.load_chapter(1)
+    chapter.meta["source_digest"] = "Legacy complete digest."
+    store.save_chapter(chapter)
+    store.save_analysis({"style_guide": "Restrained.", "book_synopsis": "Legacy synopsis."})
+    assert service.ensure_understanding(store) == "Whole-book synopsis."
+    assert runtime.synopsizer.digest_chapter.call_count == 2
+    # This branch prescans after the style analysis, so digests receive the seeded glossary
+    # terms that keep character names aligned with the established mapping.
+    assert sorted(call_.args[0] for call_ in runtime.synopsizer.digest_chapter.call_args_list) == [
+        "Ending.",
+        "Opening.",
+    ]
+    synopsis_args = runtime.synopsizer.book_synopsis.call_args.args
+    assert synopsis_args[:2] == (["Chapter digest.", "Chapter digest."], "Restrained.")

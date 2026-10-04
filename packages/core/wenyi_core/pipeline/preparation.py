@@ -14,13 +14,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 from ..i18n.languages import normalize_language
+from ..i18n.policy.models import Phase, content_hash
 from ..i18n.prompts import render
-from ..i18n.resources import prompt_fingerprint
 from ..ingest.epub_reader import peek_epub_title
 from ..ingest.models import Document
 from ..ingest.segmenter import load_document
 from ..storage.protocol import Storage
 from .context import RollingContext
+from .language_policies import commit_revision, initialize_policies, translation_revision
 from .runstore import source_sha256, translation_run_dir
 
 if TYPE_CHECKING:
@@ -255,7 +256,7 @@ class PreparationService:
                 )
             doc.source_lang = detected
             store.log_event("language_detected", source_lang=doc.source_lang)
-        self._runtime.apply_language(doc.source_lang)
+        self._runtime.apply_language(doc.source_lang, source_identity=source_hash)
         doc.source_lang = self._runtime.config.source_lang
         doc.target_lang = self._runtime.config.target_lang
 
@@ -263,11 +264,16 @@ class PreparationService:
             doc,
             source_hash=source_hash,
         )
+        manifest["language_policies"] = initialize_policies(store, self._runtime.config)
         glossary = store
         if progress:
             progress(0, 0, "Analyzing book style…")
         sample = self.sample_text(doc)
         analysis = self._runtime.analyzer.analyze(sample) if sample else {}
+        analysis["language_policy"] = manifest["language_policies"]["analysis"]
+        analysis["style_policy"] = self._runtime.config.language_policy(
+            "analysis"
+        ).task_fingerprint("analyzer")
         if analysis:
             self._runtime.analyzer.seed_glossary(glossary, analysis)
         store.save_analysis(analysis)
@@ -283,7 +289,6 @@ class PreparationService:
 
         # The manifest marks successful initialization and must be committed atomically last.
         manifest["initialized"] = True
-        manifest["prompt_fingerprint"] = prompt_fingerprint()
         store.save_manifest(manifest)
         self._runtime.bind_timing(store)
         store.finish_initialization()
@@ -306,13 +311,42 @@ class PreparationService:
         )
         return store
 
-    def activate(self, store: Storage) -> dict[str, Any]:
+    def activate(self, store: Storage, *, phase: Phase | None = None) -> dict[str, Any]:
         """Restore manifest languages, propagate them to all agents and return the manifest."""
         store.recover_usage()
         manifest = store.load_manifest()
         self._runtime.apply_manifest_languages(manifest)
-        store.log_event("language_resources_applied", prompt_fingerprint=prompt_fingerprint())
+        if phase == "translation" and translation_revision(store, self._runtime.config):
+            self._rebuild_analysis(store, manifest)
         return manifest
+
+    def _rebuild_analysis(self, store: Storage, manifest: dict[str, Any]) -> None:
+        """Refresh built-in guidance while preserving formal targets and glossary."""
+        chapters = [store.load_chapter(row["index"]) for row in manifest["chapters"]]
+        if self._runtime.config.pipeline.book_understanding:
+            # Reuse the single prescan path so glossary patching and policy stamps apply here too.
+            self.ensure_understanding(store)
+        # Assemble only the source samples; formal chapters are never rewritten here.
+        document = Document(
+            title=manifest.get("title", ""),
+            source_lang=self._runtime.config.source_lang,
+            target_lang=self._runtime.config.target_lang,
+            fmt=manifest.get("fmt", "text"),
+            chapters=chapters,
+        )
+        style_policy = self._runtime.config.language_policy("analysis").task_fingerprint("analyzer")
+        analysis = store.load_analysis() or {}
+        if analysis.get("style_policy") != style_policy:
+            analysis = self._runtime.analyzer.analyze(self.sample_text(document))
+        analysis["style_policy"] = style_policy
+        analysis["language_policy"] = (
+            f"language-policies/{self._runtime.config.language_policy('analysis').fingerprint}.json"
+        )
+        store.save_analysis(analysis)
+        commit_revision(store, self._runtime.config)
+        store.log_event(
+            "language_policy_revision_refreshed", rebuild="analysis", completed_targets="preserved"
+        )
 
     def detect_language_ai(self, doc) -> str:
         """Detect the primary source language with the model; return its code or empty on
@@ -439,7 +473,7 @@ class PreparationService:
         return merged
 
     @staticmethod
-    def _digest_is_current(meta: dict, glossary_fp: dict[str, str]) -> bool:
+    def _digest_is_current(meta: dict, glossary_fp: dict[str, str], policy: str) -> bool:
         digest = meta.get("source_digest") or ""
         version = meta.get("source_digest_v", 1)
         if not (str(digest).strip() and isinstance(version, int) and version >= 3):
@@ -451,10 +485,14 @@ class PreparationService:
         for src, tgt in stored.items():
             if glossary_fp.get(src) != tgt:
                 return False
-        return True
+        # A digest without a policy stamp predates policy tracking. It already carries the
+        # glossary snapshot validated above, and this upgrade leaves the digest prompts
+        # untouched, so it stays reusable and receives its stamp on the next write.
+        recorded = meta.get("source_digest_policy")
+        return not recorded or recorded == policy
 
     @staticmethod
-    def _synopsis_is_current(analysis: dict, glossary_fp: dict[str, str]) -> bool:
+    def _synopsis_is_current(analysis: dict, glossary_fp: dict[str, str], inputs: str) -> bool:
         synopsis = analysis.get("book_synopsis") or ""
         version = analysis.get("book_synopsis_v", 1)
         if not (str(synopsis).strip() and isinstance(version, int) and version >= 3):
@@ -465,7 +503,10 @@ class PreparationService:
         for src, tgt in stored.items():
             if glossary_fp.get(src) != tgt:
                 return False
-        return True
+        # The synopsis also depends on the style brief, the digests and the prompts that
+        # produced it, so any of those changing makes it stale.
+        recorded = analysis.get("book_synopsis_inputs")
+        return not recorded or recorded == inputs
 
     def ensure_understanding(
         self,
@@ -489,6 +530,11 @@ class PreparationService:
         loaded = {
             c.get("index", i): store.load_chapter(c.get("index", i)) for i, c in enumerate(chapters)
         }
+        # Digest and synopsis reuse need both identities: the glossary snapshot that steered the
+        # text, and the prompt/rules revision that produced it.
+        analysis_plan = self._runtime.config.language_policy("analysis")
+        digest_policy = analysis_plan.task_fingerprint("chapter_digest")
+        synopsis_policy = analysis_plan.task_fingerprint("book_synopsis")
 
         # Phase 1: patch existing digests when glossary targets changed (no LLM call).
         patched_any = False
@@ -528,7 +574,7 @@ class PreparationService:
         todo = [
             (ci, "\n".join(s.source for s in ch.text_segments))
             for ci, ch in loaded.items()
-            if not self._digest_is_current(ch.meta, glossary_fp)
+            if not self._digest_is_current(ch.meta, glossary_fp, digest_policy)
         ]
         if todo:
             store.log_event(
@@ -560,6 +606,7 @@ class PreparationService:
                     loaded[ci].meta["source_digest"] = digest
                     loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
                     loaded[ci].meta["source_digest_gf"] = glossary_fp
+                    loaded[ci].meta["source_digest_policy"] = digest_policy
                     store.save_chapter(loaded[ci])
                     store.log_event(
                         "book_understanding_chapter_digest_saved",
@@ -628,26 +675,30 @@ class PreparationService:
                     )
 
         # Phase 4: generate synopsis when missing, incomplete or outdated.
-        if (
-            not self._synopsis_is_current(analysis, glossary_fp) or not _synopsis_complete(synopsis)
-        ) and any(d.strip() for d in digests):
+        # The synopsis tracks the prompts and the style brief that shaped it. Glossary edits are
+        # handled by the fingerprint check plus in-place patching above, and source changes
+        # invalidate the whole run, so neither belongs in this hash.
+        style = self._runtime.analyzer.style_brief(analysis)
+        synopsis_inputs = content_hash({"policy": synopsis_policy, "style": style})
+        current = self._synopsis_is_current(analysis, glossary_fp, synopsis_inputs)
+        if (not current or not _synopsis_complete(synopsis)) and any(d.strip() for d in digests):
             if progress:
                 progress(0, 0, "Generating whole-book synopsis…")
-            generated = self._runtime.synopsizer.book_synopsis(
-                digests,
-                self._runtime.analyzer.style_brief(analysis),
-                glossary_terms,
-            )
+            generated = self._runtime.synopsizer.book_synopsis(digests, style, glossary_terms)
             if _synopsis_complete(generated):
                 synopsis = generated
                 analysis["book_synopsis"] = synopsis
                 analysis["book_synopsis_v"] = self.BOOK_SYNOPSIS_V
                 analysis["book_synopsis_gf"] = glossary_fp
+                analysis["book_synopsis_inputs"] = synopsis_inputs
                 store.save_analysis(analysis)
                 store.log_event("book_synopsis_saved", synopsis=synopsis)
             else:
-                # A failed or truncated regeneration must not overwrite a working synopsis.
+                # A failed or truncated regeneration must not overwrite a working synopsis, and
+                # an outdated one must not reach translation prompts either.
                 store.log_event("book_synopsis_failed", incomplete=True)
+                if not current:
+                    synopsis = ""
                 if progress:
                     progress(0, 0, "Whole-book synopsis unavailable")
-        return str(analysis.get("book_synopsis", "") or "")
+        return str(synopsis or "")

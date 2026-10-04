@@ -10,7 +10,6 @@ from typing import Any
 
 from ..glossary.store import TYPE_PERSON, GlossaryStore, GlossaryTerm
 from ..i18n.metadata import normalize_gender, normalize_term_type
-from ..i18n.prompts import render
 from ..llm.retrying import TruncatedResponseError
 from ..storage.protocol import Storage
 from .base import Agent
@@ -30,14 +29,16 @@ def _text(value: Any, default: str = "") -> str:
 
 
 class Analyzer(Agent):
+    policy_phase = "analysis"
+
     def analyze(self, sample_text: str) -> dict[str, Any]:
         """Analyze samples and return type-checked style, character and terminology data.
 
         Retry up to 3 times when the answer is incomplete (thinking tokens can exhaust the
         output budget mid-JSON while finish_reason still says stop).
         """
-        system = render("analyzer_system", src=self.src, tgt=self.tgt)
-        user = render("analyzer_user", src=self.src, tgt=self.tgt, sample=sample_text)
+        system = self.render("analyzer_system", src=self.src, tgt=self.tgt)
+        user = self.render("analyzer_user", src=self.src, tgt=self.tgt, sample=sample_text)
         data: dict[str, Any] = {}
         for attempt, budget in enumerate(_OUTPUT_BUDGETS):
             try:

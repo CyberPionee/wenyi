@@ -11,7 +11,6 @@ import re
 from collections.abc import Sequence
 
 from ..glossary.store import GlossaryTerm
-from ..i18n.prompts import render
 from . import prompts
 from .base import Agent, Messages
 
@@ -77,13 +76,13 @@ class Polisher(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = render("polisher_system", src=self.src, tgt=self.tgt, n=n)
+        system = self.render("polisher_system", src=self.src, tgt=self.tgt, n=n)
         pairs = (
             prompts.numbered_pairs(list(sources), targets)
             if sources is not None and len(sources) == n
             else prompts.numbered(targets)
         )
-        user = render(
+        user = self.render(
             "polisher_user",
             src=self.src,
             tgt=self.tgt,
@@ -122,7 +121,7 @@ class Polisher(Agent):
         """
         if n <= 0 or len(turn) < 3:
             return None
-        continue_user = render(
+        continue_user = self.render(
             "polisher_continue_user",
             src=self.src,
             tgt=self.tgt,
