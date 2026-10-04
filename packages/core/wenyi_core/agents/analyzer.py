@@ -11,8 +11,13 @@ from typing import Any
 from ..glossary.store import TYPE_PERSON, GlossaryStore, GlossaryTerm
 from ..i18n.metadata import normalize_gender, normalize_term_type
 from ..i18n.prompts import render
+from ..llm.retrying import TruncatedResponseError
 from ..storage.protocol import Storage
 from .base import Agent
+
+# Output budgets per attempt: the registered budget first, then a larger one when thinking
+# tokens exhaust it. The first response raises a length stop instead of a partial answer.
+_OUTPUT_BUDGETS: tuple[int | None, ...] = (None, 12288, 16384)
 
 
 def _text(value: Any, default: str = "") -> str:
@@ -28,14 +33,24 @@ class Analyzer(Agent):
     def analyze(self, sample_text: str) -> dict[str, Any]:
         """Analyze samples and return type-checked style, character and terminology data.
 
-        Retry up to 3 times when the style guide looks truncated (thinking tokens can
-        exhaust the output budget mid-sentence while finish_reason still says stop).
+        Retry up to 3 times when the answer is incomplete (thinking tokens can exhaust the
+        output budget mid-JSON while finish_reason still says stop).
         """
         system = render("analyzer_system", src=self.src, tgt=self.tgt)
         user = render("analyzer_user", src=self.src, tgt=self.tgt, sample=sample_text)
-        for _attempt in range(3):
-            # No default: propagate analysis failures for the caller to handle.
-            data = self._ask_json(system, user, operation="analysis.style")
+        data: dict[str, Any] = {}
+        for attempt, budget in enumerate(_OUTPUT_BUDGETS):
+            try:
+                # No default: propagate analysis failures for the caller to handle.
+                data = self._ask_json(system, user, operation="analysis.style", max_tokens=budget)
+            except TruncatedResponseError as error:
+                if attempt == len(_OUTPUT_BUDGETS) - 1:
+                    raise TruncatedResponseError(
+                        "analysis.style",
+                        "Style analysis was truncated at the output limit on every attempt; "
+                        "raise max_output_tokens or lower reasoning_effort",
+                    ) from error
+                continue
             if not isinstance(data, dict):
                 data = {}
             # Accept a list of prose bullets as well as the requested string. Never stringify objects.
@@ -59,7 +74,7 @@ class Analyzer(Agent):
             style = data.get("style_guide", "")
             if not style or style.endswith((".", "!", "?", "。", "！", "？")):
                 break
-            # Mid-sentence cut: retry the call with a fresh budget.
+            # Mid-sentence cut: retry the call with a larger budget.
         data["characters"] = self.dict_items(
             data.get("characters"), operation="analysis.style", field="characters"
         )

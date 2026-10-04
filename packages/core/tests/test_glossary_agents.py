@@ -16,6 +16,7 @@ from wenyi_core.glossary.extractor import (
 )
 from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
 from wenyi_core.llm.providers.fake import FakeClient
+from wenyi_core.llm.retrying import TruncatedResponseError
 from wenyi_core.pipeline.context import RollingContext
 
 
@@ -145,6 +146,38 @@ class TestAnalyzer(unittest.TestCase):
             assert school is not None
             self.assertEqual(school.type, "term")
             store.close()
+
+    def test_truncated_analysis_retries_with_a_larger_budget(self):
+        analysis = {"style_guide": "保持克制。", "characters": [], "terms": []}
+        calls = []
+
+        def handler(messages, tier, json_mode):
+            calls.append(1)
+            if len(calls) == 1:
+                raise TruncatedResponseError(
+                    "fake", "OpenAI-compatible response was truncated at the token limit"
+                )
+            return json.dumps(analysis, ensure_ascii=False)
+
+        client = FakeClient(handler=handler)
+        result = Analyzer(client, _cfg()).analyze("……样章……")
+
+        self.assertEqual(result["style_guide"], "保持克制。")
+        self.assertEqual([call["max_tokens"] for call in client.calls], [8192, 12288])
+
+    def test_persistent_truncation_fails_with_an_actionable_message(self):
+        def handler(messages, tier, json_mode):
+            raise TruncatedResponseError(
+                "fake", "OpenAI-compatible response was truncated at the token limit"
+            )
+
+        client = FakeClient(handler=handler)
+        with self.assertRaises(TruncatedResponseError) as raised:
+            Analyzer(client, _cfg()).analyze("……样章……")
+
+        self.assertEqual(len(client.calls), 3)
+        self.assertEqual([call["max_tokens"] for call in client.calls], [8192, 12288, 16384])
+        self.assertIn("max_output_tokens", str(raised.exception))
 
     def test_numeric_collections_are_normalized_to_empty_lists(self):
         analysis = {

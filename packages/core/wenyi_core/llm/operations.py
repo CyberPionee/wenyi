@@ -73,7 +73,9 @@ OPERATIONS = register_operations(
             "analysis.style",
             "Analyze style, characters and seed terms",
             "strong",
-            output_tokens=4096,
+            # Response is prose plus character and term lists, and thinking tokens share
+            # this budget, so a small cap truncates the analysis before the JSON closes.
+            output_tokens=8192,
             workflows=("prepare", "translate"),
         ),
         OperationSpec(
