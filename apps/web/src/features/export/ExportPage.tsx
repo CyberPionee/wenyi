@@ -155,7 +155,7 @@ export default function ExportPage() {
               <legend className="text-sm font-medium mb-2">
                 {tr("export.edition")}
               </legend>
-              <label className="text-sm flex gap-2">
+              <label className="text-sm leading-5 flex items-center gap-2">
                 <input
                   type="radio"
                   name="edition"
@@ -164,7 +164,7 @@ export default function ExportPage() {
                 />
                 {tr("export.monolingual")}
               </label>
-              <label className="text-sm flex gap-2">
+              <label className="text-sm leading-5 flex items-center gap-2">
                 <input
                   type="radio"
                   name="edition"
