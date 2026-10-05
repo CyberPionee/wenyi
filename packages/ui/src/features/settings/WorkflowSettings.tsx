@@ -116,7 +116,7 @@ export function WorkflowSettings({
   };
 
   return (
-    <fieldset disabled={disabled} className="space-y-4 disabled:opacity-60">
+    <fieldset disabled={disabled} className="min-w-0 space-y-4 disabled:opacity-60">
       {!subtitles && (
         <>
           <div className="rounded-lg border border-primary/50 bg-muted/40 p-3 space-y-3">

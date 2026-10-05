@@ -1,8 +1,9 @@
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type GlobalConfig } from "@/lib/api";
 import { platform } from "@/platform";
+import { LazyBoundary } from "@/routes/LazyBoundary";
 import { useI18n } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,7 +18,11 @@ import { renameRegistryId, type RegistryGroup } from "./registryEdits";
 type Document = Record<string, unknown>;
 const object = (value: unknown) => (value || {}) as Document;
 
-export function GlobalConfiguration() {
+export function GlobalConfiguration({
+  section,
+}: {
+  section: "interface" | "providers" | "defaults" | "advanced";
+}) {
   const { t } = useI18n();
   const qc = useQueryClient();
   const credentials = platform().capabilities.credentials;
@@ -142,7 +147,6 @@ export function GlobalConfiguration() {
   return (
     <>
       <ErrorNotice error={query.error || error} />
-      <fieldset disabled={installing} className="contents">
       <Card>
         <CardContent className="p-5 space-y-4">
           <ProviderSettings
@@ -158,7 +162,7 @@ export function GlobalConfiguration() {
           />
         </CardContent>
       </Card>
-      <Card>
+      <Card hidden={section !== "defaults"}>
         <CardContent className="p-5 space-y-4">
           <h2 className="font-medium">{t("settings.newProjectDefaults")}</h2>
           <p className="text-sm text-muted-foreground">
@@ -189,13 +193,8 @@ export function GlobalConfiguration() {
           />
         </CardContent>
       </Card>
-      <Card>
+      <Card hidden={section !== "advanced"}>
         <CardContent className="p-5 space-y-4">
-          {yamlDirty && (
-            <p className="text-sm text-muted-foreground">
-              {t("settings.advancedYamlHasUnvalidatedChangesValidateIt")}
-            </p>
-          )}
           <Disclosure
             title={t("settings.advancedYamlConfiguration")}
             summary={t(
@@ -220,10 +219,25 @@ export function GlobalConfiguration() {
               }}
             />
           </Disclosure>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          {yamlDirty && (
+            <Link
+              to="/settings/advanced"
+              className="block text-sm text-muted-foreground underline underline-offset-4"
+            >
+              {t("settings.advancedYamlHasUnvalidatedChangesValidateIt")}
+            </Link>
+          )}
           {editingIds && (
-            <p className="text-sm text-muted-foreground">
+            <Link
+              to="/settings/providers"
+              className="block text-sm text-muted-foreground underline underline-offset-4"
+            >
               {t("registry.finishRenaming")}
-            </p>
+            </Link>
           )}
           <div className="flex flex-wrap gap-3">
             <Button
@@ -249,16 +263,15 @@ export function GlobalConfiguration() {
           </div>
         </CardContent>
       </Card>
-      </fieldset>
       {Updates && (
-        <Suspense fallback={null}>
+        <LazyBoundary>
           <Updates
             blocked={!draft || !query.data || draft.yaml !== query.data.yaml ||
               uncommitted || yamlDirty || editingIds || pending || mutations > 0 ||
               Object.keys(renames).length > 0 || Object.keys(providerRenames).length > 0}
             onInstalling={setInstalling}
           />
-        </Suspense>
+        </LazyBoundary>
       )}
     </>
   );
