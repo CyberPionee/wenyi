@@ -1,27 +1,8 @@
 import { Navigate, Route, Routes } from "react-router-dom";
-import { Component, lazy, Suspense, type ReactNode } from "react";
+import { Component, Suspense, useEffect, type ReactNode } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
 import { useI18n } from "./i18n";
-
-const Dashboard = lazy(() => import("./features/dashboard/Dashboard"));
-const CreateProject = lazy(
-  () => import("./features/project-create/CreateProject"),
-);
-const ProgressPage = lazy(() => import("./features/progress/ProgressPage"));
-const GlossaryPage = lazy(() => import("./features/glossary/GlossaryPage"));
-const StylePage = lazy(() => import("./features/style/StylePage"));
-const ReviewPage = lazy(() => import("./features/review/ReviewPage"));
-const ProofreadingPage = lazy(
-  () => import("./features/proofreading/ProofreadingPage"),
-);
-const ExportPage = lazy(() => import("./features/export/ExportPage"));
-const EventsPage = lazy(() => import("./features/events/EventsPage"));
-const ContentsPage = lazy(() => import("./features/contents/ContentsPage"));
-const InterfaceSettingsPage = lazy(
-  () => import("./features/settings/InterfaceSettingsPage"),
-);
-const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
-const SubtitlesPage = lazy(() => import("./features/subtitles/SubtitlesPage"));
+import { pageLoaders, routeEntries } from "./routes/manifest";
 
 class RouteBoundary extends Component<
   { children: ReactNode },
@@ -49,6 +30,10 @@ function RouteError() {
 }
 
 export default function App() {
+  useEffect(() => {
+    // A warm-up failure stays quiet: the route retries when it is visited.
+    void Promise.all(pageLoaders.map((load) => load())).catch(() => {});
+  }, []);
   return (
     <RouteBoundary>
       <Suspense
@@ -58,26 +43,9 @@ export default function App() {
       >
         <Routes>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/settings" element={<InterfaceSettingsPage />} />
-            <Route path="/projects/new" element={<CreateProject />} />
-            <Route path="/projects/:pid" element={<ProgressPage />} />
-            <Route path="/projects/:pid/glossary" element={<GlossaryPage />} />
-            <Route path="/projects/:pid/style" element={<StylePage />} />
-            <Route path="/projects/:pid/contents" element={<ContentsPage />} />
-            <Route path="/projects/:pid/review" element={<ReviewPage />} />
-            <Route
-              path="/projects/:pid/proofreading"
-              element={<ProofreadingPage />}
-            />
-            <Route
-              path="/projects/:pid/proofreading/:ci"
-              element={<ProofreadingPage />}
-            />
-            <Route path="/projects/:pid/settings" element={<SettingsPage />} />
-            <Route path="/projects/:pid/subtitles" element={<SubtitlesPage />} />
-            <Route path="/projects/:pid/export" element={<ExportPage />} />
-            <Route path="/projects/:pid/events" element={<EventsPage />} />
+            {routeEntries.map(({ path, element }) => (
+              <Route key={path} path={path} element={element} />
+            ))}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
