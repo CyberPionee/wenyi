@@ -14,7 +14,7 @@ import { Disclosure } from "@/components/ui/disclosure";
 import { EvaluationDetails } from "./EvaluationDetails";
 import { WorkflowPanel } from "./WorkflowPanel";
 import { Accounting } from "./Accounting";
-import { toast } from "sonner";
+import { toast } from "@/lib/toast";
 import { useEffect } from "react";
 import { progressInterval } from "@/lib/runtime";
 
