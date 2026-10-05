@@ -1,4 +1,4 @@
-# Web deployment and development
+﻿# Web deployment and development
 
 [简体中文](zh/web.md) · [CLI usage](usage.md) · [Configuration](configuration.md)
 
@@ -114,6 +114,24 @@ pnpm -C apps/web dev
 ```
 
 The web app runs at http://localhost:5173. Vite proxies `/api` and `/ws` to the API. The API initializes a fresh database schema. Starting only the ordinary worker does not consume the export queue.
+
+To click through the UI without starting any backend, run `MOCK_API=1 pnpm -C apps/web dev`. Vite then answers `/api` with the same fixture data the Playwright suites use (`apps/web/tests/fixtures.ts`), so every page opens with sample data and action buttons complete against the mock instead of a real service. The progress WebSocket stays unavailable and the UI falls back to polling the mock API. Leave `MOCK_API` unset for normal proxied development.
+
+## Interface language
+
+The interface defaults to English, regardless of browser language. Open global
+**Settings → Interface language** to choose **English** or **简体中文**.
+This preference is available before creating a project and while tasks run; it is
+not part of project settings.
+
+The choice applies immediately, survives reloads, and synchronizes between tabs on
+the same site. It is stored under `wenyi.locale` in the browser, not in project
+configuration. An absent or unsupported saved language falls back to English.
+
+Interface language changes labels and number/date formatting, not source/target
+languages, model configuration, book content, glossary entries, or model-generated
+analysis. Server errors and live logs are shown as received. Developer instructions
+live in the shared [frontend localization guide](../packages/ui/src/i18n/README.md).
 
 ## Workflow
 

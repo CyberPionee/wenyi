@@ -1,4 +1,4 @@
-# Web 部署与开发
+﻿# Web 部署与开发
 
 [English](../web.md) · [CLI 使用](usage.md) · [配置](configuration.md)
 
@@ -112,6 +112,20 @@ pnpm -C apps/web dev
 ```
 
 Web 开发地址为 http://localhost:5173，Vite 代理 `/api` 与 `/ws` 至 API。API 初始化全新数据库结构。仅起普通 Worker 不会消费导出队列。
+
+若不想启动任何后端、只想在浏览器里点着看界面，运行 `MOCK_API=1 pnpm -C apps/web dev`。Vite 会用 Playwright 测试同一套 fixture 数据（`apps/web/tests/fixtures.ts`）应答 `/api`：所有页面都带示例数据打开，按钮操作直接在 mock 上完成，不接触真实服务。进度 WebSocket 不可用时界面自动退回轮询 mock API。不设 `MOCK_API` 时行为与平常一致，代理到真实 API。
+
+## 界面语言
+
+界面默认使用英语，不自动跟随浏览器语言。打开全局 **设置 → 界面语言**，可选择
+**English** 或 **简体中文**。尚未创建项目或任务正在运行时也可切换，此偏好不属于项目设置。
+
+选择立即生效，刷新后保留，并在同一站点的多个标签页之间同步。偏好保存在浏览器的
+`wenyi.locale` 中，不写入项目配置；没有已保存语言或保存值不受支持时，回退到英语。
+
+界面语言只改变标签及数字／日期格式，不修改源语言、目标语言、模型配置、书籍内容、
+术语或模型生成的分析。服务端错误和实时日志按收到的内容展示。
+开发说明见共享的[前端国际化指南](../../packages/ui/src/i18n/README.md)。
 
 ## 使用流程
 
