@@ -9,8 +9,10 @@ from typing import Any
 from .json_parser import JsonParseError
 from .retrying import (
     EmptyResponseError,
+    ProviderRequestError,
     TruncatedResponseError,
     error_status_code,
+    is_transient_upstream,
     retry_reason,
 )
 
@@ -49,6 +51,12 @@ _HTTP_FAILURES = {
     422: ("invalid_request", "The provider rejected the request. Check the model configuration."),
     429: ("rate_limited", "The provider rate limit was reached. Try again later."),
 }
+# Categories that send the operator to inspect their own configuration. A gateway reporting
+# its own outage under one of these statuses must not be reported this way.
+_CONFIGURATION_CATEGORIES = frozenset(
+    {"invalid_request", "authentication_failed", "permission_denied", "model_or_endpoint_not_found"}
+)
+
 _RESPONSE_FAILURES = (
     (TruncatedResponseError, "truncated_response", "The provider response was truncated."),
     (EmptyResponseError, "empty_response", "The provider returned no usable text."),
@@ -58,10 +66,25 @@ _RESPONSE_FAILURES = (
 
 
 def describe_provider_failure(error: BaseException) -> ProviderFailure:
-    """Normalize known failures without inspecting or copying raw error messages."""
+    """Normalize known failures without inspecting or copying raw error messages.
+
+    A gateway that reports its own outage with a client-error status is an availability
+    problem, not a request the caller got wrong: the same body that makes the request
+    retryable decides the reported category, so the operator is never sent to re-check a
+    model configuration that is already correct.
+    """
     status = error_status_code(error)
-    if status in _HTTP_FAILURES:
-        category, message = _HTTP_FAILURES[status]
+    mapped = _HTTP_FAILURES.get(status) if status is not None else None
+    if (
+        mapped is not None
+        and mapped[0] in _CONFIGURATION_CATEGORIES
+        and is_transient_upstream(error)
+    ):
+        return ProviderFailure(
+            status, "provider_unavailable", "The provider is unavailable. Try again later."
+        )
+    if mapped is not None:
+        category, message = mapped
         return ProviderFailure(status, category, message)
     if status is not None:
         if status >= 500:
@@ -91,3 +114,22 @@ def describe_provider_failure(error: BaseException) -> ProviderFailure:
     return ProviderFailure(
         None, "unknown_error", f"The provider request failed ({' caused by '.join(names)})."
     )
+
+
+def operator_failure_message(error: BaseException) -> str:
+    """Return the message to persist or display for a failed run.
+
+    A model-request failure is reported through its safe classification: raw SDK text carries
+    the provider's response body, which tells the operator nothing they can act on and belongs
+    to the provider's own logs. Anything else keeps its own message, because domain errors are
+    already written for the operator and the classifier would flatten them. An error that is
+    already a safe classification keeps its own text, which names the operation and the error
+    type.
+    """
+    if isinstance(error, ProviderRequestError):
+        return str(error)
+    failure = describe_provider_failure(error)
+    return str(error) if failure.category == "unknown_error" else failure.message
+
+
+__all__ = ["ProviderFailure", "describe_provider_failure", "operator_failure_message"]

@@ -108,6 +108,32 @@ def test_failed_event_sink_cannot_log_provider_context(caplog):
     assert SECRET not in caplog.text
 
 
+def test_review_artifact_redacts_a_raw_provider_failure(tmp_path):
+    """Without a credential snapshot the SDK error stays raw; its text must not be persisted."""
+    from wenyi_core.pipeline.orchestrator import Orchestrator
+
+    from tests.test_review_autofix import _config, _store
+
+    client, calls = client_with_failure(credentials=False, status=503)
+    config = _config(str(tmp_path / "state"))
+    config.llm = client.config
+    config.pipeline.review_autofix = False
+    store = _store(str(tmp_path))
+    orch = Orchestrator(config, client)
+    with pytest.raises(APIStatusError):
+        orch._review.run_session(store, [])
+    assert len(calls) == 2
+    documents = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in tmp_path.rglob("*.json")
+        if "review" in str(path)
+    )
+    assert "The provider is unavailable" in documents
+    assert SECRET not in documents
+    for path in tmp_path.rglob("*.jsonl"):
+        assert SECRET not in path.read_text(encoding="utf-8")
+
+
 def test_scoped_capture_cannot_log_provider_context(caplog):
     client, calls = client_with_failure()
     events = []

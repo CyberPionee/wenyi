@@ -13,6 +13,7 @@ from ..config import Config
 from ..glossary.store import GlossaryStore, GlossaryTerm, merge_always_on
 from ..ingest.tokens import count_tokens
 from ..llm.base import LLMClient
+from ..llm.errors import operator_failure_message
 from ..review.evidence import BookEvidenceIndex
 from ..review.models import integer_index
 from ..review.run_store import ReviewRunStore
@@ -261,7 +262,7 @@ class ReviewChunkService:
                         initial_trace["status"] = "failed"
                         initial_trace["error"] = {
                             "type": type(error).__name__,
-                            "message": str(error),
+                            "message": operator_failure_message(error),
                         }
                         debug.write_json(initial_path, initial_trace)
                     raise

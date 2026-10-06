@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..events import ProgressFn
 from ..glossary.store import GlossaryStore, GlossaryTerm
+from ..llm.errors import operator_failure_message
 from ..llm.retrying import is_resumable_provider_interrupt
 from ..review.evidence import BookEvidenceIndex
 from ..review.models import ReviewOutcome
@@ -424,6 +425,6 @@ class ReviewService:
                 issue_count=len(public_issues),
                 change_count=len(partial_changes),
                 error_type=type(error).__name__,
-                error=str(error),
+                error=operator_failure_message(error),
             )
             raise

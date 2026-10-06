@@ -33,6 +33,28 @@ def test_trace_port_uses_existing_round_paths_and_event_scope(tmp_path):
     assert Path(store.run_dir, "rounds/002/agents/arbiter-term.json").is_file()
 
 
+def test_auxiliary_runs_stay_out_of_the_review_namespace(tmp_path):
+    """A service reusing this store must not look like a review nobody finished.
+
+    The review listing, the latest-result lookup and the resume scan all select on the review
+    prefix, so an arbitration or evaluation-redo run written there appeared in the UI as an
+    unfinished review and could become the latest review result.
+    """
+    auxiliary = ReviewRunStore(str(tmp_path), kind="glossary-arbitration")
+    assert not Path(auxiliary.run_dir).name.startswith("review-")
+    auxiliary.start(
+        reviewed_content_digest="glossary-arbitration", metadata={"kind": "arbitration"}
+    )
+
+    review = ReviewRunStore(str(tmp_path))
+    assert Path(review.run_dir).name.startswith("review-")
+
+    listed = sorted(Path(tmp_path, "reviews").iterdir())
+    assert [path.name for path in listed if path.name.startswith("review-")] == [
+        Path(review.run_dir).name
+    ]
+
+
 def test_checkpoint_phase_fields_and_history_identity(tmp_path):
     store = ReviewRunStore(str(tmp_path))
     checkpoint = ReviewCheckpoint(store)

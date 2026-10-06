@@ -38,13 +38,20 @@ def require_file_storage(store: Storage) -> FileStorage:
 
 
 class _HttpError(Exception):
-    def __init__(self, status_code: int, *, headers: dict[str, str] | None = None):
+    def __init__(
+        self,
+        status_code: int,
+        *,
+        headers: dict[str, str] | None = None,
+        text: str = "",
+    ):
         super().__init__(f"HTTP {status_code}")
         self.status_code = status_code
         self.request_id = "req-test"
         self.response = SimpleNamespace(
             status_code=status_code,
             headers=headers or {},
+            text=text,
         )
 
 
@@ -105,6 +112,28 @@ def test_provider_balance_and_transient_stops_are_resumable_interrupts(status: i
 def test_insufficient_balance_message_is_resumable_without_status():
     assert is_resumable_provider_interrupt(RuntimeError("Insufficient Balance"))
     assert not is_resumable_provider_interrupt(ValueError("invalid review config"))
+
+
+def test_client_status_carrying_a_transient_upstream_failure_is_retryable():
+    """A gateway reports its own outage with 400; that must not end a long run."""
+    upstream = _HttpError(
+        400,
+        text=(
+            '{"error": {"type": "server_error", '
+            '"message": "Upstream request failed: Model is unavailable."}}'
+        ),
+    )
+    assert retry_reason(upstream) == "transient_upstream"
+    assert is_retryable_provider_error(upstream)
+    assert is_resumable_provider_interrupt(upstream)
+
+    # A genuine request error and an unknown model keep failing immediately.
+    assert not is_retryable_provider_error(
+        _HttpError(400, text='{"error": {"message": "Invalid value for temperature"}}')
+    )
+    assert not is_retryable_provider_error(
+        _HttpError(404, text='{"error": {"message": "The model does not exist"}}')
+    )
 
 
 def test_server_retry_override_takes_precedence_over_status():

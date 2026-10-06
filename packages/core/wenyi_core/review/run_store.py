@@ -13,20 +13,36 @@ from ..llm.usage import merge_usage_summaries
 from ..storage.artifacts import FileArtifacts
 from .models import review_candidate_id
 
+REVIEW_RUN_KIND = "review"
+# Services that reuse this store for their own trace records pass their own kind. The review
+# listing, the latest-result lookup and the resume scan all select on the review prefix, so a
+# run written under it would be listed as a review nobody finished and could become the
+# "latest review result" that chapter state and review reuse read.
+AUXILIARY_RUN_KINDS = ("glossary-arbitration", "evaluation-redo")
+# Every prefix this store may create under reviews/, for callers that validate run paths.
+RUN_DIR_PREFIXES = tuple(f"{kind}-" for kind in (REVIEW_RUN_KIND, *AUXILIARY_RUN_KINDS))
+
 
 class ReviewRunStore:
     """Manage results, events and round records for one read-only review."""
 
-    def __init__(self, book_run_dir: str, *, now: datetime | None = None, storage=None):
+    def __init__(
+        self,
+        book_run_dir: str,
+        *,
+        now: datetime | None = None,
+        storage=None,
+        kind: str = REVIEW_RUN_KIND,
+    ):
         moment = (now or datetime.now().astimezone()).astimezone()
         stamp = moment.strftime("%Y%m%d-%H%M%S-%f")
         self._storage = storage or FileArtifacts(book_run_dir)
         self._book_run_dir = book_run_dir
         review_root = os.path.join(book_run_dir, "reviews")
-        candidate = os.path.join(review_root, f"review-{stamp}")
+        candidate = os.path.join(review_root, f"{kind}-{stamp}")
         suffix = 1
         while self._storage.list_artifacts(f"reviews/{os.path.basename(candidate)}/"):
-            candidate = os.path.join(review_root, f"review-{stamp}-{suffix:02d}")
+            candidate = os.path.join(review_root, f"{kind}-{stamp}-{suffix:02d}")
             suffix += 1
         self._storage.write_artifact(
             f"reviews/{os.path.basename(candidate)}/created.json",

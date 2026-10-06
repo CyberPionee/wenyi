@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from ..llm.errors import operator_failure_message
 from ..review.conflicts import build_conflict_groups
 from ..review.run_store import ReviewRunStore
 from ..review.session import ReviewSessionState
@@ -292,7 +293,7 @@ def write_partial(
             state.latest.fallback_agent_count if state.latest is not None else 0
         ),
     }
-    error_payload = {"type": type(error).__name__, "message": str(error)}
+    error_payload = {"type": type(error).__name__, "message": operator_failure_message(error)}
     soft_findings = list(state.latest.soft_findings or []) if state.latest is not None else []
     debug.write_json("rounds/final/initial_issues.json", initial_issues)
     debug.write_json("rounds/final/dismissed_issues.json", dismissed)

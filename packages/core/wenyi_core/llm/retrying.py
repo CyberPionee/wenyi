@@ -22,10 +22,26 @@ from tenacity import (
 
 _LOGGER = logging.getLogger(__name__)
 _RETRYABLE_STATUS_CODES = {408, 409, 429}
+
 # Provider stops that should leave Review resumable even when automatic retry gives up.
 _RESUMABLE_INTERRUPT_STATUS_CODES = frozenset({402, 408, 409, 429})
 _MAX_WAIT_SECONDS = 30.0
 _FALLBACK_WAIT = wait_random_exponential(multiplier=1, max=_MAX_WAIT_SECONDS)
+
+# Gateways report their own outages with client-error statuses. Classifying those as permanent
+# ends a long run on a provider blip — one such response aborted a run seven hours in — so the
+# response body decides, not the status alone.
+_TRANSIENT_UPSTREAM_MARKERS = (
+    "server_error",
+    "model is unavailable",
+    "upstream request failed",
+    "upstream error",
+    "upstream connect error",
+    "temporarily unavailable",
+    "service unavailable",
+    "overloaded",
+    "try again later",
+)
 
 
 class EmptyResponseError(RuntimeError):
@@ -94,6 +110,30 @@ def _exception_chain(error: Any) -> Iterator[Any]:
 def _response(error: Any) -> Any:
     """Return the exception's HTTP response if present."""
     return getattr(error, "response", None)
+
+
+def is_transient_upstream(error: Any) -> bool:
+    """Return True when the response describes a transient upstream failure.
+
+    Gateways such as an OpenAI-compatible proxy answer with 400 while reporting that the
+    upstream model is momentarily unavailable, so the body is the only reliable signal.
+    Both retry and diagnostics read this, so a request that will be retried is never
+    reported as a configuration problem.
+    """
+    parts = [str(error)]
+    for item in _exception_chain(error):
+        parts.append(str(getattr(item, "body", "") or ""))
+        response = _response(item)
+        if response is None:
+            continue
+        try:
+            text = getattr(response, "text", "")
+        except Exception:  # a streamed or already-consumed body may be unreadable here
+            text = ""
+        if isinstance(text, str):
+            parts.append(text)
+    message = " ".join(parts).lower()
+    return any(marker in message for marker in _TRANSIENT_UPSTREAM_MARKERS)
 
 
 def _header(error: Any, name: str) -> str | None:
@@ -167,7 +207,8 @@ def retry_reason(error: Any, *, operation: str | None = None) -> str | None:
     if status_code is not None:
         if status_code in _RETRYABLE_STATUS_CODES or status_code >= 500:
             return f"http_{status_code}"
-        return None
+        # A client-error status carrying a transient upstream failure is still worth retrying.
+        return "transient_upstream" if is_transient_upstream(error) else None
 
     chain = list(_exception_chain(error))
     if any(isinstance(item, TruncatedResponseError) for item in chain):
@@ -387,6 +428,7 @@ __all__ = [
     "error_status_code",
     "is_resumable_provider_interrupt",
     "is_retryable_provider_error",
+    "is_transient_upstream",
     "provider_retry",
     "retry_reason",
     "wait_for_provider_retry",

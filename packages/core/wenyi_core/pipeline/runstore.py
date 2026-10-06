@@ -25,6 +25,7 @@ from typing import Any
 from ..i18n.languages import require_language
 from ..ingest.models import Chapter, Document
 from ..ingest.source_hash import source_sha256
+from ..review.run_store import RUN_DIR_PREFIXES
 from ..storage.artifacts import FileArtifacts
 from ..storage.locks import exclusive_file_lock
 from ..timing import save_timing
@@ -452,7 +453,7 @@ class RunStore(FileArtifacts):
         if relative != "usage.json" and not (
             len(parts) == 3
             and parts[0] == "reviews"
-            and parts[1].startswith("review-")
+            and parts[1].startswith(RUN_DIR_PREFIXES)
             and parts[2] == "usage.json"
         ):
             raise ValueError("Invalid usage journal destination")
