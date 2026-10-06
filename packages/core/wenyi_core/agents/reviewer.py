@@ -57,6 +57,13 @@ class Reviewer(Agent):
         """
         if not sources:
             return ReviewResult([], soft_findings=[])
+        # $n is the only per-call value in this system message, and the system message is the
+        # request's first block: it stops the provider from reusing the stable style, synopsis,
+        # digest and glossary prefix that follows it, which measured 1.9% cache hits over a
+        # 155-call review against 64-77% for the prompts whose system message is constant. Moving
+        # the count into the user message fixes that, but it also changes the review phase prompt
+        # fingerprint, and a completed whole-book review is reused and resumed on that
+        # fingerprint. Do it when no finished review is worth keeping.
         system = self.render("reviewer_system", src=self.src, tgt=self.tgt, n=len(sources))
         user = self.render(
             "reviewer_user",

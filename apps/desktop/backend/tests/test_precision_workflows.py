@@ -34,7 +34,13 @@ def test_precision_creation_translation_drafts_edit_and_export(desktop):  # noqa
     assert wait_job(dal.list_jobs(pid)[0]["run_id"])["status"] == "done"
     configured = client.put(
         root + "/config",
-        json={"yaml": "pipeline: {review: false, book_understanding: false}"},
+        json={
+            # The automatic revision loop is a separate feature with its own resume rules, pinned
+            # by test_evaluation_redo.py. This test pins that resuming an already translated
+            # precision book spends nothing, so it runs with that loop off: its fixture always
+            # fails the machine gate, which would otherwise start a repair round on the resume.
+            "yaml": "pipeline: {review: false, book_understanding: false, max_auto_redo_rounds: 0}"
+        },
     )
     assert configured.status_code == 200, configured.text
     pipeline = configured.json()["effective"]["pipeline"]
