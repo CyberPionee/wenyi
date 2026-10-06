@@ -222,6 +222,9 @@ const zhCN = {
   "glossary.deleted": "已删除",
   "glossary.conflictResolved": "已解决冲突",
   "glossary.conflictResolvedWithWriteback": "已解决冲突 · 已同步 {count} 处译文",
+  "glossary.conflictsKeptCurrent": "已为 {count} 个条目采用当前译名",
+  "glossary.conflictsKeptCurrentWithWriteback":
+    "已为 {count} 个条目采用当前译名 · 已同步 {segments} 处译文",
   "glossary.selectedTermsDeleted": "批量删除完成",
   "glossary.couldNotDeleteSelectedTerms": "批量删除失败",
   "glossary.manageNamesAppellationsAndFixedExpressionsAnd":
@@ -246,6 +249,7 @@ const zhCN = {
   "glossary.current": "当前：",
   "glossary.aiSuggestion": "AI 提议：",
   "glossary.keepCurrent": "采纳当前",
+  "glossary.keepAllCurrent": "全部采用当前",
   "glossary.acceptSuggestion": "采纳提议",
   "glossary.added": "已添加",
   "glossary.couldNotAddTerm": "添加失败：{error}",
@@ -587,6 +591,13 @@ const zhCN = {
   "settings.tuningConfigOnly":
     "其中 {count} 个在本页没有输入控件，仅在 config.yaml 中可钉。",
   "settings.tuningAutoManaged": "由系统自适应 · 当前生效值 {value}",
+  "settings.qualityPasses": "译后质量精修",
+  "settings.qualityPassesAuto": "自适应（按档位与风险）",
+  "settings.qualityPassesFull": "全量（所有 pass、所有章节）",
+  "settings.qualityPassesManual": "手动开关",
+  "settings.qualityPassesOff": "关闭",
+  "settings.qualityPassesHelp":
+    "自适应按自治档位决定跑哪些 pass，且只作用于确定性检查命中的章节；全量不看档位；手动模式下才显示下面的开关。",
   "settings.tuningEnabled": "启用",
   "settings.tuningDisabled": "停用",
   "settings.tuningHandsOn": "你只需要管这几个",
@@ -723,6 +734,8 @@ const zhCN = {
   "workflow.styleAnalysis": "风格与初始术语",
   "workflow.translate": "分批翻译章节",
   "workflow.terms": "实时术语提取",
+  "workflow.qualityPass": "译后质量精修",
+  "workflow.evaluation": "机器评测与验收",
   "workflow.report": "生成报告",
   "workflow.prepare": "原文与术语准备",
   "workflow.export": "导出译文",

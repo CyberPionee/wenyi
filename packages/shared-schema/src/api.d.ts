@@ -612,6 +612,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects/{pid}/glossary/conflicts/keep-current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Keep Current Conflicts
+         * @description Close every open conflict in favour of each term's established target.
+         *
+         *     A locked term's rows are already excluded from the open list, so this only settles
+         *     disagreements nobody has decided yet. Each settlement is an operator's decision, so it
+         *     locks the term and the same proposal cannot reopen a conflict later. Passages translated
+         *     with a rejected proposal are rewritten to the target that now stands.
+         */
+        post: operations["keep_current_conflicts_projects__pid__glossary_conflicts_keep_current_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/projects/{pid}/glossary/export": {
         parameters: {
             query?: never;
@@ -1180,6 +1205,24 @@ export interface components {
             /** Kind */
             kind: string;
         };
+        /**
+         * KeptCurrentConflicts
+         * @description Result of closing every open conflict in favour of the established target.
+         */
+        KeptCurrentConflicts: {
+            /** Message */
+            message: string;
+            /**
+             * Sources
+             * @default []
+             */
+            sources: string[];
+            /**
+             * Segments Replaced
+             * @default 0
+             */
+            segments_replaced: number;
+        };
         /** LanguageOption */
         LanguageOption: {
             /** Code */
@@ -1195,6 +1238,86 @@ export interface components {
             updated_at: string;
             /** Valid For Seconds */
             valid_for_seconds: number;
+        };
+        /** MachineGate */
+        MachineGate: {
+            /**
+             * Passed
+             * @default false
+             */
+            passed: boolean;
+            /**
+             * Blocking
+             * @default false
+             */
+            blocking: boolean;
+            /**
+             * L0 Passed
+             * @default true
+             */
+            l0_passed: boolean;
+            /**
+             * Bt Passed
+             * @default true
+             */
+            bt_passed: boolean;
+            /**
+             * Judge Passed
+             * @default true
+             */
+            judge_passed: boolean;
+            /**
+             * Bt Sample Count
+             * @default 0
+             */
+            bt_sample_count: number;
+            /**
+             * Bt Low Count
+             * @default 0
+             */
+            bt_low_count: number;
+            /**
+             * Judge Sample Count
+             * @default 0
+             */
+            judge_sample_count: number;
+            /** Judge Avg */
+            judge_avg?: number | null;
+            /**
+             * Judge Low Count
+             * @default 0
+             */
+            judge_low_count: number;
+            /**
+             * Empty Target Count
+             * @default 0
+             */
+            empty_target_count: number;
+            /**
+             * Open Conflict Count
+             * @default 0
+             */
+            open_conflict_count: number;
+            /**
+             * Residual Finding Count
+             * @default 0
+             */
+            residual_finding_count: number;
+            /**
+             * Open Issue Count
+             * @default 0
+             */
+            open_issue_count: number;
+            /**
+             * Bt Score Min
+             * @default 0.45
+             */
+            bt_score_min: number;
+            /**
+             * Judge Score Min
+             * @default 3.5
+             */
+            judge_score_min: number;
         };
         /** Message */
         Message: {
@@ -1421,6 +1544,11 @@ export interface components {
                 [key: string]: unknown;
             };
             auto_qa?: components["schemas"]["AutoQA"] | null;
+            machine_gate?: components["schemas"]["MachineGate"] | null;
+            /** Evaluation */
+            evaluation?: {
+                [key: string]: unknown;
+            } | null;
             /** Residual Findings */
             residual_findings?: {
                 [key: string]: unknown;
@@ -1766,6 +1894,10 @@ export interface components {
              * @default ok
              */
             status: string;
+            /** Writeback */
+            writeback?: {
+                [key: string]: unknown;
+            } | null;
         };
         /** UploadPreview */
         UploadPreview: {
@@ -3111,6 +3243,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Message"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    keep_current_conflicts_projects__pid__glossary_conflicts_keep_current_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KeptCurrentConflicts"];
                 };
             };
             /** @description Validation Error */

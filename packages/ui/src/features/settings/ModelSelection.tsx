@@ -36,6 +36,24 @@ export function ModelSelection({
     ["cheap", t("providerSettings.economyTier")],
     ["fast", t("providerSettings.fastTier")],
   ];
+  // An operation that inherits states no tier of its own; it routes with its ancestor's.
+  // Resolve the chain so the selector reflects the tier actually in effect.
+  const byId = new Map(
+    operations.map((operation) => [String(operation.id), operation]),
+  );
+  const effectiveTier = (operation: Document): string => {
+    let current: Document | undefined = operation;
+    const seen = new Set<string>();
+    while (current) {
+      const id = String(current.id);
+      if (seen.has(id)) break;
+      seen.add(id);
+      if (typeof current.tier === "string" && current.tier) return current.tier;
+      const parentId: string = current.inherits ? String(current.inherits) : "";
+      current = parentId ? byId.get(parentId) : undefined;
+    }
+    return "strong";
+  };
   return (
     <fieldset disabled={disabled} className="space-y-4 disabled:opacity-60">
       <div className="grid sm:grid-cols-3 gap-3">
@@ -70,9 +88,10 @@ export function ModelSelection({
           {operations.map((operation) => {
             const id = String(operation.id);
             const route = object(routes[id]);
+            const defaultTier = effectiveTier(operation);
             const value = route.model
               ? String(route.model)
-              : `tier:${route.tier || operation.tier}`;
+              : `tier:${route.tier || defaultTier}`;
             return (
               <div
                 key={id}
@@ -90,7 +109,7 @@ export function ModelSelection({
                   onValueChange={(selected) => {
                     const next = { ...routes };
                     if (
-                      selected === `tier:${operation.tier}` &&
+                      selected === `tier:${defaultTier}` &&
                       (!Array.isArray(route.fallbacks) ||
                         route.fallbacks.length === 0)
                     )

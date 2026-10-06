@@ -86,6 +86,10 @@ export function WorkflowSettings({
     ["review_autofix", tr("settings.applyAutofixesToTheSavedTranslation")],
     ["risk_back_translation", tr("settings.riskBackTranslation")],
     ["quality_judge", tr("settings.qualityJudge")],
+  ];
+  // The post-translation passes are decided by one knob; these switches only apply in its
+  // manual mode, so they stay out of the main list.
+  const QUALITY_PASSES: [string, string][] = [
     ["self_revision", tr("settings.selfRevision")],
     ["editorial_pass", tr("settings.editorialPass")],
     ["final_polish", tr("settings.finalPolish")],
@@ -216,6 +220,52 @@ export function WorkflowSettings({
                 </div>
               );
             })}
+          </div>
+          <div className="rounded-lg border p-3 space-y-3">
+            <div>
+              <Label htmlFor="quality-passes">
+                {tr("settings.qualityPasses")}
+              </Label>
+              <Select
+                id="quality-passes"
+                value={String(pipeline.quality_passes || "auto")}
+                onValueChange={(value) =>
+                  onField("pipeline", "quality_passes", value)
+                }
+                className="mt-2"
+              >
+                {["auto", "full", "manual", "off"].map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s === "auto"
+                      ? tr("settings.qualityPassesAuto")
+                      : s === "full"
+                        ? tr("settings.qualityPassesFull")
+                        : s === "manual"
+                          ? tr("settings.qualityPassesManual")
+                          : tr("settings.qualityPassesOff")}
+                  </SelectItem>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {tr("settings.qualityPassesHelp")}
+              </p>
+            </div>
+            {String(pipeline.quality_passes || "auto") === "manual" && (
+              <div className="grid sm:grid-cols-2 gap-3">
+                {QUALITY_PASSES.map(([key, label]) => (
+                  <label key={key} className="flex gap-2 items-center text-sm">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(pipeline[key])}
+                      onChange={(e) =>
+                        onField("pipeline", key, e.target.checked)
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
           <div className="grid sm:grid-cols-2 gap-3">
             <div>

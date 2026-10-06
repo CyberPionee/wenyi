@@ -148,6 +148,22 @@ export default function GlossaryPage() {
     },
     onError: (e) => toast.error(e.message),
   });
+  const keepCurrentAll = useMutation({
+    mutationFn: () => api.keepCurrentConflicts(pid),
+    onSuccess: (result) => {
+      invalidate();
+      const replaced = result.segments_replaced ?? 0;
+      toast.success(
+        replaced > 0
+          ? tr("glossary.conflictsKeptCurrentWithWriteback", {
+              count: result.sources.length,
+              segments: replaced,
+            })
+          : tr("glossary.conflictsKeptCurrent", { count: result.sources.length }),
+      );
+    },
+    onError: (e) => toast.error(e.message),
+  });
 
   // batch ops
   const batchDelete = useMutation({
@@ -428,8 +444,19 @@ export default function GlossaryPage() {
         {conflicts && conflicts.length > 0 && (
           <Card className="border-amber-300 bg-amber-50 dark:bg-amber-950/20">
             <CardContent className="p-4 space-y-2">
-              <div className="font-medium text-sm">
-                {tr("glossary.conflictCount", { count: conflicts.length })}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-sm">
+                  {tr("glossary.conflictCount", { count: conflicts.length })}
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="ml-auto"
+                  disabled={busy || keepCurrentAll.isPending}
+                  onClick={() => keepCurrentAll.mutate()}
+                >
+                  {tr("glossary.keepAllCurrent")}
+                </Button>
               </div>
               {conflicts.map((c) => (
                 <div

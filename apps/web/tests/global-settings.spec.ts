@@ -81,6 +81,15 @@ test("projects only select registered models and operation overrides", async ({
   expect(saved.effective.llm.routes).toEqual({
     "translation.body": { model: "editor", fallbacks: [] },
   });
+  // An operation that inherits its routing shows the tier in effect instead of an empty
+  // selector, and saving it back does not record a redundant override for that default.
+  await page
+    .locator("summary")
+    .filter({ hasText: "Models by operation" })
+    .click();
+  await expect(
+    page.getByLabel("Verify autofixes", { exact: true }),
+  ).toHaveText("Quality tier");
   await page.reload();
   await expect(page.getByLabel("Quality tier")).toHaveText("editor · second / editor-model");
   await page

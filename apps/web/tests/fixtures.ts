@@ -92,6 +92,18 @@ export const capabilities = {
       tier: "strong",
       description: "Translate paragraphs",
     },
+    // An inherited operation states no tier of its own, exactly as the registry does.
+    {
+      id: "review.verify",
+      tier: "strong",
+      description: "Verify issues with evidence",
+    },
+    {
+      id: "autofix.verify",
+      tier: null,
+      inherits: "review.verify",
+      description: "Verify issues before publication",
+    },
   ],
 };
 

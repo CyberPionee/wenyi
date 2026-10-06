@@ -227,6 +227,10 @@ const en = {
   "glossary.conflictResolved": "Conflict resolved",
   "glossary.conflictResolvedWithWriteback":
     "Conflict resolved · {count} translation(s) updated",
+  "glossary.conflictsKeptCurrent":
+    "Kept the current value for {count} term(s)",
+  "glossary.conflictsKeptCurrentWithWriteback":
+    "Kept the current value for {count} term(s) · {segments} translation(s) updated",
   "glossary.selectedTermsDeleted": "Selected terms deleted",
   "glossary.couldNotDeleteSelectedTerms": "Could not delete selected terms",
   "glossary.manageNamesAppellationsAndFixedExpressionsAnd":
@@ -253,6 +257,7 @@ const en = {
   "glossary.current": "Current:",
   "glossary.aiSuggestion": "AI suggestion:",
   "glossary.keepCurrent": "Keep current",
+  "glossary.keepAllCurrent": "Keep all current",
   "glossary.acceptSuggestion": "Accept suggestion",
   "glossary.added": "Added",
   "glossary.couldNotAddTerm": "Could not add term: {error}",
@@ -608,6 +613,13 @@ const en = {
   "settings.tuningConfigOnly":
     "{count} of those keys have no control on this form and can only be pinned in config.yaml.",
   "settings.tuningAutoManaged": "Managed by the system · {value}",
+  "settings.qualityPasses": "Post-translation passes",
+  "settings.qualityPassesAuto": "Adaptive (by tier and risk)",
+  "settings.qualityPassesFull": "Full (every pass, every chapter)",
+  "settings.qualityPassesManual": "Manual switches",
+  "settings.qualityPassesOff": "Off",
+  "settings.qualityPassesHelp":
+    "Adaptive derives the passes from the autonomy tier and applies them only to chapters whose deterministic checks found something; Full ignores the tier; the switches appear in manual mode.",
   "settings.tuningEnabled": "enabled",
   "settings.tuningDisabled": "disabled",
   "settings.tuningHandsOn": "What you normally change",
@@ -747,6 +759,8 @@ const en = {
   "workflow.styleAnalysis": "Style analysis & initial glossary",
   "workflow.translate": "Translate chapters in batches",
   "workflow.terms": "Extract terms",
+  "workflow.qualityPass": "Post-translation quality passes",
+  "workflow.evaluation": "Machine evaluation and acceptance",
   "workflow.report": "Generate report",
   "workflow.prepare": "Prepare source and glossary",
   "workflow.export": "Export translation",

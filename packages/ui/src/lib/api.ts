@@ -18,7 +18,7 @@ export type SegmentRevision = Output<"SegmentRevision">;
 export type PrecisionDrafts = Output<"PrecisionDraftsOut">;
 export interface GlossaryWriteback {
   source?: string;
-  old_target?: string;
+  old_targets?: string[];
   new_target?: string;
   segments_replaced?: number;
   chapters_touched?: number;
@@ -26,6 +26,7 @@ export interface GlossaryWriteback {
 }
 export type Term = Output<"TermOut"> & { writeback?: GlossaryWriteback | null };
 export type Conflict = Output<"ConflictOut">;
+export type KeptCurrentConflicts = Output<"KeptCurrentConflicts">;
 export type StrategyTemplate = Output<"StrategyTemplateOut">;
 export type ExportFormat = NonNullable<
   components["schemas"]["ExportRequest"]["format"]
@@ -292,6 +293,11 @@ export const api = {
     request<{ message: string; detail?: GlossaryWriteback | null }>(
       `/projects/${pid}/glossary/conflicts/${cid}/resolve`,
       { method: "POST", body: JSON.stringify(body) },
+    ),
+  keepCurrentConflicts: (pid: string) =>
+    request<KeptCurrentConflicts>(
+      `/projects/${pid}/glossary/conflicts/keep-current`,
+      { method: "POST" },
     ),
   exportGlossaryUrl: (pid: string, format: "json" | "csv") =>
     `${apiBase()}/projects/${pid}/glossary/export?format=${format}`,

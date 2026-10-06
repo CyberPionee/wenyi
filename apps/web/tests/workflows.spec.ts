@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 
+import { chooseOption } from "./select-helper";
 import {
   fakeApi,
   pid,
@@ -183,6 +184,42 @@ test("autofix defaults on in project settings and review sends no temporary over
     .getByRole("button", { name: "Run whole-book review", exact: true })
     .click();
   await expect.poll(() => request).toEqual({});
+});
+
+test("project settings decide the post-translation passes with one knob", async ({
+  page,
+}) => {
+  await fakeApi(page);
+  let saved = { ...effective, pipeline: { ...effective.pipeline } };
+  await page.route(`**/api/projects/${pid}/config`, async (r) => {
+    if (r.request().method() === "PUT")
+      saved = JSON.parse(r.request().postDataJSON().yaml);
+    await r.fulfill({
+      json: { ...configuration, effective: saved, yaml: JSON.stringify(saved) },
+    });
+  });
+  await page.goto(`/projects/${pid}/settings`);
+
+  // The mode owns the passes, so their individual switches stay out of the way.
+  const mode = page.getByLabel("Post-translation passes");
+  await expect(mode).toBeEnabled();
+  await expect(page.getByLabel("Self-revision notes (C-batch)")).toHaveCount(0);
+
+  await chooseOption(mode, "Manual switches");
+  await expect(page.getByLabel("Self-revision notes (C-batch)")).toBeVisible();
+  await page.getByLabel("Self-revision notes (C-batch)").check();
+  await page
+    .getByRole("button", { name: "Save configuration", exact: true })
+    .click();
+  await expect.poll(() => saved.pipeline.self_revision).toBe(true);
+
+  // Switching back to the derived mode hides them again without touching the stored switches.
+  await chooseOption(mode, "Adaptive (by tier and risk)");
+  await expect(page.getByLabel("Self-revision notes (C-batch)")).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Save configuration", exact: true })
+    .click();
+  await expect.poll(() => saved.pipeline.quality_passes).toBe("auto");
 });
 
 test("failed manual edit keeps the draft and does not show a success state", async ({
