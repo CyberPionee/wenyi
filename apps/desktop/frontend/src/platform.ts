@@ -14,6 +14,9 @@ const DesktopCredential = lazy(() =>
 );
 // Warm the credential chunk at startup so the settings page never waits on it.
 void loadDesktopCredential().catch(() => { /* The route retries when opened. */ });
+const DesktopUpdates = lazy(() =>
+  import("./DesktopUpdates").then((module) => ({ default: module.DesktopUpdates })),
+);
 
 const progressKeys: Record<string, string[]> = {
   progress: ["workflow"],
@@ -55,6 +58,7 @@ export function desktopPlatform(queryClient: QueryClient): PlatformServices {
     progressKeys: (kind) => progressKeys[kind] || ["workflow"],
     bindSourceDrop,
     capabilities: {
+      updates: { Section: DesktopUpdates },
       saveExport: saveNativeExport,
       credentials: {
         Field: DesktopCredential,
