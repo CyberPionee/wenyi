@@ -28,7 +28,7 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = self.render("self_revision_system", src=self.src, tgt=self.tgt, n=n)
+        system = self.render("self_revision_system", src=self.src, tgt=self.tgt)
         user = self.render(
             "self_revision_user",
             src=self.src,
@@ -82,7 +82,7 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = self.render("final_polish_system", src=self.src, tgt=self.tgt, n=n)
+        system = self.render("final_polish_system", src=self.src, tgt=self.tgt)
         user = self.render(
             "final_polish_user",
             src=self.src,
@@ -110,7 +110,7 @@ class QualityPassAgent(Agent):
         if not targets:
             return []
         n = len(targets)
-        system = self.render("chapter_selfcheck_system", src=self.src, tgt=self.tgt, n=n)
+        system = self.render("chapter_selfcheck_system", src=self.src, tgt=self.tgt)
         user = self.render(
             "chapter_selfcheck_user",
             src=self.src,

@@ -13,6 +13,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
+from ..glossary.store import GlossaryStore
 from ..i18n.languages import normalize_language
 from ..i18n.policy.models import Phase, content_hash
 from ..i18n.prompts import render
@@ -46,16 +47,6 @@ def _synopsis_complete(text: str) -> bool:
     if not cleaned:
         return False
     return cleaned[-1] in "。．.！？!?…”\"'」』）)]}"
-
-
-def _digest_complete(chapter: Chapter) -> bool:
-    """Reuse complete new digests and likely finished legacy digests."""
-    digest = chapter.meta.get("source_digest")
-    return bool(
-        isinstance(digest, str)
-        and digest.strip()
-        and (chapter.meta.get("source_digest_complete") is True or _synopsis_complete(digest))
-    )
 
 
 class PreparationService:
@@ -437,9 +428,11 @@ class PreparationService:
         return "\n\n".join(parts)
 
     # Book-understanding prescan: chapter digests and a whole-book synopsis.
-    # Version 3 embeds glossary-aware prompts; glossary_fp maps source→target at generation
-    # time so that modifying an existing translation patches the cached digest in place.
-    SOURCE_DIGEST_V = 3
+    # Version 4 scopes each chapter digest to the glossary terms that chapter's own text
+    # mentions and keys reuse on exactly that set, so editing one translation invalidates only
+    # the chapters that used it. Version 3 keyed every chapter to the whole glossary, so a
+    # single edit marked all of them stale and re-ran the entire book through the model.
+    SOURCE_DIGEST_V = 4
     BOOK_SYNOPSIS_V = 3
 
     @staticmethod
@@ -510,10 +503,20 @@ class PreparationService:
         return merged
 
     @staticmethod
+    def _chapter_source(chapter: Chapter) -> str:
+        """Return one chapter's source text: the corpus its digest is scoped to."""
+        return "\n".join(segment.source for segment in chapter.text_segments)
+
+    @staticmethod
     def _digest_is_current(meta: dict, glossary_fp: dict[str, str], policy: str) -> bool:
+        """Return whether a stored digest is reusable for one chapter.
+
+        ``glossary_fp`` is that chapter's own term set, not the whole glossary, so a term the
+        chapter never mentions cannot invalidate it.
+        """
         digest = meta.get("source_digest") or ""
         version = meta.get("source_digest_v", 1)
-        if not (str(digest).strip() and isinstance(version, int) and version >= 3):
+        if not (str(digest).strip() and isinstance(version, int) and version >= 4):
             return False
         stored = meta.get("source_digest_gf") or {}
         if not isinstance(stored, dict):
@@ -545,71 +548,6 @@ class PreparationService:
         recorded = analysis.get("book_synopsis_inputs")
         return not recorded or recorded == inputs
 
-    def _ensure_chapter_digests(
-        self,
-        store: Storage,
-        chapters: list[Chapter],
-        progress: ProgressFn | None,
-    ) -> list[str]:
-        """Prescan staged or initialized chapters and return digests in source order."""
-        # Digest chapters independently in a thread pool, but persist all results on the main thread
-        # to avoid competing atomic writes and preserve incremental chapter-level resume. Skip saved digests.
-        loaded = {chapter.index: chapter for chapter in chapters}
-        sources = {
-            ci: "\n".join(s.source for s in ch.text_segments)
-            for ci, ch in loaded.items()
-            if ch.text_segments
-        }
-        fingerprint = self._runtime.config.language_policy("analysis").task_fingerprint(
-            "chapter_digest"
-        )
-        todo = [
-            (ci, source)
-            for ci, source in sources.items()
-            if not _digest_complete(loaded[ci])
-            or loaded[ci].meta.get("source_digest_policy") != fingerprint
-        ]
-        failed: list[int] = []
-        if todo:
-            store.log_event(
-                "book_understanding_chapter_digest_started",
-                chapters=[ci for ci, _ in todo],
-                workers=max(1, self._runtime.config.pipeline.prescan_concurrency),
-            )
-            workers = max(1, self._runtime.config.pipeline.prescan_concurrency)
-            if progress:
-                progress(0, len(todo), "Prescanning chapter digests")
-            with ThreadPoolExecutor(max_workers=workers) as ex:
-                futs = {
-                    ex.submit(self._runtime.synopsizer.digest_chapter, src): ci for ci, src in todo
-                }
-                for n_done, fut in enumerate(as_completed(futs), 1):
-                    ci = futs[fut]
-                    digest = fut.result().strip()
-                    if digest:
-                        loaded[ci].meta["source_digest"] = digest
-                        loaded[ci].meta["source_digest_complete"] = True
-                        loaded[ci].meta["source_digest_policy"] = fingerprint
-                        store.save_chapter(loaded[ci])
-                        store.log_event(
-                            "book_understanding_chapter_digest_saved", chapter=ci, digest=digest
-                        )
-                    else:
-                        failed.append(ci)
-                        store.log_event("book_understanding_chapter_digest_failed", chapter=ci)
-                    if progress:
-                        progress(n_done, len(todo), "Prescanning chapter digests")
-
-        if failed:
-            indices = ", ".join(str(ci) for ci in sorted(failed))
-            raise ValueError(
-                f"Chapter digests could not be generated for chapters: {indices}. "
-                "Retry prepare/translate; completed digests have been saved."
-            )
-
-        # Assemble in manifest chapter order, independent of worker completion order.
-        return [loaded[ci].meta["source_digest"] for ci in sources]
-
     def ensure_understanding(
         self,
         store: Storage,
@@ -632,6 +570,15 @@ class PreparationService:
         loaded = {
             c.get("index", i): store.load_chapter(c.get("index", i)) for i, c in enumerate(chapters)
         }
+        # A chapter digest is shown only the terms its own text mentions, and reuse is keyed on
+        # exactly that set. Binding every digest to the whole glossary made one edited
+        # translation invalidate all of them at once.
+        chapter_sources = {ci: self._chapter_source(ch) for ci, ch in loaded.items()}
+        chapter_terms = {
+            ci: GlossaryStore.terms_in(glossary_terms, source)
+            for ci, source in chapter_sources.items()
+        }
+        chapter_fp = {ci: self._glossary_fp(terms) for ci, terms in chapter_terms.items()}
         # Digest and synopsis reuse need both identities: the glossary snapshot that steered the
         # text, and the prompt/rules revision that produced it.
         analysis_plan = self._runtime.config.language_policy("analysis")
@@ -645,18 +592,18 @@ class PreparationService:
             digest = meta.get("source_digest") or ""
             version = meta.get("source_digest_v", 1)
             stored = meta.get("source_digest_gf") or {}
-            if not (str(digest).strip() and isinstance(version, int) and version >= 3):
+            if not (str(digest).strip() and isinstance(version, int) and version >= 4):
                 continue
             if not isinstance(stored, dict) or not stored:
                 continue
-            edits = self._glossary_edits(stored, glossary_fp)
+            edits = self._glossary_edits(stored, chapter_fp[ci])
             if not edits:
                 continue
             patched_digest, applied = self._patch_text(str(digest), edits)
             if not applied:
                 continue
             meta["source_digest"] = patched_digest
-            meta["source_digest_gf"] = self._merge_glossary_fp(stored, glossary_fp, applied)
+            meta["source_digest_gf"] = self._merge_glossary_fp(stored, chapter_fp[ci], applied)
             store.save_chapter(ch)
             patched_any = True
             store.log_event(
@@ -674,9 +621,9 @@ class PreparationService:
 
         # Phase 2: generate missing or outdated digests.
         todo = [
-            (ci, "\n".join(s.source for s in ch.text_segments))
+            (ci, chapter_sources[ci])
             for ci, ch in loaded.items()
-            if not self._digest_is_current(ch.meta, glossary_fp, digest_policy)
+            if not self._digest_is_current(ch.meta, chapter_fp[ci], digest_policy)
         ]
         if todo:
             store.log_event(
@@ -689,7 +636,7 @@ class PreparationService:
                 progress(0, len(todo), "Prescanning chapter digests")
             with ThreadPoolExecutor(max_workers=workers) as ex:
                 futs = {
-                    ex.submit(self._runtime.synopsizer.digest_chapter, src, glossary_terms): ci
+                    ex.submit(self._runtime.synopsizer.digest_chapter, src, chapter_terms[ci]): ci
                     for ci, src in todo
                 }
                 for n_done, fut in enumerate(as_completed(futs), 1):
@@ -707,7 +654,7 @@ class PreparationService:
                         continue
                     loaded[ci].meta["source_digest"] = digest
                     loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
-                    loaded[ci].meta["source_digest_gf"] = glossary_fp
+                    loaded[ci].meta["source_digest_gf"] = chapter_fp[ci]
                     loaded[ci].meta["source_digest_policy"] = digest_policy
                     store.save_chapter(loaded[ci])
                     store.log_event(

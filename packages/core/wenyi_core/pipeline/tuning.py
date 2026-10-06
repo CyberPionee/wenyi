@@ -27,8 +27,13 @@ from ..config import Config, PipelineConfig
 
 AUTONOMY_TIERS = ("off", "speed", "standard", "precise")
 
-# The knobs a human owns: the dial plus two policies.
-POLICY_KEYS: tuple[str, ...] = ("autonomy_tier", "evaluation_enabled", "auto_qa_strict")
+# The knobs a human owns: the dial plus the policies it does not decide.
+POLICY_KEYS: tuple[str, ...] = (
+    "autonomy_tier",
+    "evaluation_enabled",
+    "auto_qa_strict",
+    "quality_passes",
+)
 
 # Resolved before the run starts, from the tier and the batch token budget.
 RUN_TUNED_KEYS: tuple[str, ...] = (
@@ -54,16 +59,22 @@ EVALUATION_TUNED_KEYS: tuple[str, ...] = (
 
 TUNED_KEYS: tuple[str, ...] = RUN_TUNED_KEYS + EVALUATION_TUNED_KEYS
 
-# Definitions and cost gates: documented, reported, but not tuned.
-FIXED_KEYS: tuple[str, ...] = (
-    "l2_min_consistency",
-    "glossary_always_types",
-    "glossary_always_min_occurrences",
+# The post-translation passes pipeline.quality_passes decides from the tier. Their individual
+# switches only apply in that knob's "manual" mode, because five independent booleans left the
+# dial unable to offset them: each pass costs about one model call per chapter.
+QUALITY_PASS_KEYS: tuple[str, ...] = (
     "self_revision",
     "editorial_pass",
     "final_polish",
     "chapter_selfcheck",
     "back_translation",
+)
+
+# Definitions and cost gates: documented, reported, but not tuned.
+FIXED_KEYS: tuple[str, ...] = (
+    "l2_min_consistency",
+    "glossary_always_types",
+    "glossary_always_min_occurrences",
     "quality_judge",
     "decision_anchors",
 )
@@ -151,6 +162,46 @@ _TIER_POLICY: Mapping[str, Mapping[str, Any]] = {
         "judge_floor_min": 4.0,
     },
 }
+
+# Coverage of a tier's quality passes: "risk" runs them only on chapters whose deterministic
+# scans found something, "all" runs them on every translated chapter.
+QUALITY_PASS_COVERAGE_ALL = "all"
+QUALITY_PASS_COVERAGE_RISK = "risk"
+
+# Which passes each tier turns on, and how much of the book they cover. self_revision rewrites
+# whole chapters like final polish, so only precise runs both; back_translation re-measures the
+# fidelity L1 already samples, so only precise repeats it there; editorial_pass is a single
+# whole-book call, so it rides along from standard up.
+_AUTO_QUALITY_PASSES: Mapping[str, tuple[frozenset[str], str]] = {
+    "off": (frozenset(), QUALITY_PASS_COVERAGE_ALL),
+    "speed": (frozenset({"chapter_selfcheck"}), QUALITY_PASS_COVERAGE_RISK),
+    "standard": (
+        frozenset({"chapter_selfcheck", "final_polish", "editorial_pass"}),
+        QUALITY_PASS_COVERAGE_RISK,
+    ),
+    "precise": (frozenset(QUALITY_PASS_KEYS), QUALITY_PASS_COVERAGE_ALL),
+}
+
+
+def quality_pass_plan(
+    mode: str, *, tier: str, configured: Mapping[str, object]
+) -> tuple[frozenset[str], str]:
+    """Return the passes to run and their coverage for the configured ``quality_passes`` mode.
+
+    ``auto`` derives both from the autonomy tier, ``full`` runs everything on every chapter,
+    ``off`` runs nothing, and ``manual`` keeps the individual switches exactly as written.
+    """
+    if mode == "off":
+        return frozenset(), QUALITY_PASS_COVERAGE_ALL
+    if mode == "full":
+        return frozenset(QUALITY_PASS_KEYS), QUALITY_PASS_COVERAGE_ALL
+    if mode == "manual":
+        return (
+            frozenset(key for key in QUALITY_PASS_KEYS if configured.get(key)),
+            QUALITY_PASS_COVERAGE_ALL,
+        )
+    return _AUTO_QUALITY_PASSES.get(tier, _AUTO_QUALITY_PASSES["standard"])
+
 
 # Runs needed before recorded scores may move a threshold at all.
 _MIN_HISTORY = 3
@@ -454,6 +505,19 @@ def describe_tuning(
         value = pipeline.get(key, defaults[key])
         source = SOURCE_PINNED if _is_pinned(pipeline, key, defaults) else SOURCE_DEFAULT
         items.append(TuningDecision(key, value, source, "operator policy"))
+    # The post-translation passes follow pipeline.quality_passes, so they are reported from that
+    # plan instead of as fixed defaults.
+    pass_mode = str(pipeline.get("quality_passes", defaults["quality_passes"]))
+    passes, coverage = quality_pass_plan(pass_mode, tier=evaluation["tier"], configured=pipeline)
+    for key in QUALITY_PASS_KEYS:
+        items.append(
+            TuningDecision(
+                key,
+                key in passes,
+                SOURCE_PINNED if pass_mode == "manual" else SOURCE_TIER,
+                f"quality_passes={pass_mode} ({coverage})",
+            )
+        )
     for key in FIXED_KEYS:
         items.append(
             TuningDecision(key, pipeline.get(key, defaults[key]), SOURCE_DEFAULT, "fixed default")

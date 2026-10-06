@@ -15,11 +15,13 @@ from wenyi_core.pipeline.tuning import (
     EVALUATION_TUNED_KEYS,
     FIXED_KEYS,
     POLICY_KEYS,
+    QUALITY_PASS_KEYS,
     TUNED_KEYS,
     describe_tuning,
     evaluation_policy,
     install_run_tuning,
     pipeline_defaults,
+    quality_pass_plan,
     run_tuning,
 )
 
@@ -101,6 +103,41 @@ class RunTuningTests(unittest.TestCase):
         self.assertEqual(tuned.pipeline.review_scope, "risk")
         self.assertEqual(tuned.pipeline.max_auto_redo_rounds, 1)
         self.assertEqual(config.pipeline.review_scope, "all")
+
+
+class QualityPassPlanTests(unittest.TestCase):
+    def test_auto_derives_the_passes_and_coverage_from_the_tier(self):
+        """One dial decides the post-translation passes, so they cannot outrun the tier."""
+        self.assertEqual(
+            quality_pass_plan("off", tier="precise", configured={}), (frozenset(), "all")
+        )
+        self.assertEqual(quality_pass_plan("auto", tier="off", configured={}), (frozenset(), "all"))
+        self.assertEqual(
+            quality_pass_plan("auto", tier="speed", configured={}),
+            (frozenset({"chapter_selfcheck"}), "risk"),
+        )
+        self.assertEqual(
+            quality_pass_plan("auto", tier="standard", configured={})[1],
+            "risk",
+        )
+        self.assertEqual(
+            quality_pass_plan("auto", tier="precise", configured={}),
+            (frozenset(QUALITY_PASS_KEYS), "all"),
+        )
+
+    def test_full_manual_and_off_override_the_derivation(self):
+        configured = {"final_polish": True, "back_translation": False}
+        self.assertEqual(
+            quality_pass_plan("full", tier="speed", configured=configured)[0],
+            frozenset(QUALITY_PASS_KEYS),
+        )
+        self.assertEqual(
+            quality_pass_plan("manual", tier="precise", configured=configured),
+            (frozenset({"final_polish"}), "all"),
+        )
+        self.assertEqual(
+            quality_pass_plan("off", tier="precise", configured=configured), (frozenset(), "all")
+        )
 
 
 class EvaluationPolicyTests(unittest.TestCase):
@@ -185,9 +222,10 @@ class DescribeTuningTests(unittest.TestCase):
         self.assertEqual(payload["mode"], "auto")
         self.assertEqual(payload["tier"], "precise")
         keys = [item["key"] for item in payload["items"]]
-        self.assertEqual(len(keys), len(POLICY_KEYS) + len(TUNED_KEYS) + len(FIXED_KEYS))
+        expected = POLICY_KEYS + TUNED_KEYS + FIXED_KEYS + QUALITY_PASS_KEYS
+        self.assertEqual(len(keys), len(expected))
         self.assertEqual(len(keys), len(set(keys)))
-        self.assertEqual(set(keys), set(POLICY_KEYS + TUNED_KEYS + FIXED_KEYS))
+        self.assertEqual(set(keys), set(expected))
         sources = {item["source"] for item in payload["items"]}
         self.assertTrue(sources <= {"pinned", "tier", "budget", "history", "default"})
         # The operator's dial leads the list; derived knobs follow.

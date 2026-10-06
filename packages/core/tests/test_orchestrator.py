@@ -1178,7 +1178,7 @@ class TestBookUnderstanding(unittest.TestCase):
             ]
             self.assertEqual(len(digest_calls), 1)
             self.assertEqual(len(synopsis_calls), 1)
-            self.assertEqual(store.load_chapter(0).meta.get("source_digest_v"), 3)
+            self.assertEqual(store.load_chapter(0).meta.get("source_digest_v"), 4)
             self.assertEqual((store.load_analysis() or {}).get("book_synopsis_v"), 3)
             self.assertNotEqual(store.load_chapter(0).meta.get("source_digest"), "旧梗概")
             translate_calls = [
@@ -1186,7 +1186,7 @@ class TestBookUnderstanding(unittest.TestCase):
             ]
             self.assertEqual(len(translate_calls), 0)
 
-            # v2 results are reused on the next pass.
+            # Reusable digests are reused on the next pass.
             again = FakeClient(handler=routing_handler)
             Orchestrator(cfg, client=again)._preparation.ensure_understanding(store)
             self.assertEqual(
@@ -1214,20 +1214,23 @@ class TestBookUnderstanding(unittest.TestCase):
             )
             # Digest keeps source identity in parentheses: target (source).
             chapter = store.load_chapter(0)
-            chapter.meta["source_digest"] = "Holden leaves Pencey (Pencey) after being expelled."
-            chapter.meta["source_digest_v"] = 3
-            chapter.meta["source_digest_gf"] = {"Pencey": "Pencey"}
+            chapter.meta["source_digest"] = "綾小路 waits by the window in 教室 (教室)."
+            chapter.meta["source_digest_v"] = 4
+            chapter.meta["source_digest_gf"] = {"教室": "教室"}
             store.save_chapter(chapter)
             analysis = store.load_analysis() or {}
-            analysis["book_synopsis"] = "The story begins at Pencey (Pencey)."
+            analysis["book_synopsis"] = "The story opens in a 教室 (教室)."
             analysis["book_synopsis_v"] = 3
-            analysis["book_synopsis_gf"] = {"Pencey": "Pencey"}
+            analysis["book_synopsis_gf"] = {"教室": "教室"}
             store.save_analysis(analysis)
 
             # Change the glossary target.
-            from wenyi_core.glossary.store import GlossaryTerm
+            from wenyi_core.glossary.store import MANUAL_STATUS, GlossaryTerm
 
-            store.upsert_term(GlossaryTerm(source="Pencey", target="彭西", type="place"))
+            store.upsert_term(GlossaryTerm(source="教室", target="教室", type="place"))
+            store.upsert_term(
+                GlossaryTerm(source="教室", target="课室", type="place", status=MANUAL_STATUS)
+            )
 
             client = FakeClient(handler=routing_handler)
             Orchestrator(cfg, client=client)._preparation.ensure_understanding(store)
@@ -1235,13 +1238,47 @@ class TestBookUnderstanding(unittest.TestCase):
             self.assertEqual(client.calls, [])
             self.assertEqual(
                 store.load_chapter(0).meta["source_digest"],
-                "Holden leaves 彭西 (Pencey) after being expelled.",
+                "綾小路 waits by the window in 课室 (教室).",
             )
-            self.assertIn("彭西 (Pencey)", (store.load_analysis() or {}).get("book_synopsis", ""))
+            self.assertIn("课室 (教室)", (store.load_analysis() or {}).get("book_synopsis", ""))
             self.assertEqual(
-                store.load_chapter(0).meta["source_digest_gf"].get("Pencey"),
-                "彭西",
+                store.load_chapter(0).meta["source_digest_gf"].get("教室"),
+                "课室",
             )
+            store.close()
+
+    def test_glossary_edit_only_invalidates_chapters_that_mention_it(self):
+        """A term one chapter never uses must not send that chapter back through the model."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _config(os.path.join(d, "state"))
+            cfg.pipeline.review = False
+            store = require_file_storage(
+                Orchestrator(cfg, client=FakeClient(handler=routing_handler)).run(txt)
+            )
+            # Each digest records the terms its own chapter mentions, not the whole glossary.
+            self.assertIn("綾小路", store.load_chapter(0).meta.get("source_digest_gf", {}))
+            self.assertNotIn("綾小路", store.load_chapter(1).meta.get("source_digest_gf", {}))
+
+            from wenyi_core.glossary.store import MANUAL_STATUS, GlossaryTerm
+
+            store.upsert_term(
+                GlossaryTerm(
+                    source="綾小路",
+                    target="绫小路二号",
+                    type="person",
+                    status=MANUAL_STATUS,
+                )
+            )
+
+            client = FakeClient(handler=routing_handler)
+            Orchestrator(cfg, client=client)._preparation.ensure_understanding(store)
+            regenerated = [
+                c for c in client.calls if "chapter digest writer" in c["messages"][0]["content"]
+            ]
+            self.assertEqual(len(regenerated), 1)
+            self.assertIn("綾小路", regenerated[0]["messages"][1]["content"])
             store.close()
 
     def test_glossary_edit_without_source_anchor_does_not_blind_replace(self):

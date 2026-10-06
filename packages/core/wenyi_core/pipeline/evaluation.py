@@ -9,9 +9,11 @@ for tests.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -555,12 +557,27 @@ class EvaluationService:
         terms: Sequence[Any] = (),
         back_translate: Callable[[list[str]], list[str]] | None = None,
         judge: Callable[[list[tuple[str, str]]], list[dict[str, Any]]] | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
+        sample_identity: Mapping[str, Any] | None = None,
     ) -> EvaluationResult:
         chapters = self.collect_chapters()
         risk = select_risk_segments(chapters, terms=terms, sample_ratio=self.risk_sample_ratio)
         result = EvaluationResult(risk_segments=risk, l0=dict(l0))
+        sample_back_translation = self.risk_back_translation and back_translate is not None
+        sample_judge = self.quality_judge and judge is not None
+        # Translation already reported its own completion, so the acceptance work reports too:
+        # otherwise a run still evaluating and repairing looks finished.
+        total = 2 + int(sample_back_translation) + int(sample_judge)
+        done = 0
+
+        def report(label: str) -> None:
+            if progress is not None:
+                progress(done, total, f"Machine evaluation · {label}")
+
+        report("glossary consistency")
         # L2 is deterministic and cheap: always measure the real glossary coverage.
         result.l2 = scan_term_consistency(chapters, terms)
+        done += 1
         # Keep chapter/segment identity so failing items can be routed back for repair.
         by_key = {
             (c.index, s.index): (c.index, s.index, s.source, s.target or "")
@@ -578,18 +595,37 @@ class EvaluationService:
             located = by_key.get((item.chapter, item.index))
             if located is not None:
                 pairs.append(located)
-        if pairs and self.risk_back_translation and back_translate is not None:
-            targets = [target for _c, _i, _s, target in pairs]
-            backs = back_translate(targets)
-            result.back_translation = score_back_translations(pairs, backs)
+        # Re-entering the report step must not pay for the same samples again, so the results are
+        # cached against the sampled text and whatever the caller says binds them (style, model).
+        fingerprint = (
+            self._sample_fingerprint(pairs, sample_identity)
+            if sample_identity is not None and pairs
+            else ""
+        )
+        cached = self._read_samples(fingerprint)
+        sampled_fresh = False
+
+        if pairs and sample_back_translation:
+            report(f"back-translation sample · {len(pairs)} paragraph(s)")
+            if isinstance((cached or {}).get("back_translation"), list):
+                result.back_translation = [dict(item) for item in cached["back_translation"]]
+            else:
+                targets = [target for _c, _i, _s, target in pairs]
+                backs = back_translate(targets)
+                result.back_translation = score_back_translations(pairs, backs)
+                sampled_fresh = True
+            done += 1
 
         judge_pairs: list[tuple[int, int, str, str]] = []
-        if self.quality_judge and judge is not None:
+        if sample_judge:
+            report("quality judge")
             step = max(1, int(1 / self.judge_sample_ratio)) if self.judge_sample_ratio > 0 else 1
             for position, pair in enumerate(pairs):
                 if position % step == 0:
                     judge_pairs.append(pair)
-            if judge_pairs:
+            if isinstance((cached or {}).get("judge_scores"), list):
+                result.judge_scores = [dict(item) for item in cached["judge_scores"]]
+            elif judge_pairs:
                 scored = judge([(source, target) for _c, _i, source, target in judge_pairs])
                 located_scores: list[dict[str, Any]] = []
                 for (chapter, index, _source, _target), item in zip(judge_pairs, scored):
@@ -598,7 +634,12 @@ class EvaluationService:
                     record.setdefault("index", index)
                     located_scores.append(record)
                 result.judge_scores = located_scores
+                sampled_fresh = True
+            done += 1
+        if sampled_fresh and fingerprint:
+            self._write_samples(fingerprint, result)
 
+        report("acceptance gate")
         result.machine_gate = build_machine_gate(
             l0=l0,
             back_translation=result.back_translation,
@@ -609,4 +650,45 @@ class EvaluationService:
             l2_min_consistency=self.l2_min_consistency,
             block_on_l0_only=self.block_on_l0_only,
         )
+        done += 1
+        report("complete")
         return result
+
+    # -- sample cache -------------------------------------------------------
+
+    _SAMPLE_CACHE_KEY = "evaluation/samples.json"
+
+    def _sample_fingerprint(
+        self, pairs: Sequence[tuple[int, int, str, str]], identity: Mapping[str, Any]
+    ) -> str:
+        """Bind cached sample results to the sampled text and the caller's binding material."""
+        material = json.dumps(
+            {
+                "pairs": [list(pair) for pair in pairs],
+                "identity": dict(identity),
+                "judge_sample_ratio": self.judge_sample_ratio,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    def _read_samples(self, fingerprint: str) -> dict[str, Any] | None:
+        """Return cached sample results only while they describe this exact sampling."""
+        if not fingerprint:
+            return None
+        cached = self.store.read_artifact(self._SAMPLE_CACHE_KEY)
+        if not isinstance(cached, dict) or cached.get("fingerprint") != fingerprint:
+            return None
+        return cached
+
+    def _write_samples(self, fingerprint: str, result: EvaluationResult) -> None:
+        """Record the sample results so a repeated report step reuses them."""
+        self.store.write_artifact(
+            self._SAMPLE_CACHE_KEY,
+            {
+                "fingerprint": fingerprint,
+                "back_translation": [dict(item) for item in result.back_translation],
+                "judge_scores": [dict(item) for item in result.judge_scores],
+            },
+        )

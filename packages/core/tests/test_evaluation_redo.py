@@ -12,6 +12,7 @@ from wenyi_core.config import Config
 from wenyi_core.glossary.store import GlossaryTerm
 from wenyi_core.ingest.models import Chapter, Document, Segment
 from wenyi_core.pipeline.evaluation_redo import EvaluationRedoService
+from wenyi_core.pipeline.finalization import ReportService
 from wenyi_core.pipeline.runtime import PipelineRuntime
 from wenyi_core.storage.file import FileStorage
 
@@ -114,6 +115,132 @@ def _confirming_handler(messages, tier, json_mode):
             ensure_ascii=False,
         )
     return routing_handler(messages, tier, json_mode)
+
+
+def _dismissing_handler(messages, tier, json_mode):
+    """Reject every agent candidate, so the round verifies and publishes nothing."""
+    system = messages[0]["content"]
+    user = messages[-1]["content"]
+    if "evidence-based review agent" in system:
+        ids = re.findall(r'"candidate_id"\s*:\s*"([^"]*)"', user)
+        decisions = [
+            {
+                "candidate_id": cid,
+                "verdict": "dismissed",
+                "detail": "译文无误",
+                "suggestion": "",
+                "reason": "原文此处本就没有术语漂移",
+                "consistency": {},
+                "evidence_refs": [],
+            }
+            for cid in ids
+        ]
+        return json.dumps(
+            {"action": "final", "decisions": decisions, "new_issues": [], "complete": True},
+            ensure_ascii=False,
+        )
+    return routing_handler(messages, tier, json_mode)
+
+
+class RedoBudgetTests(unittest.TestCase):
+    def test_spent_redo_rounds_survive_a_rerun(self):
+        """A paused report step continues its remaining rounds instead of restarting the budget."""
+        with tempfile.TemporaryDirectory() as d:
+            store = _store(d)
+            try:
+                manifest = store.load_manifest()
+                for row in manifest["chapters"]:
+                    row["status"] = "done"
+                store.save_manifest(manifest)
+                config = _config(os.path.join(d, "state"))
+                config.pipeline.max_auto_redo_rounds = 1
+                service = ReportService(PipelineRuntime(config, client=FakeClient(routing_handler)))
+                identity = service._redo_identity(
+                    store.load_manifest(),
+                    max_rounds=1,
+                    tier=config.pipeline.autonomy_tier,
+                )
+                service._record_redo_rounds(store, identity, 1)
+
+                service.build_and_save(store, store)
+
+                # The budget for this source was already spent, so nothing ran again.
+                self.assertEqual(store.list_events(event_type="evaluation_redo_round"), [])
+                exhausted = store.list_events(event_type="evaluation_redo_exhausted")
+                self.assertEqual(len(exhausted), 1)
+                self.assertEqual(exhausted[0]["rounds"], 1)
+                self.assertEqual(exhausted[0]["max_rounds"], 1)
+            finally:
+                store.close()
+
+    def test_a_fruitless_round_closes_the_budget(self):
+        """A round that dismissed every candidate must not let a later run start the next one.
+
+        The verifier judged text that has not changed, so a resume can only reach the same
+        verdict. Recording only the round just spent let it start the next round and pay for a
+        decision already made.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            store = _store(d)
+            try:
+                manifest = store.load_manifest()
+                for row in manifest["chapters"]:
+                    row["status"] = "done"
+                store.save_manifest(manifest)
+                config = _config(os.path.join(d, "state"))
+                config.pipeline.max_auto_redo_rounds = 2
+                service = ReportService(
+                    PipelineRuntime(config, client=FakeClient(_dismissing_handler))
+                )
+
+                service.build_and_save(store, store)
+                rounds = store.list_events(event_type="evaluation_redo_round")
+                self.assertEqual([row["round"] for row in rounds], [1])
+                self.assertEqual({row["published_segment_count"] for row in rounds}, {0})
+                self.assertEqual({row["failed_issue_count"] for row in rounds}, {0})
+
+                service.build_and_save(store, store)
+                self.assertEqual(
+                    [row["round"] for row in store.list_events(event_type="evaluation_redo_round")],
+                    [1],
+                )
+                exhausted = store.list_events(event_type="evaluation_redo_exhausted")
+                self.assertEqual(len(exhausted), 1)
+                self.assertEqual(exhausted[0]["max_rounds"], 2)
+            finally:
+                store.close()
+
+    def test_a_failed_round_leaves_the_budget_for_a_retry(self):
+        """A round whose verification failed is a model failure, not a decision about the text.
+
+        Closing the budget on it would make one transient agent failure burn every remaining
+        repair round for that source.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            store = _store(d)
+            try:
+                manifest = store.load_manifest()
+                for row in manifest["chapters"]:
+                    row["status"] = "done"
+                store.save_manifest(manifest)
+                config = _config(os.path.join(d, "state"))
+                config.pipeline.max_auto_redo_rounds = 2
+                service = ReportService(PipelineRuntime(config, client=FakeClient(routing_handler)))
+
+                service.build_and_save(store, store)
+                rounds = store.list_events(event_type="evaluation_redo_round")
+                self.assertEqual([row["round"] for row in rounds], [1])
+                self.assertEqual({row["published_segment_count"] for row in rounds}, {0})
+                self.assertEqual({row["failed_issue_count"] for row in rounds}, {1})
+                self.assertEqual(store.list_events(event_type="evaluation_redo_exhausted"), [])
+
+                service.build_and_save(store, store)
+                self.assertEqual(
+                    [row["round"] for row in store.list_events(event_type="evaluation_redo_round")],
+                    [1, 2],
+                )
+            finally:
+                store.close()
 
 
 class RedoCandidateTests(unittest.TestCase):

@@ -10,7 +10,9 @@ lock to serialize output writers.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import hashlib
+import json
+from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -43,9 +45,11 @@ class ReportService:
         glossary: Storage | GlossaryStore,
         *,
         strict: bool,
+        progress: ProgressFn | None = None,
     ) -> tuple[dict[str, Any], Any]:
         """Run one L0-L3 evaluation pass and return its payload plus the result object."""
         from ..assemble.report import build_report
+        from ..llm.routing import inference_snapshot
         from .evaluation import EvaluationService
         from .tuning import describe_tuning, evaluation_policy, history_entries
 
@@ -69,11 +73,12 @@ class ReportService:
         terms = glossary.all_terms() if hasattr(glossary, "all_terms") else []
         agent = self._runtime.quality_pass
 
+        style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
+
         def _back(targets: list[str]) -> list[str]:
             return agent.back_translate(targets)
 
         def _judge(pairs: list[tuple[str, str]]) -> list[dict[str, Any]]:
-            style = self._runtime.analyzer.style_brief(store.load_analysis() or {})
             first = agent.quality_judge(pairs, style=style)
             if not bool(getattr(pipeline, "quality_judge_dual", False)):
                 return first
@@ -100,6 +105,16 @@ class ReportService:
             terms=terms,
             back_translate=_back if pipeline.risk_back_translation else None,
             judge=_judge if pipeline.quality_judge else None,
+            progress=progress,
+            # Bind the cached sample results to the style brief and the models that scored them,
+            # so a repeated report step reuses them without hiding a real change.
+            sample_identity={
+                "style": style,
+                "inference": inference_snapshot(
+                    self._runtime.llm_config,
+                    ("quality.back_translation", "quality.judge"),
+                ),
+            },
         )
         payload = evaluation.to_dict()
         payload["tuning"] = describe_tuning(
@@ -172,7 +187,9 @@ class ReportService:
         if getattr(pipeline, "evaluation_enabled", True):
             if progress:
                 progress(0, 0, "Running machine evaluation…")
-            evaluation_payload, evaluation = self._run_evaluation(store, glossary, strict=strict)
+            evaluation_payload, evaluation = self._run_evaluation(
+                store, glossary, strict=strict, progress=progress
+            )
             # Autonomous redo: repair failing findings through the Autofix channel and
             # re-evaluate. Publishes only when review_autofix is allowed; otherwise the
             # gate just reports.
@@ -183,29 +200,52 @@ class ReportService:
                 and evaluation_payload.get("machine_gate", {}).get("passed") is False
             ):
                 redo = EvaluationRedoService(self._runtime)
-                for round_number in range(1, max_rounds + 1):
+                identity = self._redo_identity(
+                    store.load_manifest(), max_rounds=max_rounds, tier=pipeline.autonomy_tier
+                )
+                # Rounds already spent on this source are not refunded by a resume.
+                spent = self._redo_rounds_spent(store, identity)
+                redo_summary["rounds"] = spent
+                if spent >= max_rounds:
+                    store.log_event(
+                        "evaluation_redo_exhausted", rounds=spent, max_rounds=max_rounds
+                    )
+                for round_number in range(spent + 1, max_rounds + 1):
                     if progress:
-                        progress(0, 0, f"Automatic revision round {round_number}")
+                        progress(0, 0, f"Automatic revision round {round_number}/{max_rounds}")
                     summary = redo.repair_once(store, evaluation_payload, progress=progress)
                     redo_summary["rounds"] = round_number
                     redo_summary["published_segment_count"] += int(
                         summary.get("published_segment_count") or 0
                     )
+                    self._record_redo_rounds(store, identity, round_number)
                     store.log_event(
                         "evaluation_redo_round",
                         round=round_number,
                         **{key: value for key, value in summary.items() if key != "reason"},
                     )
                     if summary.get("published_segment_count", 0) == 0:
+                        # Nothing published means the gate cannot improve, so this run's loop
+                        # stops either way. Only a round that verified every candidate and
+                        # dismissed them all closes the budget across runs: it judged text that
+                        # has not changed, so a resume can only repeat the same verdict. A round
+                        # whose verification or fixing failed published nothing for a different
+                        # reason — a model failure — and a resume must stay free to retry it.
+                        if not summary.get("failed_issue_count", 0):
+                            self._record_redo_rounds(store, identity, max_rounds)
                         break
                     evaluation_payload, evaluation = self._run_evaluation(
-                        store, glossary, strict=strict
+                        store, glossary, strict=strict, progress=progress
                     )
                     if evaluation_payload.get("machine_gate", {}).get("passed"):
                         break
+                if evaluation_payload.get("machine_gate", {}).get("passed"):
+                    # A clean gate restores the budget for whatever fails next.
+                    self._record_redo_rounds(store, identity, 0)
                 store.log_event(
                     "evaluation_redo_finished",
                     rounds=redo_summary["rounds"],
+                    spent_before_entry=spent,
                     published_segment_count=redo_summary["published_segment_count"],
                     passed=bool(evaluation_payload.get("machine_gate", {}).get("passed")),
                 )
@@ -232,6 +272,28 @@ class ReportService:
             open_issue_count=int(auto_qa.get("open_issue_count") or 0),
         )
         return report
+
+    _REDO_KEY = "evaluation/redo.json"
+
+    @staticmethod
+    def _redo_identity(manifest: Mapping[str, Any], *, max_rounds: int, tier: str) -> str:
+        """Bind the redo budget to the source and the dial, so a repair never refunds it."""
+        material = json.dumps(
+            {"source": manifest.get("source_sha256"), "max_rounds": max_rounds, "tier": tier},
+            sort_keys=True,
+        )
+        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+    def _redo_rounds_spent(self, store: Storage, identity: str) -> int:
+        """Return how many automatic revision rounds this source already spent."""
+        record = store.read_artifact(self._REDO_KEY)
+        if not isinstance(record, dict) or record.get("identity") != identity:
+            return 0
+        rounds = record.get("rounds")
+        return rounds if isinstance(rounds, int) and rounds > 0 else 0
+
+    def _record_redo_rounds(self, store: Storage, identity: str, rounds: int) -> None:
+        store.write_artifact(self._REDO_KEY, {"identity": identity, "rounds": rounds})
 
 
 class AssemblyService:

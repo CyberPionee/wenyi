@@ -87,7 +87,7 @@ class EvaluationRedoService:
         ]
         analysis = store.load_analysis() or {}
         all_terms = store.all_terms() if hasattr(store, "all_terms") else []
-        debug = ReviewRunStore(store.run_dir, storage=store)
+        debug = ReviewRunStore(store.run_dir, storage=store, kind="evaluation-redo")
         debug.start(
             reviewed_content_digest="evaluation-redo",
             metadata={"kind": "evaluation_redo", "issue_count": len(issues)},

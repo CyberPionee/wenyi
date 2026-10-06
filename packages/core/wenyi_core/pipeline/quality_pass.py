@@ -31,15 +31,14 @@ class QualityPassService:
     ) -> dict[str, Any]:
         """Execute every enabled quality pass; never write chapter targets."""
         cfg = self._runtime.config.pipeline
-        enabled = {
-            "self_revision": cfg.self_revision,
-            "editorial_pass": cfg.editorial_pass,
-            "final_polish": cfg.final_polish,
-            "chapter_selfcheck": cfg.chapter_selfcheck,
-            "back_translation": cfg.back_translation,
-        }
-        if not any(enabled.values()):
+        from .tuning import QUALITY_PASS_KEYS, quality_pass_plan
+
+        passes, coverage = quality_pass_plan(
+            cfg.quality_passes, tier=cfg.autonomy_tier, configured=cfg.model_dump()
+        )
+        if not passes:
             return {}
+        enabled = {key: key in passes for key in QUALITY_PASS_KEYS}
         manifest = store.load_manifest()
         chapters = [
             store.load_chapter(row["index"])
@@ -53,12 +52,66 @@ class QualityPassService:
         result: dict[str, Any] = {}
         agent = self._runtime.quality_pass
 
+        # These passes run after translation, where the only other progress signal is the word
+        # count translation already saturated, so every step reports its own position.
+        staged = [
+            (key, label)
+            for key, label in (
+                ("self_revision", "self revision"),
+                ("final_polish", "final polish"),
+                ("chapter_selfcheck", "chapter self-check"),
+                ("back_translation", "back-translation"),
+            )
+            if enabled[key]
+        ]
+        active = [
+            chapter
+            for chapter in chapters
+            if any((segment.target or "").strip() for segment in chapter.text_segments)
+        ]
+        if coverage == "risk" and active:
+            # Deterministic scans decide which chapters deserve the expensive passes; a chapter
+            # no scan flagged keeps its translation as it stands.
+            from .evaluation import select_risk_segments
+
+            flagged = {
+                item.chapter for item in select_risk_segments(active, terms=terms, sample_ratio=0.0)
+            }
+            active = [chapter for chapter in active if chapter.index in flagged]
+        # A pass that already produced its notes is not repeated. "auto" turns passes on by
+        # default, so a resumed or repeated run must not spend their calls again.
+        recorded = {
+            str(index): {key for key in value if isinstance(key, str)}
+            for index, value in (analysis.get("quality_pass_done") or {}).items()
+            if isinstance(value, list)
+        }
+        work = [
+            (
+                chapter,
+                [
+                    key
+                    for key, _label in staged
+                    if key not in recorded.get(str(chapter.index), set())
+                ],
+            )
+            for chapter in active
+        ]
+        work = [(chapter, keys) for chapter, keys in work if keys]
+        editorial_pending = enabled["editorial_pass"] and "editorial_pass" not in recorded
+        total = sum(len(keys) for _chapter, keys in work) + (1 if editorial_pending else 0)
+        done = 0
+
+        def report(label: str) -> None:
+            if progress is not None:
+                progress(done, total, label)
+
         sampled_pairs: list[tuple[str, str]] = []
         chapter_notes: list[dict[str, Any]] = []
         revision_notes: list[dict[str, Any]] = []
         polish_notes: list[dict[str, Any]] = []
         back_notes: list[dict[str, Any]] = []
-        for chapter in chapters:
+        for position, (chapter, pending) in enumerate(work, start=1):
+            where = f" · chapter {position}/{len(work)}"
             text_segments = list(chapter.text_segments)
             segments = [s for s in text_segments if (s.target or "").strip()]
             if not segments:
@@ -68,7 +121,8 @@ class QualityPassService:
             sources = [s.source for s in segments]
             targets = [s.target or "" for s in segments]
             sampled_pairs.extend(list(zip(sources, targets))[:8])
-            if cfg.self_revision:
+            if "self_revision" in pending:
+                report(f"Quality pass · self revision{where}")
                 revised = agent.self_revise(sources, targets, style=style, glossary_terms=terms)
                 for index, (before, after) in enumerate(zip(targets, revised)):
                     if after != before:
@@ -79,7 +133,9 @@ class QualityPassService:
                                 "suggested": after,
                             }
                         )
-            if cfg.final_polish:
+                done += 1
+            if "final_polish" in pending:
+                report(f"Quality pass · final polish{where}")
                 polished = agent.final_polish(targets, style=style, glossary_terms=terms)
                 for index, (before, after) in enumerate(zip(targets, polished)):
                     if after != before:
@@ -90,7 +146,9 @@ class QualityPassService:
                                 "suggested": after,
                             }
                         )
-            if cfg.chapter_selfcheck:
+                done += 1
+            if "chapter_selfcheck" in pending:
+                report(f"Quality pass · chapter self-check{where}")
                 for finding in agent.chapter_selfcheck(sources, targets, glossary_terms=terms):
                     finding = dict(finding)
                     finding["chapter"] = chapter.index
@@ -100,7 +158,9 @@ class QualityPassService:
                     else:
                         finding.pop("index", None)
                     chapter_notes.append(finding)
-            if cfg.back_translation:
+                done += 1
+            if "back_translation" in pending:
+                report(f"Quality pass · back-translation{where}")
                 backs = agent.back_translate(targets[:4])
                 from .evaluation import back_translation_similarity
 
@@ -116,10 +176,15 @@ class QualityPassService:
                             "score": round(back_translation_similarity(source, back), 4),
                         }
                     )
-        if cfg.editorial_pass:
+                done += 1
+            recorded[str(chapter.index)] = recorded.get(str(chapter.index), set()) | set(pending)
+        if editorial_pending:
+            report("Quality pass · editorial notes")
             result["editorial_notes"] = agent.editorial_notes(
                 sampled_pairs[:24], style=style, book_synopsis=book_synopsis
             )
+            recorded["editorial_pass"] = {"editorial_pass"}
+            done += 1
         if revision_notes:
             result["self_revision_notes"] = revision_notes
         if polish_notes:
@@ -128,12 +193,21 @@ class QualityPassService:
             result["chapter_selfcheck_findings"] = chapter_notes
         if back_notes:
             result["back_translation_notes"] = back_notes
+        # The checkpoint is written even when no pass produced a note: otherwise a repeated run
+        # would pay for every pass again, which is what "auto" turns on by default.
+        analysis = store.load_analysis() or {}
+        checkpoint = {key: sorted(value) for key, value in recorded.items() if value}
+        if checkpoint:
+            analysis["quality_pass_done"] = checkpoint
         if result:
-            analysis = store.load_analysis() or {}
             analysis["quality_pass"] = result
+        if checkpoint or result:
             store.save_analysis(analysis)
             store.log_event(
                 "quality_pass_finished",
+                mode=cfg.quality_passes,
+                coverage=coverage,
+                chapters=len(work),
                 enabled={key: value for key, value in enabled.items() if value},
                 counts={
                     key: len(value) if isinstance(value, list) else 1
@@ -145,4 +219,6 @@ class QualityPassService:
             from .decision_anchors import update_decision_anchors
 
             update_decision_anchors(store, mode=mode)
+        # Reported last so a pause requested during the final pass cannot lose the recorded notes.
+        report("Quality pass complete")
         return result

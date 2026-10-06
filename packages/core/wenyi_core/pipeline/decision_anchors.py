@@ -14,7 +14,12 @@ from typing import Any
 from ..storage.protocol import Storage
 
 _ADDRESS_RE = re.compile(r"(先生|小姐|女士|大人|老师|阁下|桑|様|さま|君|ちゃん|さん)")
-_NAME_RE = re.compile(r"[一-鿿]{2,3}|[A-Z][a-zA-Z\-']{2,}")
+# Latin names are recognisable from the text itself. CJK ones are not: without an alignment
+# between the source and target there is no way to tell which run of characters in the target
+# renders which name, and matching any 2-3 CJK characters reported the opening words of a
+# copyright page as name preferences. Curated CJK names live in the glossary, which already
+# reaches the translation prompt.
+_NAME_RE = re.compile(r"[A-Z][a-zA-Z\-']{2,}")
 
 
 def _preview(text: str, limit: int = 40) -> str:
@@ -40,7 +45,7 @@ def distill_decision_anchors(
         if count >= 2:
             must.append(f"称呼保持「{form}」类形式（出现 {count} 次）")
 
-    # Prefer first stable name-like renderings from early pairs.
+    # Prefer the first stable Latin name-like rendering from early pairs.
     seen_names: set[str] = set()
     for source, target in pairs[:20]:
         src_names = _NAME_RE.findall(source or "")

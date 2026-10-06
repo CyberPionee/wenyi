@@ -13,6 +13,7 @@ from wenyi_core.pipeline.decision_anchors import (
     render_decision_anchors,
 )
 from wenyi_core.pipeline.evaluation import (
+    EvaluationService,
     apply_autonomy_tier,
     back_translation_similarity,
     build_machine_gate,
@@ -29,6 +30,76 @@ from wenyi_core.pipeline.evaluation import (
 def _chapter(index: int, segments: list[tuple[int, str, str]]):
     texts = [SimpleNamespace(index=i, source=s, target=t) for i, s, t in segments]
     return SimpleNamespace(index=index, text_segments=texts)
+
+
+class _StubStore:
+    """Only the reads and artifact access EvaluationService performs."""
+
+    def __init__(self, chapters, artifacts=None):
+        self._chapters = {chapter.index: chapter for chapter in chapters}
+        self.artifacts = artifacts if artifacts is not None else {}
+
+    def load_manifest(self):
+        return {"chapters": [{"index": index, "status": "done"} for index in self._chapters]}
+
+    def load_chapter(self, index):
+        return self._chapters[index]
+
+    def read_artifact(self, key):
+        return self.artifacts.get(key)
+
+    def write_artifact(self, key, value):
+        self.artifacts[key] = value
+
+
+class AcceptanceProgressTests(unittest.TestCase):
+    def test_run_reports_each_acceptance_step(self):
+        """The acceptance work reports progress; the word-count bar is already saturated."""
+        store = _StubStore([_chapter(0, [(0, "原文。", "译文。")])])
+        seen: list[tuple[int, int, str]] = []
+
+        EvaluationService(store, risk_back_translation=True, quality_judge=False).run(
+            l0={},
+            terms=[],
+            back_translate=lambda targets: ["" for _ in targets],
+            progress=lambda done, total, label: seen.append((done, total, label)),
+        )
+
+        labels = [label for _done, _total, label in seen]
+        self.assertTrue(any("glossary consistency" in label for label in labels))
+        self.assertTrue(any("back-translation sample" in label for label in labels))
+        self.assertTrue(any("acceptance gate" in label for label in labels))
+        # The judge is off, so it never reports, and the step count matches the work planned.
+        self.assertFalse(any("quality judge" in label for label in labels))
+        self.assertEqual({total for _done, total, _label in seen}, {3})
+        self.assertEqual([done for done, _t, _l in seen], [0, 1, 2, 3])
+        self.assertEqual(seen[-1][2], "Machine evaluation · complete")
+
+    def test_sample_results_are_reused_while_the_sampling_and_binding_hold(self):
+        """A repeated report step must not pay for the same back-translation and judge calls."""
+        store = _StubStore([_chapter(0, [(0, "原文。", "译文。")])])
+        calls: list[str] = []
+
+        def evaluate(identity):
+            return EvaluationService(store, risk_back_translation=True, quality_judge=True).run(
+                l0={},
+                terms=[],
+                back_translate=lambda targets: calls.append("bt") or ["" for _ in targets],
+                judge=lambda pairs: calls.append("judge") or [{"score": 4.0} for _ in pairs],
+                sample_identity=identity,
+            )
+
+        first = evaluate({"style": "brief", "inference": "a"})
+        self.assertEqual(calls, ["bt", "judge"])
+
+        second = evaluate({"style": "brief", "inference": "a"})
+        self.assertEqual(calls, ["bt", "judge"], "an unchanged sampling must reuse the results")
+        self.assertEqual(second.back_translation, first.back_translation)
+        self.assertEqual(second.judge_scores, first.judge_scores)
+
+        # Changing what binds the cache recomputes instead of hiding the change.
+        evaluate({"style": "rewritten", "inference": "a"})
+        self.assertEqual(calls, ["bt", "judge", "bt", "judge"])
 
 
 class RiskSelectionTests(unittest.TestCase):
@@ -295,17 +366,35 @@ class EvaluationTrendTests(unittest.TestCase):
 class AnchorTests(unittest.TestCase):
     def test_distill_and_render(self):
         pairs = [
-            ("田中说：好。", "田中说：好。"),
-            ("田中又来了。", "田中又来了。"),
-            ("Hello, world.", "你好，世界。"),
-            ("Hello, again.", "你好，再次。"),
+            ("田中先生が来た。", "田中先生来了。"),
+            ("佐藤先生も来た。", "佐藤先生也来了。"),
+            ("山田さんが笑った。", "山田先生笑了。"),
         ]
         anchors = distill_decision_anchors(pairs)
         self.assertFalse(anchors["empty"])
         text = render_decision_anchors(anchors)
         self.assertIn("MUST", text)
         self.assertIn("Decision anchors", text)
+        self.assertNotIn("人名倾向", text)
         self.assertEqual(render_decision_anchors({"empty": True}), "")
+
+    def test_ordinary_cjk_fragments_are_not_name_anchors(self):
+        """Any 2-3 CJK characters used to become a "name preference" MUST.
+
+        A real run distilled 人名倾向「建议以」/「因所用」/「三年三」 from a copyright page and
+        injected those MUST lines into the style brief of every later translation call.
+        """
+        pairs = [
+            ("本作品は、縦書き表示での閲覧を推奨いたします。", "本作品建议以竖排方式阅读。"),
+            (
+                "ご利用になるブラウザにより表示が異なります。",
+                "因所用的浏览器不同，显示会有所差异。",
+            ),
+        ]
+        anchors = distill_decision_anchors(pairs)
+        self.assertEqual(anchors["must"], [])
+        self.assertEqual(anchors["examples"], [])
+        self.assertTrue(anchors["empty"])
 
 
 if __name__ == "__main__":
