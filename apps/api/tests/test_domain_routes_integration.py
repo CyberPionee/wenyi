@@ -11,7 +11,7 @@ from wenyi_api import dal
 from wenyi_backend import project_service
 from wenyi_backend.context import ContextMiddleware, current_context
 from wenyi_backend.routers import chapters, glossary, report, review, style, subtitles
-from wenyi_core.glossary.store import GlossaryTerm
+from wenyi_core.glossary.store import MANUAL_STATUS, GlossaryTerm
 from wenyi_core.ingest.models import Chapter, Segment
 from wenyi_core.srt.store import SrtRunStore
 
@@ -183,8 +183,10 @@ def test_glossary_edit_keeps_order_and_conflicts_resolve(domain_client, tmp_path
     client, storage, _ = domain_client
     initialize(storage, tmp_path)
     root = f"/projects/{storage.project_id}/glossary"
-    assert client.post(root + "/terms", json={"source": "Zed", "target": "泽德"}).status_code == 201
-    assert client.post(root + "/terms", json={"source": "Amy", "target": "艾米"}).status_code == 201
+    storage.upsert_term(GlossaryTerm(source="Zed", target="泽德"))
+    storage.upsert_term(GlossaryTerm(source="Amy", target="艾米"))
+    assert [term.source for term in storage.all_terms()] == ["Zed", "Amy"]
+    # An explicit edit is the operator's decision: it replaces the mapping and locks it.
     assert (
         client.put(
             root + "/terms/Zed", json={"source": "Zed", "target": "泽德二", "type": "person"}
@@ -192,13 +194,20 @@ def test_glossary_edit_keeps_order_and_conflicts_resolve(domain_client, tmp_path
         == 200
     )
     assert [term.source for term in storage.all_terms()] == ["Zed", "Amy"]
+    assert storage.get_term("Zed").target == "泽德二"
+    assert storage.get_term("Zed").status == MANUAL_STATUS
     assert (
         client.post(root + "/terms", json={"source": "Zed", "target": "different"}).status_code
         == 409
     )
     assert client.post(root + "/terms/Zed/lock").status_code == 404
-    storage.upsert_term(GlossaryTerm(source="Zed", target="泽德三"))
+    # A proposal against the operator's choice is discarded, not re-raised as a conflict.
+    assert storage.upsert_term(GlossaryTerm(source="Zed", target="泽德三")) == "unchanged"
+    assert client.get(root + "/conflicts").json() == []
+    # A proposal against an automatically established mapping is recorded for a decision.
+    assert storage.upsert_term(GlossaryTerm(source="Amy", target="艾米二")) == "conflict"
     conflict = client.get(root + "/conflicts").json()[0]
+    assert conflict["source"] == "Amy"
     assert (
         client.post(
             root + f"/conflicts/{conflict['id']}/resolve", json={"decision": "custom"}
@@ -211,18 +220,42 @@ def test_glossary_edit_keeps_order_and_conflicts_resolve(domain_client, tmp_path
         ).status_code
         == 200
     )
-    assert storage.get_term("Zed").target == "泽德三"
+    assert storage.get_term("Amy").target == "艾米二"
     assert storage.open_conflicts() == []
     exported = client.get(root + "/export?format=csv")
     assert exported.status_code == 200
     assert "confidence" not in exported.text and "locked" not in exported.text
+    # A bulk import does not lock, so an imported disagreement still surfaces.
+    assert storage.upsert_term(GlossaryTerm(source="Carol", target="卡罗尔")) == "inserted"
     assert (
-        client.post(root + "/import", json={"terms": [{"source": "Zed", "target": "冲突"}]}).json()[
-            "conflicts"
-        ]
+        client.post(
+            root + "/import", json={"terms": [{"source": "Carol", "target": "卡萝"}]}
+        ).json()["conflicts"]
         == 1
     )
-    assert storage.get_term("Zed").target == "泽德三"
+    assert storage.get_term("Carol").target == "卡罗尔"
+
+
+def test_glossary_keep_current_closes_conflicts_and_locks_terms(domain_client, tmp_path):
+    client, storage, _ = domain_client
+    initialize(storage, tmp_path)
+    root = f"/projects/{storage.project_id}/glossary"
+    storage.upsert_term(GlossaryTerm(source="Zed", target="泽德"))
+    storage.upsert_term(GlossaryTerm(source="Amy", target="艾米"))
+    assert storage.upsert_term(GlossaryTerm(source="Zed", target="泽德二")) == "conflict"
+    assert storage.upsert_term(GlossaryTerm(source="Amy", target="艾米二")) == "conflict"
+    assert len(client.get(root + "/conflicts").json()) == 2
+
+    settled = client.post(root + "/conflicts/keep-current")
+
+    assert settled.status_code == 200, settled.text
+    assert sorted(settled.json()["sources"]) == ["Amy", "Zed"]
+    # The established target survives, and settling locks the term like any operator decision.
+    assert storage.get_term("Zed").target == "泽德"
+    assert storage.get_term("Amy").target == "艾米"
+    assert storage.get_term("Zed").status == "manual"
+    assert storage.open_conflicts() == []
+    assert client.get(root + "/conflicts").json() == []
 
 
 def test_subtitle_routes_preserve_timeline_and_overlapping_cache(domain_client, tmp_path):

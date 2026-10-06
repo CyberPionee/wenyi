@@ -243,6 +243,12 @@ def test_glossary_order_conflict_and_batch_checkpoint(storage, tmp_path):
     storage.log_event("batch_glossary_extracted", chapter=0, start_index=2, count=4)
     storage.log_event("batch_glossary_extracted", chapter=1, start_index=0, count=2)
     assert storage.completed_batch_glossary_keys(0) == {"2:4"}
+    # Re-proposing the same rejected alternative records one row, not one per batch.
+    for _ in range(5):
+        assert storage.upsert_term(GlossaryTerm(source="Amy", target="埃米")) == "conflict"
+    assert len(storage.open_conflicts()) == 1
+    assert storage.upsert_term(GlossaryTerm(source="Amy", target="阿美")) == "conflict"
+    assert len(storage.open_conflicts()) == 2
 
 
 def test_review_artifacts_and_timing_are_durable_and_idempotent(storage, tmp_path):

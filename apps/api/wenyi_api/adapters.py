@@ -6,6 +6,7 @@ from pathlib import Path
 from psycopg.types.json import Jsonb
 from wenyi_backend.context import BackendContext
 from wenyi_backend.export_paths import EXPORT_LIMIT
+from wenyi_core.glossary.store import MANUAL_STATUS
 from wenyi_core.llm.factory import build_client
 
 from . import dal
@@ -61,10 +62,12 @@ class PostgresRepository:
             dal.set_project_status(job["project_id"], status)
 
     def update_term(self, pid, storage, source, term):
+        # An operator's edit becomes the authority: mark it manual so the extraction passes
+        # stop proposing alternatives, and clear any conflict recorded against it.
         with self.pool.connection() as conn:
             conn.execute(
                 """UPDATE glossary SET source=%s,target=%s,reading=%s,type=%s,gender=%s,
-                aliases=%s,note=%s,status='ok',updated_at=%s WHERE project_id=%s AND source=%s""",
+                aliases=%s,note=%s,status=%s,updated_at=%s WHERE project_id=%s AND source=%s""",
                 (
                     term.source,
                     term.target,
@@ -73,6 +76,7 @@ class PostgresRepository:
                     term.gender,
                     Jsonb(term.aliases),
                     term.note,
+                    MANUAL_STATUS,
                     time.time(),
                     pid,
                     source,

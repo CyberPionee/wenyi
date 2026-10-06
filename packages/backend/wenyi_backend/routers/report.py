@@ -31,10 +31,11 @@ def _report(project: dict, storage) -> dict:
     with storage.state_lock():
         if project.get("fmt") != "srt":
             saved = storage.load_report() or {}
-            if saved.get("evaluation") is not None:
-                report["evaluation"] = saved.get("evaluation")
-            if saved.get("machine_gate") is not None:
-                report["machine_gate"] = saved.get("machine_gate")
+            # Keep both keys in every shape. The response model always emits them, so a report
+            # that omitted them would not match what the API returns for the same run, and the
+            # regenerated report would persist a different shape from the one just served.
+            report["evaluation"] = saved.get("evaluation")
+            report["machine_gate"] = saved.get("machine_gate")
         report["usage"] = storage.load_usage() or {}
         report["timing"] = storage.read_artifact("timing.json") or {}
         return report

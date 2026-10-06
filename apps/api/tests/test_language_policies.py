@@ -23,7 +23,14 @@ def test_policy_artifacts_resume_and_export_are_backend_neutral(storage, tmp_pat
     config = Config.from_dict(
         {
             "language": {"source": "en", "target": "zh"},
-            "pipeline": {"book_understanding": False, "polish": False, "review": False},
+            # This test covers policy artifacts and resume identity, not the post-translation
+            # passes, so the knob is off to keep its call ledger about the analysis alone.
+            "pipeline": {
+                "book_understanding": False,
+                "polish": False,
+                "review": False,
+                "quality_passes": "off",
+            },
         }
     )
     client = FakeClient(handler=routing_handler)

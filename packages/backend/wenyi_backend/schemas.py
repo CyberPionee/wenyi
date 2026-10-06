@@ -185,6 +185,14 @@ class ResolveConflict(RequestModel):
     target: Optional[str] = None
 
 
+class KeptCurrentConflicts(BaseModel):
+    """Result of closing every open conflict in favour of the established target."""
+
+    message: str
+    sources: list[str] = []
+    segments_replaced: int = 0
+
+
 # Strategies.
 class StepDef(BaseModel):
     id: str

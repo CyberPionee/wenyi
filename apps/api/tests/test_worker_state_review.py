@@ -6,8 +6,10 @@ import asyncio
 from contextvars import copy_context
 from dataclasses import replace
 
+import httpx
 import pytest
 import test_storage_pg_integration as storage_tests
+from openai import APIStatusError
 from type_helpers import must
 from wenyi_api import dal
 from wenyi_backend.context import current_context, use_context
@@ -102,6 +104,39 @@ def test_model_failures_still_record_an_error(worker_state, monkeypatch):
     assert must(dal.get_project(pid))["error"] == "Provider connection failed"
     assert must(dal.get_job(job_id))["error"] == "Provider connection failed"
     assert any(event["event"] == "pipeline_error" for event in worker_state.list_events())
+
+
+def test_provider_failure_records_a_safe_reason(worker_state, monkeypatch):
+    """The stored error must not be the provider's raw response body.
+
+    A gateway outage reported with HTTP 400 reached the job row and the event ledger verbatim,
+    so the operator read a provider payload instead of an actionable reason.
+    """
+    pid = worker_state.project_id
+    job_id = dal.create_job(pid, "translation", "upstream-outage", run_id="upstream-outage")
+    dal.set_project_status(pid, "translating")
+
+    def failed(*_):
+        raise APIStatusError(
+            "Error code: 400 - {'error': {'type': 'server_error', "
+            "'message': 'Upstream request failed: Model is unavailable.'}}",
+            response=httpx.Response(
+                400,
+                text='{"error": {"type": "server_error", '
+                '"message": "Upstream request failed: Model is unavailable."}}',
+                request=httpx.Request("POST", "https://example.invalid"),
+            ),
+            body={},
+        )
+
+    monkeypatch.setattr(tasks, "_book_operation", failed)
+    with pytest.raises(APIStatusError):
+        tasks._execute("translation", pid, "upstream-outage", {})
+    expected = "The provider is unavailable. Try again later."
+    assert must(dal.get_project(pid))["error"] == expected
+    assert must(dal.get_job(job_id))["error"] == expected
+    event = next(e for e in worker_state.list_events() if e["event"] == "pipeline_error")
+    assert event["error"] == expected
 
 
 def test_superseded_redis_delivery_cannot_execute_over_new_work(worker_state, monkeypatch):

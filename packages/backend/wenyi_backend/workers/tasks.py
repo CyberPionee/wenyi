@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
+from wenyi_core.llm.errors import operator_failure_message
 from wenyi_core.llm.limits import RequestCancelled, RequestStopped
 
 from .. import dal, paths
@@ -170,8 +171,12 @@ def _book_operation(kind, pid, storage, config, client, progress, params):
 
 
 def _record_terminal_status(pid, run_id, error: BaseException | None = None, *, status="error"):
-    """A late Future or duplicate delivery may update only its own task's project."""
-    message = str(error) if error is not None else None
+    """A late Future or duplicate delivery may update only its own task's project.
+
+    The persisted message goes through the safe classifier: a model failure is stored as the
+    operator-facing reason, never as the provider's raw response body.
+    """
+    message = operator_failure_message(error) if error is not None else None
     job = dal.get_job_by_arq_id(run_id) if run_id else None
     if job:
         dal.set_job_status(job["id"], status, error=message)
@@ -308,7 +313,12 @@ def _execute(
         storage.log_event("task_paused", kind=kind, run_id=run_id, reason=str(error))
     except Exception as error:
         _record_terminal_status(pid, run_id, error)
-        storage.log_event("pipeline_error", kind=kind, run_id=run_id, error=str(error))
+        storage.log_event(
+            "pipeline_error",
+            kind=kind,
+            run_id=run_id,
+            error=operator_failure_message(error),
+        )
         raise
     finally:
         finished.set()

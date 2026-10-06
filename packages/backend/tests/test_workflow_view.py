@@ -40,9 +40,42 @@ def test_workflow_uses_snapshot_and_excludes_exports(
     assert [(s["id"], s["enabled"]) for s in result["stages"]] == [
         ("review", True),
         ("review_autofix", enabled),
+        ("evaluation", True),
         ("report", True),
     ]
     assert result["progress"] is None
+
+
+def test_translation_plan_lists_quality_passes_and_acceptance(monkeypatch, backend_context):
+    """Every phase that reports its own progress is listed, not only translation."""
+    monkeypatch.setattr(configuration, "require_project", lambda pid: {"id": pid, "fmt": "epub"})
+    monkeypatch.setattr(
+        configuration.dal,
+        "list_jobs",
+        lambda pid: [
+            {
+                "kind": "translation",
+                "status": "running",
+                "run_id": "run-a",
+                "params": {
+                    "config_snapshot": {
+                        "pipeline": {
+                            "review": False,
+                            "final_polish": True,
+                            "evaluation_enabled": False,
+                        }
+                    }
+                },
+            }
+        ],
+    )
+    monkeypatch.setattr(backend_context.telemetry, "progress_snapshot", lambda pid: None)
+
+    stages = {stage["id"]: stage["enabled"] for stage in configuration.workflow("p")["stages"]}
+
+    # One enabled pass is enough for the phase to appear; the flag reflects the snapshot.
+    assert stages["quality_pass"] is True
+    assert stages["evaluation"] is False
 
 
 def test_subtitle_plan_does_not_show_book_steps(monkeypatch):

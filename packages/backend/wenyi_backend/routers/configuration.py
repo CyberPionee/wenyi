@@ -176,6 +176,20 @@ def workflow(pid: str) -> dict:
             add("translation", "分批翻译章节")
             add("polish", "批次内润色", pipeline.get("polish"))
             add("annotation_alignment", "逐段注释定位", pipeline.get("annotation_alignment"))
+            add(
+                "quality_pass",
+                "译后质量精修（可选）",
+                any(
+                    pipeline.get(key)
+                    for key in (
+                        "self_revision",
+                        "editorial_pass",
+                        "final_polish",
+                        "chapter_selfcheck",
+                        "back_translation",
+                    )
+                ),
+            )
         if kind in {"translation", "review"}:
             review = kind == "review" or pipeline.get("review", False)
             autofix = params.get("autofix")
@@ -187,6 +201,7 @@ def workflow(pid: str) -> dict:
                 "修复审校问题并写回",
                 review and autofix,
             )
+            add("evaluation", "机器评测与验收", pipeline.get("evaluation_enabled", True))
             add("report", "生成报告")
     progress = None
     if job:

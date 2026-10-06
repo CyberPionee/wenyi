@@ -18,7 +18,19 @@ from typing import Any, Iterator, Literal
 from psycopg import sql
 from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
-from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
+from wenyi_core.glossary.store import (
+    MANUAL_STATUS,
+    UPSERT_CONFLICT,
+    UPSERT_FILL,
+    UPSERT_INSERT,
+    UPSERT_MANUAL_WRITE,
+    UPSERT_MERGE,
+    GlossaryStore,
+    GlossaryTerm,
+    classify_upsert,
+    conflict_already_recorded,
+    upsert_result,
+)
 from wenyi_core.ingest.models import Chapter, Document, Segment
 from wenyi_core.pipeline.runstore import ExportSnapshotStore, source_sha256
 
@@ -737,7 +749,8 @@ class PostgresStorage:
         with self.state_lock(), self._conn as conn:
             existing = self.get_term(term.source)
             now = time.time()
-            if existing is None:
+            branch = classify_upsert(existing, term)
+            if branch == UPSERT_INSERT:
                 conn.execute(
                     """INSERT INTO glossary(project_id,source,target,reading,type,gender,
                     aliases,first_chapter,note,status,updated_at) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
@@ -755,8 +768,33 @@ class PostgresStorage:
                         now,
                     ),
                 )
-                return "inserted"
-            if not (existing.target or "").strip() and (term.target or "").strip():
+            elif branch == UPSERT_MANUAL_WRITE:
+                # An operator's edit writes through, becomes the authority and retires any
+                # conflict recorded against it.
+                aliases = sorted(set(existing.aliases) | set(term.aliases))
+                conn.execute(
+                    """UPDATE glossary SET target=%s,reading=COALESCE(NULLIF(%s,''),reading),
+                    type=%s,gender=COALESCE(NULLIF(%s,''),gender),aliases=%s,
+                    note=COALESCE(NULLIF(%s,''),note),status=%s,updated_at=%s
+                    WHERE project_id=%s AND source=%s""",
+                    (
+                        term.target,
+                        term.reading,
+                        term.type,
+                        term.gender,
+                        Jsonb(aliases),
+                        term.note,
+                        MANUAL_STATUS,
+                        now,
+                        self.project_id,
+                        term.source,
+                    ),
+                )
+                conn.execute(
+                    "UPDATE term_conflicts SET resolved=TRUE WHERE project_id=%s AND source=%s",
+                    (self.project_id, term.source),
+                )
+            elif branch == UPSERT_FILL:
                 aliases = sorted(set(existing.aliases) | set(term.aliases))
                 conn.execute(
                     """UPDATE glossary SET target=%s,reading=COALESCE(NULLIF(%s,''),reading),
@@ -773,8 +811,7 @@ class PostgresStorage:
                         term.source,
                     ),
                 )
-                return "updated"
-            if existing.target == term.target:
+            elif branch == UPSERT_MERGE:
                 aliases = sorted(set(existing.aliases) | set(term.aliases))
                 conn.execute(
                     """UPDATE glossary SET reading=COALESCE(NULLIF(%s,''),reading),
@@ -790,23 +827,35 @@ class PostgresStorage:
                         term.source,
                     ),
                 )
-                return "unchanged"
-            conn.execute(
-                """INSERT INTO term_conflicts(project_id,source,existing_target,proposed_target,
-                chapter,created_at) VALUES(%s,%s,%s,%s,%s,%s)""",
-                (self.project_id, term.source, existing.target, term.target, chapter, now),
-            )
-            conn.execute(
-                "UPDATE glossary SET status='conflict',updated_at=%s WHERE project_id=%s AND source=%s",
-                (now, self.project_id, term.source),
-            )
-            return "conflict"
+            elif branch == UPSERT_CONFLICT:
+                if not conflict_already_recorded(
+                    conn.execute(
+                        """SELECT existing_target,proposed_target FROM term_conflicts
+                        WHERE project_id=%s AND source=%s AND NOT resolved""",
+                        (self.project_id, term.source),
+                    ).fetchall(),
+                    existing.target or "",
+                    term.target or "",
+                ):
+                    conn.execute(
+                        """INSERT INTO term_conflicts(project_id,source,existing_target,proposed_target,
+                        chapter,created_at) VALUES(%s,%s,%s,%s,%s,%s)""",
+                        (self.project_id, term.source, existing.target, term.target, chapter, now),
+                    )
+                conn.execute(
+                    """UPDATE glossary SET status='conflict',updated_at=%s
+                    WHERE project_id=%s AND source=%s""",
+                    (now, self.project_id, term.source),
+                )
+            # UPSERT_DROP writes nothing: an operator's locked target already stands.
+            return upsert_result(branch)
 
     def resolve_term(self, source: str, target: str) -> bool:
         with self.state_lock(), self._conn as conn:
             cursor = conn.execute(
-                "UPDATE glossary SET target=%s,status='ok',updated_at=%s WHERE project_id=%s AND source=%s",
-                (target, time.time(), self.project_id, source),
+                """UPDATE glossary SET target=%s,status=%s,updated_at=%s
+                WHERE project_id=%s AND source=%s""",
+                (target, MANUAL_STATUS, time.time(), self.project_id, source),
             )
             return cursor.rowcount > 0
 
@@ -829,18 +878,32 @@ class PostgresStorage:
         return GlossaryStore.terms_in(terms, text)
 
     def mark_conflicts_resolved(self, source: str) -> None:
+        """Handle every unresolved conflict, returning a contested term to its settled status.
+
+        Only a term still flagged contested is restored, so an operator's lock applied just
+        before this call is never downgraded.
+        """
         with self.state_lock(), self._conn as conn:
             conn.execute(
                 "UPDATE term_conflicts SET resolved=TRUE WHERE project_id=%s AND source=%s",
                 (self.project_id, source),
             )
+            conn.execute(
+                """UPDATE glossary SET status='ok',updated_at=%s
+                WHERE project_id=%s AND source=%s AND status='conflict'""",
+                (time.time(), self.project_id, source),
+            )
 
     def open_conflicts(self) -> list[dict]:
+        """Return conflicts awaiting human resolution; a locked term's rows are moot."""
         with self._conn as conn:
             rows = conn.execute(
-                """SELECT id,source,existing_target,proposed_target,chapter,note FROM term_conflicts
-                WHERE project_id=%s AND NOT resolved ORDER BY id""",
-                (self.project_id,),
+                """SELECT c.id,c.source,c.existing_target,c.proposed_target,c.chapter,c.note
+                FROM term_conflicts c
+                LEFT JOIN glossary g ON g.project_id=c.project_id AND g.source=c.source
+                WHERE c.project_id=%s AND NOT c.resolved AND COALESCE(g.status,'') <> %s
+                ORDER BY c.id""",
+                (self.project_id, MANUAL_STATUS),
             ).fetchall()
         return [
             dict(
@@ -855,8 +918,10 @@ class PostgresStorage:
                 "SELECT count(*) FROM glossary WHERE project_id=%s", (self.project_id,)
             ).fetchone()
             conflicts_row = conn.execute(
-                "SELECT count(*) FROM term_conflicts WHERE project_id=%s AND NOT resolved",
-                (self.project_id,),
+                """SELECT count(*) FROM term_conflicts c
+                LEFT JOIN glossary g ON g.project_id=c.project_id AND g.source=c.source
+                WHERE c.project_id=%s AND NOT c.resolved AND COALESCE(g.status,'') <> %s""",
+                (self.project_id, MANUAL_STATUS),
             ).fetchone()
             terms = 0 if terms_row is None else terms_row[0]
             conflicts = 0 if conflicts_row is None else conflicts_row[0]
