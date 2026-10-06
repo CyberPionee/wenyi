@@ -15,6 +15,8 @@ TASKS = (
     "editorial_pass_user",
     "final_polish_system",
     "final_polish_user",
+    "glossary_arbiter_system",
+    "glossary_arbiter_user",
     "glossary_extractor_system",
     "glossary_extractor_user",
     "glossary_history_system",

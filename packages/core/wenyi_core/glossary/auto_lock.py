@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .store import TYPE_PERSON, TYPE_TERM, GlossaryTerm
+from .store import MANUAL_STATUS, TYPE_PERSON, TYPE_TERM, GlossaryTerm
 
 AUTO_LOCK_TYPES = frozenset(
     {
@@ -45,11 +45,18 @@ def can_auto_lock(
 
 
 def should_write_auto_lock(existing: GlossaryTerm | None, proposed: GlossaryTerm) -> bool:
-    """Never overwrite an established mapping; only fill a missing or empty target."""
+    """Never overwrite an established mapping; only fill a missing or empty target.
+
+    A human edit outranks every automatic proposal: once an operator sets a target, the
+    extraction passes stop proposing alternatives for that source, so their choice never
+    drifts back and no review conflicts accumulate against it.
+    """
     if not (proposed.target or "").strip():
         return False
     if existing is None:
         return True
+    if existing.status == MANUAL_STATUS:
+        return False
     if (existing.target or "").strip() and existing.status == "ok":
         return False
     return True

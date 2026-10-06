@@ -21,6 +21,11 @@ class _RecordingStore:
         self.lock_events: list[str] = []
         self.assemble_lock_events: list[str] = []
         self.events: list[tuple[str, dict]] = []
+        self.pending: list[int] = []
+
+    def pending_chapters(self):
+        """The fixture stands for a fully translated book unless a test says otherwise."""
+        return list(self.pending)
 
     @contextmanager
     def lock(self):
@@ -74,6 +79,10 @@ class TestOrchestratorContract(unittest.TestCase):
         self.review_autofix = MagicMock(spec=type(orch._review_autofix))
         orch._review_autofix = self.review_autofix
         self.review_autofix.resume_pending.return_value = None
+        self.glossary_arbitration = MagicMock(spec=type(orch._glossary_arbitration))
+        orch._glossary_arbitration = self.glossary_arbitration
+        self.quality_pass = MagicMock(spec=type(orch._quality_pass))
+        orch._quality_pass = self.quality_pass
         self.report = MagicMock(spec=type(orch._report))
         orch._report = self.report
         self.assembly = MagicMock(spec=type(orch._assembly))
@@ -114,7 +123,24 @@ class TestOrchestratorContract(unittest.TestCase):
             only_chapter=1,
             progress=progress,
         )
+        # Terminology conflicts are settled after translation, before later passes read the text.
+        self.glossary_arbitration.run.assert_called_once_with(store, progress=progress)
+        self.quality_pass.run_after_translate.assert_called_once_with(store, progress=progress)
         self.assertEqual(store.lock_events, ["lock:enter", "lock:exit"])
+
+    def test_run_keeps_terminology_conflicts_while_chapters_are_pending(self):
+        """A half-translated book keeps its conflicts: the extraction producing them still runs."""
+        orch = self._orchestrator()
+        store = _RecordingStore()
+        store.pending = [1]
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
+        self.translation.run.return_value = store
+
+        orch.run("novel.txt")
+
+        self.glossary_arbitration.run.assert_not_called()
 
     def test_run_rejects_unknown_chapter_before_translation(self):
         """Reject unknown chapter indices before translation and propagate the validation
@@ -296,8 +322,25 @@ class TestOrchestratorContract(unittest.TestCase):
         self.preparation.prepare.assert_called_once_with("novel.txt", progress=None)
         self.preparation.locate_existing.assert_not_called()
         self.report.build_and_save.assert_called_once()
+        # Without a translate step in this invocation the book still has to settle its conflicts
+        # before the report evaluates the acceptance gate.
+        self.glossary_arbitration.run.assert_called_once_with(store, progress=None)
         self.assertEqual(result["report"], {"report": True})
         self.assertEqual(store.lock_events, ["lock:enter", "lock:exit"])
+
+    def test_translating_in_this_run_settles_terminology_exactly_once(self):
+        """The translate step settles terminology already, so the finish step must not repeat it."""
+        orch = self._orchestrator()
+        store = _RecordingStore()
+        self.preparation.prepare.return_value = store
+        self.preparation.activate.return_value = self._manifest()
+        self.preparation.ensure_understanding.return_value = ""
+        self.translation.run.return_value = store
+        self.report.build_and_save.return_value = {"report": True}
+
+        orch.run_steps("novel.txt", {"translate", "report"})
+
+        self.glossary_arbitration.run.assert_called_once_with(store, progress=None)
 
     def test_full_pipeline_steps_order_and_result_assembly(self):
         """Translate first, then reacquire the lock for reporting and live export."""

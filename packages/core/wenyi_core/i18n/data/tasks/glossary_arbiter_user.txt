@@ -1,0 +1,4 @@
+[Terminology conflict to settle]
+$conflict_json
+
+Assess whether the information is sufficient. Request selective evidence if needed; otherwise return final.

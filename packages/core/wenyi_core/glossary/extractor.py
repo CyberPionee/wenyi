@@ -45,6 +45,11 @@ class TranslatedSegmentEvidence:
     target: str
 
 
+def _recurrence_signature(term: GlossaryTerm) -> tuple[str, str, tuple[str, ...]]:
+    """Identify a term for recurrence caching; its match set depends on all three fields."""
+    return term.source, term.type, tuple(term.aliases)
+
+
 class GlossaryExtractor(Agent):
     def __init__(self, client: LLMClient, config: Config):
         super().__init__(client, config)
@@ -52,40 +57,37 @@ class GlossaryExtractor(Agent):
         self._recurrence_matcher: GlossaryOccurrenceMatcher | None = None
         self._recurrence_cache: dict[tuple[str, str, tuple[str, ...]], bool] = {}
 
-    def _recurring_existing_terms(
-        self,
-        terms: list[GlossaryTerm],
-        source_corpus: str,
-    ) -> list[GlossaryTerm]:
-        """Return existing terms occurring at least twice in the book and cache per-term
-        matches.
+    def _recurring_sources(self, source_corpus: str | None, terms: list[GlossaryTerm]) -> set[str]:
+        """Return the sources occurring at least twice in the corpus, cached across calls.
+
+        One corpus serves a whole run, so rebuilding the matcher and re-scanning the book for
+        every term of every chapter repeated identical work tens of thousands of times. Cache
+        the verdict per term and drop it only when the corpus itself changes.
         """
+        if not source_corpus:
+            return set()
         if source_corpus is not self._recurrence_corpus:
             self._recurrence_corpus = source_corpus
             self._recurrence_matcher = GlossaryOccurrenceMatcher(source_corpus)
             self._recurrence_cache.clear()
 
         assert self._recurrence_matcher is not None
-        missing: list[GlossaryTerm] = []
-        for term in terms:
-            signature = (term.source, term.type, tuple(term.aliases))
-            if signature not in self._recurrence_cache:
-                missing.append(term)
-
+        missing = [
+            term for term in terms if _recurrence_signature(term) not in self._recurrence_cache
+        ]
         if missing:
+            # recurring_terms(min_occurrences=2) is the book-wide recurrence gate.
             matched = {
-                (term.source, term.type, tuple(term.aliases))
-                for term in self._recurrence_matcher.recurring_terms(missing)
+                _recurrence_signature(term)
+                for term in self._recurrence_matcher.recurring_terms(missing, min_occurrences=2)
             }
             for term in missing:
-                signature = (term.source, term.type, tuple(term.aliases))
+                signature = _recurrence_signature(term)
                 self._recurrence_cache[signature] = signature in matched
 
-        return [
-            term
-            for term in terms
-            if self._recurrence_cache[(term.source, term.type, tuple(term.aliases))]
-        ]
+        return {
+            term.source for term in terms if self._recurrence_cache[_recurrence_signature(term)]
+        }
 
     def extract(
         self, source_text: str, target_text: str, existing: list[GlossaryTerm]
@@ -126,6 +128,32 @@ class GlossaryExtractor(Agent):
                 )
             )
         return terms
+
+    @staticmethod
+    def _drop_unmatched_sources(
+        terms: list[GlossaryTerm], source_text: str
+    ) -> tuple[list[GlossaryTerm], int]:
+        """Keep only candidates whose source actually occurs in the text they came from.
+
+        A glossary entry exists to match text, so a candidate whose source appears nowhere
+        cannot do anything: it never injects, it never matches a segment, and it misreports
+        the chapter the term first appeared in. One run stored 22 such rows, including
+        Chinese spellings of Japanese sources, mixed-script corruptions, misspellings and
+        invented sentence fragments. The model paraphrasing its own source is the cause, not
+        a legitimate alias, so the source text decides instead of trusting the candidate.
+        """
+        if not source_text.strip():
+            return terms, 0
+        kept = [
+            term
+            for term in terms
+            if any(
+                source_matches_text(key, source_text)
+                for key in [term.source, *term.aliases]
+                if (key or "").strip()
+            )
+        ]
+        return kept, len(terms) - len(kept)
 
     @staticmethod
     def _first_occurrences(
@@ -263,6 +291,7 @@ class GlossaryExtractor(Agent):
             core_min_occurrences=int(getattr(pipeline, "glossary_always_min_occurrences", 3)),
         )
         terms = self.extract(source_text, target_text, existing)
+        terms, unmatched = self._drop_unmatched_sources(terms, source_text)
         occurrences = (
             self._first_occurrences(terms, store, history, before) if before is not None else {}
         )
@@ -276,8 +305,9 @@ class GlossaryExtractor(Agent):
             "history_unresolved": unresolved,
             "auto_locked": 0,
             "injected_terms": len(existing),
+            "source_not_in_text": unmatched,
         }
-        matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
+        recurring = self._recurring_sources(source_corpus, terms)
         for t in terms:
             evidence = occurrences.get(t.source)
             t.first_chapter = evidence.chapter if evidence is not None else chapter
@@ -285,12 +315,10 @@ class GlossaryExtractor(Agent):
             result = store.upsert_term(t, chapter=chapter)
             summary[result] = summary.get(result, 0) + 1
             history_aligned = evidence is not None and bool((t.target or "").strip())
-            if matcher is not None:
-                # recurring_terms(min_occurrences=2) is the book-wide recurrence gate.
-                occurrences_n = 2 if matcher.recurring_terms([t], min_occurrences=2) else 1
-            else:
+            if not source_corpus:
                 # Without a corpus the recurrence gate cannot be verified; do not auto-lock.
                 continue
+            occurrences_n = 2 if t.source in recurring else 1
             # Only pre-existing open conflicts block auto-lock. A same-run "conflict"
             # result still allows a restricted resolve that keeps the established target.
             has_open_conflict = t.source in open_conflicts
@@ -302,9 +330,11 @@ class GlossaryExtractor(Agent):
             ):
                 continue
             if result == "conflict":
-                # Restricted resolve: keep the established target; never overwrite it.
-                if isinstance(store, GlossaryStore):
-                    store.mark_conflicts_resolved(t.source)
+                # Restricted resolve: keep the established target; never overwrite it. The port
+                # owns this call, so every backend settles the same conflict. Guarding it on a
+                # concrete store type silently left every HTTP and SQLite run with an open
+                # conflict that the acceptance gate then refused to export.
+                store.mark_conflicts_resolved(t.source)
                 locked_target = (prior.target if prior is not None else t.target) or t.target
             elif not should_write_auto_lock(prior, t) and result not in {
                 "inserted",
@@ -350,7 +380,7 @@ class GlossaryExtractor(Agent):
         if not all_existing:
             return summary
         ordered_history = sorted(history, key=lambda item: (item.chapter, item.segment))
-        matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
+        recurring = self._recurring_sources(source_corpus, all_existing)
         open_conflicts = {
             str(row.get("source") or "")
             for row in (store.open_conflicts() if hasattr(store, "open_conflicts") else [])
@@ -358,6 +388,10 @@ class GlossaryExtractor(Agent):
         for t in all_existing:
             prior = store.get_term(t.source) if hasattr(store, "get_term") else t
             target = (prior.target or t.target or "").strip()
+            # This pass reports a lock only for a mapping it supplied itself. Every term that
+            # already carried a target is a mapping an earlier pass established, so re-reporting
+            # it here emitted one auto-lock per chapter per established term.
+            already_established = bool((t.target or "").strip())
             if not target:
                 # Local fill: first historical source match provides the mapping text.
                 for evidence in ordered_history:
@@ -376,18 +410,18 @@ class GlossaryExtractor(Agent):
             if not target:
                 summary["unchanged"] += 1
                 continue
-            if matcher is not None:
-                occurrences_n = 2 if matcher.recurring_terms([t], min_occurrences=2) else 1
-                has_open_conflict = t.source in open_conflicts
-                if can_auto_lock(
-                    t,
-                    history_aligned=True,
-                    occurrences=occurrences_n,
-                    has_open_conflict=has_open_conflict,
-                ):
-                    summary["auto_locked"] = summary.get("auto_locked", 0) + 1
-                    if on_auto_lock is not None:
-                        on_auto_lock(t.source, target)
-            else:
+            if not source_corpus:
                 summary["unchanged"] += 1
+                continue
+            occurrences_n = 2 if t.source in recurring else 1
+            has_open_conflict = t.source in open_conflicts
+            if not already_established and can_auto_lock(
+                t,
+                history_aligned=True,
+                occurrences=occurrences_n,
+                has_open_conflict=has_open_conflict,
+            ):
+                summary["auto_locked"] = summary.get("auto_locked", 0) + 1
+                if on_auto_lock is not None:
+                    on_auto_lock(t.source, target)
         return summary

@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 from wenyi_core.config import Config
-from wenyi_core.glossary.store import GlossaryTerm
+from wenyi_core.glossary.store import MANUAL_STATUS, GlossaryTerm
+from wenyi_core.glossary.writeback import apply_conflict_writeback
 from wenyi_core.ingest.models import Chapter, Document, Segment
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.llm.usage import UsageSample, UsageTracker, empty_usage
@@ -564,9 +565,58 @@ def test_glossary_explicit_edit_preserves_order_and_rolls_back(store):
     assert store.update_term("first", GlossaryTerm("renamed", "edited", aliases=["alias"]))
     assert [term.source for term in store.all_terms()] == ["renamed", "second"]
     assert store.get_term("renamed").first_chapter == 3
-    assert store.get_term("renamed").status == "ok"
+    # An explicit edit marks the term as the operator's decision, which outranks the
+    # automatic proposals and clears the conflict recorded against it.
+    assert store.get_term("renamed").status == MANUAL_STATUS
     assert store.open_conflicts() == []
     assert not store.update_term("missing", GlossaryTerm("missing", "none"))
+
+
+def test_conflict_writeback_replaces_only_the_term_passages(tmp_path):
+    """Settling a conflict rewrites the term's passages, never unrelated ones."""
+    source = tmp_path / "book.txt"
+    source.write_text("Synthetic source.", encoding="utf-8")
+    document = Document(
+        title="Synthetic",
+        source_lang="ja",
+        target_lang="zh",
+        source_path=str(source),
+        fmt="text",
+        chapters=[
+            Chapter(
+                index=0,
+                title="Chapter",
+                segments=[
+                    Segment(index=0, source="いるかホテルへ行く", target="去海豚酒店。"),
+                    Segment(
+                        index=1, source="ドルフィン・ホテルは白い", target="海豚酒店是白色的。"
+                    ),
+                    Segment(index=2, source="いるかホテルは古い", target="海豚旅店很旧。"),
+                ],
+            )
+        ],
+    )
+    store = SqliteStorage(str(tmp_path / "run"))
+    try:
+        store.init_from_document(document)
+        summary = apply_conflict_writeback(
+            store,
+            term_source="いるかホテル",
+            term=GlossaryTerm(source="いるかホテル", target="海豚旅店"),
+            rejected_targets=["海豚酒店"],
+            chosen_target="海豚旅店",
+        )
+        targets = [segment.target for segment in store.load_chapter(0).text_segments]
+    finally:
+        store.close()
+    # The passage translated with the rejected proposal takes the rendering that now stands.
+    assert targets[0] == "去海豚旅店。"
+    # Its source never mentions the term, so the same string elsewhere is left alone.
+    assert targets[1] == "海豚酒店是白色的。"
+    assert targets[2] == "海豚旅店很旧。"
+    assert summary["segments_replaced"] == 1
+    assert summary["chapters_touched"] == 1
+    assert summary["old_targets"] == ["海豚酒店"]
 
 
 def test_review_store_resumes_checkpoints_and_chunks_without_files(store, document):

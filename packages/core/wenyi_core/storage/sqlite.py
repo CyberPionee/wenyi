@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from ..glossary.store import GlossaryStore, GlossaryTerm
+from ..glossary.store import MANUAL_STATUS, GlossaryStore, GlossaryTerm
 from ..ingest.models import Chapter, Document
 from ..pipeline.runstore import ExportSnapshotStore, RunStore, source_sha256
 from .protocol import STATUS_DONE, STATUS_PENDING
@@ -883,7 +883,7 @@ class SqliteStorage:
         with self.state_lock():
             cursor = self._connection().execute(
                 "UPDATE glossary SET source=?, target=?, reading=?, type=?, gender=?, "
-                "aliases=?, note=?, status='ok', updated_at=? WHERE source=?",
+                "aliases=?, note=?, status=?, updated_at=? WHERE source=?",
                 (
                     term.source,
                     term.target,
@@ -892,6 +892,7 @@ class SqliteStorage:
                     term.gender,
                     json.dumps(term.aliases, ensure_ascii=False),
                     term.note,
+                    MANUAL_STATUS,
                     time.time(),
                     source,
                 ),

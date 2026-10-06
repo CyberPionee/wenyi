@@ -15,7 +15,7 @@ import sqlite3
 import tempfile
 import time
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,6 +24,9 @@ from ..i18n.metadata import normalize_gender, normalize_term_type
 # Canonical glossary types.
 TYPE_PERSON = "person"
 TYPE_TERM = "term"
+# An operator set this target by hand. It outranks automatic proposals, which stop
+# offering alternatives for the source instead of recording conflicts against it.
+MANUAL_STATUS = "manual"
 TYPE_APPELLATION = "appellation"
 TYPE_HONORIFIC = "honorific"
 TYPE_SPEECH = "speech"
@@ -218,6 +221,71 @@ class GlossaryOccurrenceMatcher:
         return recurring
 
 
+# Branch an incoming term takes against an established mapping. Every storage adapter routes
+# through classify_upsert so an operator's decision cannot be honoured by one backend and
+# silently overwritten by another.
+UPSERT_INSERT = "insert"
+UPSERT_MANUAL_WRITE = "manual_write"
+UPSERT_DROP = "drop"
+UPSERT_FILL = "fill"
+UPSERT_MERGE = "merge"
+UPSERT_CONFLICT = "conflict"
+
+# Public upsert_term results. Callers switch on these, so keep them stable.
+_UPSERT_RESULTS = {
+    UPSERT_INSERT: "inserted",
+    UPSERT_MANUAL_WRITE: "updated",
+    UPSERT_DROP: "unchanged",
+    UPSERT_FILL: "updated",
+    UPSERT_MERGE: "unchanged",
+    UPSERT_CONFLICT: "conflict",
+}
+
+
+def classify_upsert(existing: GlossaryTerm | None, term: GlossaryTerm) -> str:
+    """Return the branch an incoming term takes against an established mapping.
+
+    A target an operator set by hand outranks every proposal: the alternative is discarded
+    rather than recorded, so extraction cannot keep re-raising a decision already made. An
+    incoming term that is itself marked manual writes through and becomes the authority.
+    """
+    if existing is None:
+        return UPSERT_INSERT
+    if term.status == MANUAL_STATUS:
+        return UPSERT_MANUAL_WRITE
+    if existing.status == MANUAL_STATUS and existing.target != term.target:
+        return UPSERT_DROP
+    if not (existing.target or "").strip() and (term.target or "").strip():
+        return UPSERT_FILL
+    if existing.target == term.target:
+        return UPSERT_MERGE
+    return UPSERT_CONFLICT
+
+
+def upsert_result(branch: str) -> str:
+    """Map a classify_upsert branch onto the public upsert_term result."""
+    return _UPSERT_RESULTS[branch]
+
+
+def conflict_already_recorded(
+    recorded: Iterable[Sequence[str | None]],
+    existing_target: str,
+    proposed_target: str,
+) -> bool:
+    """Return whether an unresolved row already records this exact rejected proposal.
+
+    ``recorded`` holds the (existing_target, proposed_target) pairs still open for the
+    source. A source a later batch proposes again would otherwise add one row per batch: one
+    recurring disagreement produced fifteen identical rows, and the operator had to settle
+    the same decision repeatedly. Every storage adapter shares this test so the two backends
+    cannot disagree about what the operator has already seen.
+    """
+    for row in recorded:
+        if (row[0] or "") == existing_target and (row[1] or "") == proposed_target:
+            return True
+    return False
+
+
 class GlossaryStore:
     def __init__(self, db_path: str):
         """Open the glossary database and initialize the current schema."""
@@ -312,10 +380,10 @@ class GlossaryStore:
         return GlossaryTerm.from_row(row) if row else None
 
     def upsert_term(self, term: GlossaryTerm, chapter: int | None = None) -> str:
-        """Insert or update a term; return inserted, updated, unchanged or conflict.
-        For an existing source with a different target, retain the established translation
-        and record the candidate. Automatic extraction must not replace confirmed mappings
-        without human resolution. An empty existing target is filled without conflict.
+        """Apply one incoming term; return inserted, updated, unchanged or conflict.
+
+        The branch and its rationale live in classify_upsert, which every storage backend
+        shares so a locked operator decision cannot be honoured in one and lost in another.
         """
         try:
             # Acquire the lock before reading existing so two connections cannot decide from the same old view.
@@ -323,7 +391,8 @@ class GlossaryStore:
                 self.conn.execute("BEGIN IMMEDIATE")
             existing = self.get_term(term.source)
             now = time.time()
-            if existing is None:
+            branch = classify_upsert(existing, term)
+            if branch == UPSERT_INSERT:
                 self.conn.execute(
                     """INSERT INTO glossary
                        (source,target,reading,type,gender,aliases,first_chapter,note,
@@ -342,8 +411,30 @@ class GlossaryStore:
                         now,
                     ),
                 )
-                result = "inserted"
-            elif not (existing.target or "").strip() and (term.target or "").strip():
+            elif branch == UPSERT_MANUAL_WRITE:
+                # An operator's edit writes through and clears any recorded conflict.
+                self.conn.execute(
+                    """UPDATE glossary SET target=?, reading=COALESCE(NULLIF(?,''),reading),
+                       type=?, gender=COALESCE(NULLIF(?,''),gender), aliases=?,
+                       note=COALESCE(NULLIF(?,''),note), status=?, updated_at=? WHERE source=?""",
+                    (
+                        term.target,
+                        term.reading,
+                        term.type,
+                        term.gender,
+                        json.dumps(
+                            sorted(set(existing.aliases) | set(term.aliases)), ensure_ascii=False
+                        ),
+                        term.note,
+                        MANUAL_STATUS,
+                        now,
+                        term.source,
+                    ),
+                )
+                self.conn.execute(
+                    "UPDATE term_conflicts SET resolved=1 WHERE source=?", (term.source,)
+                )
+            elif branch == UPSERT_FILL:
                 # Fill a missing mapping without treating it as a conflict.
                 merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
                 self.conn.execute(
@@ -360,8 +451,7 @@ class GlossaryStore:
                         term.source,
                     ),
                 )
-                result = "updated"
-            elif existing.target == term.target:
+            elif branch == UPSERT_MERGE:
                 # Merging aliases or filling missing fields is not a conflict.
                 merged_aliases = sorted(set(existing.aliases) | set(term.aliases))
                 self.conn.execute(
@@ -377,22 +467,36 @@ class GlossaryStore:
                         term.source,
                     ),
                 )
-                result = "unchanged"
-            else:
-                # Different target: keep the established mapping and record the candidate for human resolution.
-                self._log_conflict(term.source, existing.target, term.target, chapter)
+            elif branch == UPSERT_CONFLICT:
+                # Different target: keep the established mapping and record the candidate for human
+                # resolution, once per disagreement rather than once per re-proposal.
+                if not conflict_already_recorded(
+                    self._open_conflict_rows(term.source),
+                    existing.target or "",
+                    term.target or "",
+                ):
+                    self._log_conflict(term.source, existing.target, term.target, chapter)
                 self.conn.execute(
                     "UPDATE glossary SET status='conflict', updated_at=? WHERE source=?",
                     (now, term.source),
                 )
-                result = "conflict"
+            # UPSERT_DROP writes nothing: an operator's locked target already stands, so the
+            # proposal that reached classify_upsert is discarded instead of recorded.
             if self._owns_connection:
                 self.conn.commit()
-            return result
+            return upsert_result(branch)
         except Exception:
             if self._owns_connection:
                 self.conn.rollback()
             raise
+
+    def _open_conflict_rows(self, source: str) -> list[tuple]:
+        """Return the still-open (existing, proposed) pairs for one source."""
+        return self.conn.execute(
+            """SELECT existing_target, proposed_target FROM term_conflicts
+               WHERE source = ? AND resolved = 0""",
+            (source,),
+        ).fetchall()
 
     def _log_conflict(self, source, existing_target, proposed_target, chapter):
         """Record one candidate-translation conflict within the current transaction."""
@@ -404,12 +508,15 @@ class GlossaryStore:
         )
 
     def resolve_term(self, source: str, target: str) -> bool:
-        """Resolve the final translation and restore normal status; report whether the term
-        exists.
+        """Apply a human decision on the final translation; report whether the term exists.
+
+        Resolving is an operator's act, so the chosen target becomes authoritative and is
+        locked against later proposals exactly like an explicit edit. Restoring ``ok`` here
+        would let the next extraction pass re-open the conflict the operator just closed.
         """
         cur = self.conn.execute(
-            "UPDATE glossary SET target=?, status='ok', updated_at=? WHERE source=?",
-            (target, time.time(), source),
+            "UPDATE glossary SET target=?, status=?, updated_at=? WHERE source=?",
+            (target, MANUAL_STATUS, time.time(), source),
         )
         if self._owns_connection:
             self.conn.commit()
@@ -459,23 +566,45 @@ class GlossaryStore:
         )
 
     def mark_conflicts_resolved(self, source: str) -> None:
-        """Mark every unresolved conflict for the given source term as handled."""
+        """Mark every unresolved conflict for the given source term as handled.
+
+        A term left flagged ``conflict`` once its rows are handled would silently drop out of the
+        always-on set and keep reading as contested, so the status returns to ``ok``. An
+        operator's lock is never downgraded: only a term still marked contested is restored.
+        """
         self.conn.execute("UPDATE term_conflicts SET resolved=1 WHERE source=?", (source,))
+        self.conn.execute(
+            "UPDATE glossary SET status='ok', updated_at=? WHERE source=? AND status='conflict'",
+            (time.time(), source),
+        )
         if self._owns_connection:
             self.conn.commit()
 
     def open_conflicts(self) -> list[dict[str, Any]]:
-        """Return conflicts awaiting human resolution in occurrence order."""
+        """Return conflicts awaiting human resolution in occurrence order.
+
+        A locked term already carries the operator's authoritative target, so the proposals
+        recorded against it are moot: nothing re-raises them and they must not gate a run.
+        """
         rows = self.conn.execute(
-            "SELECT * FROM term_conflicts WHERE resolved=0 ORDER BY created_at"
+            """SELECT c.* FROM term_conflicts c
+               LEFT JOIN glossary g ON g.source = c.source
+               WHERE c.resolved = 0 AND COALESCE(g.status, '') <> ?
+               ORDER BY c.created_at""",
+            (MANUAL_STATUS,),
         ).fetchall()
         return [dict(r) for r in rows]
 
     def stats(self) -> dict[str, int]:
-        """Return glossary and unresolved-conflict counts."""
-        g = self.conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
-        c = self.conn.execute("SELECT COUNT(*) FROM term_conflicts WHERE resolved=0").fetchone()[0]
-        return {"terms": g, "open_conflicts": c}
+        """Return glossary and unresolved-conflict counts, skipping moot locked conflicts."""
+        terms = self.conn.execute("SELECT COUNT(*) FROM glossary").fetchone()[0]
+        conflicts = self.conn.execute(
+            """SELECT COUNT(*) FROM term_conflicts c
+               LEFT JOIN glossary g ON g.source = c.source
+               WHERE c.resolved = 0 AND COALESCE(g.status, '') <> ?""",
+            (MANUAL_STATUS,),
+        ).fetchone()[0]
+        return {"terms": terms, "open_conflicts": conflicts}
 
 
 def merge_always_on(
@@ -489,10 +618,11 @@ def merge_always_on(
 ) -> list[GlossaryTerm]:
     """Append locked high-frequency always-on entities missing from a filtered list.
 
-    Always-on entities are status-ok terms of the configured types whose source or aliases
-    occur at least ``min_occurrences`` times in the book corpus. Keep chapter-filtered terms
-    in place and append extras in insertion order so main characters stay visible even when
-    a chapter does not mention them. Conflicting terms are never always-on.
+    Always-on entities are terms of the configured types whose source or aliases occur at
+    least ``min_occurrences`` times in the book corpus: either a settled mapping, or one an
+    operator set by hand. Keep chapter-filtered terms in place and append extras in insertion
+    order so main characters stay visible even when a chapter does not mention them. A term
+    under unresolved disagreement is never always-on.
     """
     if max_always <= 0:
         return list(selected)
@@ -501,7 +631,9 @@ def merge_always_on(
     candidates = [
         term
         for term in all_terms
-        if term.type in type_set and term.status == "ok" and term.source not in selected_keys
+        if term.type in type_set
+        and (term.status == "ok" or term.status == MANUAL_STATUS)
+        and term.source not in selected_keys
     ]
     if not candidates:
         return list(selected)

@@ -89,6 +89,8 @@ def book(tmp_path):
                 "review": False,
                 "review_agent_loop": False,
                 "review_fix_loop": False,
+                # These tests cover policy identity and resume, not the post-translation passes.
+                "quality_passes": "off",
             },
             "paths": {"state_dir": str(tmp_path / "state")},
         }
@@ -198,6 +200,31 @@ def test_builtin_font_and_unused_languages_do_not_invalidate_paid_checkpoints(
     )
     assert export["outputs"]
     assert client.calls == []
+
+
+def test_glossary_arbitration_does_not_change_the_review_policy():
+    """A finished whole-book review is reused and resumed on the review phase fingerprint.
+
+    Hashing the terminology arbiter's templates into the review plan meant editing a
+    terminology prompt silently discarded a completed review, because its recorded config
+    snapshot no longer matched. The arbiter settles terminology for the translated text and
+    runs in the translate workflow, so its templates belong to the translation plan.
+    """
+    settings = {"language": {"source": "ja", "target": "zh"}}
+    off = Config.from_dict({**settings, "pipeline": {"glossary_conflict_arbitration": False}})
+    on = Config.from_dict({**settings, "pipeline": {"glossary_conflict_arbitration": True}})
+
+    assert on.language_policy("review").fingerprint == off.language_policy("review").fingerprint
+    assert (
+        on.language_policy("translation").fingerprint
+        != off.language_policy("translation").fingerprint
+    )
+    assert "glossary_arbiter_system" in [
+        name for name, _ in on.language_policy("translation").templates
+    ]
+    assert "glossary_arbiter_system" not in [
+        name for name, _ in on.language_policy("review").templates
+    ]
 
 
 def test_unavailable_pinned_handler_is_rejected_before_calls(tmp_path):

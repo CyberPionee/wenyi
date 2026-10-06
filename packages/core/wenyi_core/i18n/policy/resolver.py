@@ -31,6 +31,7 @@ TASK_GROUPS = {
         "title_translator",
         "glossary_extractor",
         "glossary_history",
+        "glossary_arbiter",
         "annotation_aligner",
         "self_revision",
         "editorial_pass",
@@ -39,6 +40,10 @@ TASK_GROUPS = {
         "back_translation",
         "quality_judge",
     ),
+    # The review group feeds Review reuse and resume, so only prompts whose results are review
+    # results belong here. The glossary arbiter settles terminology for the translated text and
+    # runs in the translate workflow, so its templates stay with the translation phase: hashing
+    # them here would make a terminology-prompt edit invalidate a completed review.
     "review": ("reviewer", "review_agent", "review_arbiter", "review_fixer"),
     "srt": ("srt_batch", "srt_single"),
 }

@@ -19,6 +19,7 @@ from ..events import ProgressFn
 from ..storage.protocol import Storage
 from .annotations import AnnotationService
 from .finalization import AssemblyService, ReportService
+from .glossary_arbitration import GlossaryArbitrationService
 from .preparation import PreparationService
 from .quality_pass import QualityPassService
 from .review_autofix import ReviewAutofixService
@@ -45,6 +46,7 @@ class Orchestrator:
         self._translation = TranslationService(self._runtime, self._annotations)
         self._review = ReviewService(self._runtime)
         self._review_autofix = ReviewAutofixService(self._runtime, self._annotations)
+        self._glossary_arbitration = GlossaryArbitrationService(self._runtime)
         self._quality_pass = QualityPassService(self._runtime)
         self._report = ReportService(self._runtime)
         self._assembly = AssemblyService(self._runtime)
@@ -126,6 +128,10 @@ class Orchestrator:
                 only_chapter=only_chapter,
                 progress=progress,
             )
+            # Settle terminology conflicts once the whole book is translated and before any later
+            # pass reads the text, so review and the optional quality passes see one name per
+            # entity.
+            self._settle_terminology(store, progress=progress)
             self._quality_pass.run_after_translate(translated, progress=progress)
             return translated
         finally:
@@ -143,6 +149,8 @@ class Orchestrator:
             store = self._preparation.locate_existing(input_path, progress=progress)
             with store.lock():
                 self._preparation.activate(store)
+                # Review reads the text, so settle terminology first even on this standalone path.
+                self._settle_terminology(store, progress=progress)
                 terms = self._review.session_terms(store)
                 outcome = self._run_review_locked(
                     store,
@@ -307,6 +315,17 @@ class Orchestrator:
                     pdf_engine=pdf_engine,
                 )
 
+    def _settle_terminology(self, store: Storage, *, progress: ProgressFn | None) -> None:
+        """Settle open terminology conflicts once the whole book is translated.
+
+        Runs before Review reads the text and before the export gate counts conflicts, so both
+        meet one name per entity. A half-translated book keeps its conflicts: the extraction that
+        produced them is still running, so their set is not final yet.
+        """
+        if store.pending_chapters():
+            return
+        self._glossary_arbitration.run(store, progress=progress)
+
     def _finish_steps_locked(
         self,
         store: Storage,
@@ -328,6 +347,11 @@ class Orchestrator:
             steps=run_steps_input,
             input_path=input_path,
         )
+        # A run that translated in this invocation already settled terminology before its own
+        # optional passes. Without that step the book may still carry conflicts into Review and
+        # into the acceptance gate, which is where they used to block export.
+        if "translate" not in steps:
+            self._settle_terminology(store, progress=progress)
 
         review_issues: list[dict] = []
         review_changes: list[dict] = []

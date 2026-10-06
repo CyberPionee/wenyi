@@ -5,12 +5,17 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from wenyi_core.agents.prompts import render_glossary
 from wenyi_core.config import Config
 from wenyi_core.glossary.extractor import GlossaryExtractor, TranslatedSegmentEvidence
 from wenyi_core.glossary.injection import select_extraction_terms
-from wenyi_core.glossary.store import GlossaryStore, GlossaryTerm
+from wenyi_core.glossary.store import (
+    GlossaryOccurrenceMatcher,
+    GlossaryStore,
+    GlossaryTerm,
+)
 
 
 class _CountingClient:
@@ -128,6 +133,50 @@ class FinalizeChapterTests(unittest.TestCase):
                 self.assertIsNotNone(term)
                 assert term is not None
                 self.assertTrue((term.target or "").strip())
+            finally:
+                store.close()
+
+    def test_finalize_reports_only_mappings_it_established(self):
+        """Every chapter close-out used to re-lock every established term in the book."""
+        with tempfile.TemporaryDirectory() as d:
+            store = GlossaryStore(str(Path(d) / "g.db"))
+            try:
+                store.upsert_term(GlossaryTerm(source="Ann", target="安", type="person"))
+                store.upsert_term(GlossaryTerm(source="Beth", target="", type="person"))
+                extractor = GlossaryExtractor(_CountingClient(), Config.from_dict({}))  # type: ignore[arg-type]
+                history = [
+                    TranslatedSegmentEvidence(chapter=1, segment=2, source="Ann", target="安"),
+                    TranslatedSegmentEvidence(chapter=1, segment=3, source="Beth", target="贝丝"),
+                ]
+                locked: list[tuple[str, str]] = []
+                summary = extractor.finalize_chapter_glossary(
+                    store,
+                    1,
+                    history=history,
+                    before=(1, 10),
+                    source_corpus="Ann Ann Beth Beth",
+                    on_auto_lock=lambda source, target: locked.append((source, target)),
+                )
+                self.assertEqual(locked, [("Beth", "贝丝")])
+                self.assertEqual(summary["auto_locked"], 1)
+            finally:
+                store.close()
+
+    def test_recurrence_matcher_is_reused_across_calls(self):
+        """Rebuilding the matcher per call re-normalized the whole book corpus every time."""
+        with tempfile.TemporaryDirectory() as d:
+            store = GlossaryStore(str(Path(d) / "g.db"))
+            try:
+                store.upsert_term(GlossaryTerm(source="Ann", target="安", type="person"))
+                extractor = GlossaryExtractor(_CountingClient(), Config.from_dict({}))  # type: ignore[arg-type]
+                corpus = "Ann Ann"
+                with mock.patch(
+                    "wenyi_core.glossary.extractor.GlossaryOccurrenceMatcher",
+                    wraps=GlossaryOccurrenceMatcher,
+                ) as matcher:
+                    for _ in range(3):
+                        extractor.finalize_chapter_glossary(store, 1, source_corpus=corpus)
+                    self.assertEqual(matcher.call_count, 1)
             finally:
                 store.close()
 

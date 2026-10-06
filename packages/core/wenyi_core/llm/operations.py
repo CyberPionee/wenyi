@@ -201,6 +201,14 @@ OPERATIONS = register_operations(
             flags=("review_autofix",),
             review=True,
         ),
+        OperationSpec(
+            "glossary.arbitrate",
+            "Settle terminology conflicts from book context",
+            "strong",
+            workflows=("translate",),
+            flags=("glossary_conflict_arbitration",),
+            resumable_conversation=True,
+        ),
         OperationSpec("srt.translate", "Translate subtitle cues", "strong", workflows=("srt",)),
     )
 )

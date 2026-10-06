@@ -280,7 +280,9 @@ class TestExtractor(unittest.TestCase):
         ext = GlossaryExtractor(client, _cfg())
         with tempfile.TemporaryDirectory() as d:
             store = GlossaryStore(os.path.join(d, "g.db"))
-            summary = ext.extract_and_store(store, "原文", "译文", chapter=1)
+            summary = ext.extract_and_store(
+                store, "堀北は屋上にいた。", "堀北在天台上。", chapter=1
+            )
             self.assertEqual(summary["inserted"], 2)
             horikita = store.get_term("堀北")
             self.assertIsNotNone(horikita)
@@ -293,6 +295,37 @@ class TestExtractor(unittest.TestCase):
             self.assertIsNotNone(rooftop)
             assert rooftop is not None
             self.assertEqual(rooftop.gender, "")
+            store.close()
+
+    def test_candidates_absent_from_the_batch_text_are_dropped(self):
+        """A source the model paraphrased can never match text, so it is not stored.
+
+        One real run stored 22 such rows: Chinese spellings of Japanese sources, mixed-script
+        corruptions, misspellings and invented sentence fragments.
+        """
+        terms = {
+            "terms": [
+                {"source": "マセラティ", "target": "玛莎拉蒂", "type": "organization"},
+                {"source": "マセラ蒂", "target": "玛莎拉蒂", "type": "organization"},
+                {"source": "游泳池妄想", "target": "游泳池妄想", "type": "term"},
+                {"source": "データが不足しているのだ。", "target": "数据不足。", "type": "term"},
+            ]
+        }
+        client = FakeClient(handler=lambda m, t, j: json.dumps(terms, ensure_ascii=False))
+        extractor = GlossaryExtractor(client, _cfg())
+
+        with tempfile.TemporaryDirectory() as d:
+            store = GlossaryStore(os.path.join(d, "g.db"))
+            summary = extractor.extract_and_store(
+                store,
+                "呪われたマセラティに乗ってプール妄想を語った。",
+                "坐着被诅咒的玛莎拉蒂，谈起了泳池妄想。",
+                chapter=33,
+            )
+            self.assertEqual(summary["source_not_in_text"], 3)
+            self.assertIsNotNone(store.get_term("マセラティ"))
+            self.assertIsNone(store.get_term("マセラ蒂"))
+            self.assertIsNone(store.get_term("游泳池妄想"))
             store.close()
 
     def test_malformed_optional_fields_fall_back_safely(self):
@@ -389,6 +422,46 @@ class TestExtractor(unittest.TestCase):
             self.assertEqual(summary["history_unresolved"], 0)
             store.close()
         self.assertEqual(len(calls), 2)
+
+    def test_stored_terms_keep_conflicts_for_resolution(self):
+        """A proposal against a stored mapping is recorded, never settled by the extractor.
+
+        The restricted resolve only covers a mapping the same batch inserted: alignment history
+        is computed before the write and holds only terms that were not stored yet, so a stored
+        mapping always waits for a human or the terminology arbiter.
+        """
+        terms = {"terms": [{"source": "いるかホテル", "target": "海豚酒店", "type": "place"}]}
+        client = FakeClient(handler=lambda m, t, j: json.dumps(terms, ensure_ascii=False))
+        extractor = GlossaryExtractor(client, _cfg())
+
+        with tempfile.TemporaryDirectory() as d:
+            store = GlossaryStore(os.path.join(d, "g.db"))
+            store.upsert_term(GlossaryTerm(source="いるかホテル", target="海豚旅店"), chapter=0)
+            summary = extractor.extract_and_store(
+                store,
+                "いるかホテルへ行く。",
+                "去海豚酒店。",
+                chapter=1,
+                history=[
+                    TranslatedSegmentEvidence(
+                        chapter=0,
+                        segment=0,
+                        source="いるかホテルへ行く。",
+                        target="去海豚旅店。",
+                    )
+                ],
+                before=(1, 0),
+                source_corpus="いるかホテルへ行く。いるかホテルは古い。",
+            )
+            term = store.get_term("いるかホテル")
+            assert term is not None
+            self.assertEqual(summary["conflict"], 1)
+            self.assertEqual(summary["auto_locked"], 0)
+            # The established mapping stands and the disagreement stays for a decision.
+            self.assertEqual(term.target, "海豚旅店")
+            self.assertEqual(term.status, "conflict")
+            self.assertEqual(len(store.open_conflicts()), 1)
+            store.close()
 
     def test_new_term_without_prior_occurrence_is_inserted_directly(self):
         terms = {"terms": [{"source": "綾小路", "target": "绫小路", "type": "person"}]}

@@ -9,13 +9,23 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 
 from wenyi_core.agents.prompts import render_glossary, strip_empty_sections
+from wenyi_core.glossary.resolver import keep_current_terms
 from wenyi_core.glossary.store import (
+    MANUAL_STATUS,
     TYPE_APPELLATION,
     TYPE_PERSON,
+    UPSERT_CONFLICT,
+    UPSERT_DROP,
+    UPSERT_FILL,
+    UPSERT_INSERT,
+    UPSERT_MANUAL_WRITE,
+    UPSERT_MERGE,
     GlossaryStore,
     GlossaryTerm,
+    classify_upsert,
     merge_always_on,
     source_matches_text,
+    upsert_result,
 )
 
 
@@ -173,7 +183,144 @@ class TestGlossary(unittest.TestCase):
         term = self.store.get_term("堀北")
         assert term is not None
         self.assertEqual(term.target, "掘北")
-        self.assertEqual(term.status, "ok")
+        # Resolving is the operator's decision, so it locks the term like an explicit edit.
+        self.assertEqual(term.status, MANUAL_STATUS)
+        self.assertEqual(self.store.open_conflicts(), [])
+        # A locked term stops the extraction pass from re-opening what the operator closed.
+        self.assertEqual(
+            self.store.upsert_term(GlossaryTerm(source="堀北", target="堀北"), chapter=2),
+            "unchanged",
+        )
+        self.assertEqual(self.store.open_conflicts(), [])
+        self.assertEqual(self.store.get_term("堀北").target, "掘北")
+
+    def test_repeated_proposal_records_one_conflict(self):
+        """A later batch re-proposing the same alternative must not add another row."""
+        self.store.upsert_term(GlossaryTerm(source="アメ", target="美国"), chapter=29)
+        for chapter in range(29, 42):
+            self.assertEqual(
+                self.store.upsert_term(GlossaryTerm(source="アメ", target="阿梅"), chapter=chapter),
+                "conflict",
+            )
+        conflicts = self.store.open_conflicts()
+        self.assertEqual(len(conflicts), 1)
+        self.assertEqual(conflicts[0]["proposed_target"], "阿梅")
+        # A genuinely different alternative is a new decision and is still recorded.
+        self.store.upsert_term(GlossaryTerm(source="アメ", target="美利坚"), chapter=42)
+        self.assertEqual(len(self.store.open_conflicts()), 2)
+
+    def test_classify_upsert_covers_every_branch(self):
+        """Every storage backend routes through this decision, so each branch is pinned."""
+        plain = GlossaryTerm(source="s", target="编甲")
+        locked = GlossaryTerm(source="s", target="编甲", status=MANUAL_STATUS)
+        self.assertEqual(classify_upsert(None, plain), UPSERT_INSERT)
+        self.assertEqual(
+            classify_upsert(plain, GlossaryTerm(source="s", target="编乙", status=MANUAL_STATUS)),
+            UPSERT_MANUAL_WRITE,
+        )
+        self.assertEqual(
+            classify_upsert(locked, GlossaryTerm(source="s", target="编乙")), UPSERT_DROP
+        )
+        self.assertEqual(classify_upsert(GlossaryTerm(source="s", target=""), plain), UPSERT_FILL)
+        self.assertEqual(
+            classify_upsert(plain, GlossaryTerm(source="s", target="编甲")), UPSERT_MERGE
+        )
+        self.assertEqual(
+            classify_upsert(plain, GlossaryTerm(source="s", target="编乙")), UPSERT_CONFLICT
+        )
+        self.assertEqual(upsert_result(UPSERT_INSERT), "inserted")
+        self.assertEqual(upsert_result(UPSERT_MANUAL_WRITE), "updated")
+        self.assertEqual(upsert_result(UPSERT_DROP), "unchanged")
+        self.assertEqual(upsert_result(UPSERT_FILL), "updated")
+        self.assertEqual(upsert_result(UPSERT_MERGE), "unchanged")
+        self.assertEqual(upsert_result(UPSERT_CONFLICT), "conflict")
+
+    def test_locked_term_makes_its_recorded_conflicts_moot(self):
+        """Rows recorded before the lock existed must not gate a run."""
+        self.store.upsert_term(GlossaryTerm(source="海豚", target="海豚酒店"), chapter=0)
+        self.assertEqual(
+            self.store.upsert_term(GlossaryTerm(source="海豚", target="海豚旅店"), chapter=1),
+            "conflict",
+        )
+        self.assertEqual(len(self.store.open_conflicts()), 1)
+
+        # A lock applied outside upsert leaves the row unresolved, as legacy state does.
+        self.store.conn.execute(
+            "UPDATE glossary SET status=? WHERE source=?", (MANUAL_STATUS, "海豚")
+        )
+        self.store.conn.commit()
+        self.assertEqual(self.store.open_conflicts(), [])
+        self.assertEqual(self.store.stats()["open_conflicts"], 0)
+
+    def test_keep_current_terms_settles_every_open_conflict(self):
+        """Bulk settlement keeps each established target and locks the terms it settles."""
+        self.store.upsert_term(GlossaryTerm(source="甲", target="Jia"), chapter=0)
+        self.store.upsert_term(GlossaryTerm(source="乙", target="Yi"), chapter=0)
+        for source in ("甲", "乙"):
+            self.assertEqual(
+                self.store.upsert_term(GlossaryTerm(source=source, target="别的"), chapter=1),
+                "conflict",
+            )
+        self.store.upsert_term(GlossaryTerm(source="丁", target="Ding"), chapter=0)
+        self.assertEqual(
+            self.store.upsert_term(GlossaryTerm(source="丁", target="别的"), chapter=1), "conflict"
+        )
+        # A conflict whose term is gone must stay visible instead of being discarded.
+        self.store.conn.execute("DELETE FROM glossary WHERE source=?", ("丁",))
+        self.store.conn.commit()
+
+        settled = keep_current_terms(self.store)
+        self.assertEqual(sorted(record["source"] for record in settled), ["乙", "甲"])
+        # Each record carries the rejected proposal so the caller can rewrite the translation.
+        self.assertEqual(
+            {record["source"]: (record["target"], record["rejected"]) for record in settled},
+            {"甲": ("Jia", ["别的"]), "乙": ("Yi", ["别的"])},
+        )
+        first = self.store.get_term("甲")
+        assert first is not None
+        self.assertEqual(first.target, "Jia")
+        # Settling is the operator's decision, so the term is locked against later proposals.
+        self.assertEqual(first.status, MANUAL_STATUS)
+        self.assertEqual(self.store.get_term("乙").target, "Yi")
+        self.assertEqual([row["source"] for row in self.store.open_conflicts()], ["丁"])
+        self.assertEqual(
+            self.store.upsert_term(GlossaryTerm(source="甲", target="别的"), chapter=2), "unchanged"
+        )
+
+    def test_manual_target_outranks_every_later_proposal(self):
+        """A target an operator set is final: proposals are dropped, not recorded."""
+        self.store.upsert_term(
+            GlossaryTerm(source="海豚", target="海豚旅店", status=MANUAL_STATUS), chapter=0
+        )
+        # The extraction pass keeps proposing its own reading of the same source.
+        for _ in range(3):
+            self.assertEqual(
+                self.store.upsert_term(GlossaryTerm(source="海豚", target="海豚酒店"), chapter=1),
+                "unchanged",
+            )
+        term = self.store.get_term("海豚")
+        assert term is not None
+        self.assertEqual(term.target, "海豚旅店")
+        self.assertEqual(term.status, MANUAL_STATUS)
+        # No review backlog accumulates against a decision already made.
+        self.assertEqual(self.store.open_conflicts(), [])
+
+    def test_manual_edit_clears_the_recorded_conflict(self):
+        """Editing a term by hand retires the conflict it was carrying."""
+        self.store.upsert_term(GlossaryTerm(source="海豚", target="海豚酒店"), chapter=0)
+        self.assertEqual(
+            self.store.upsert_term(GlossaryTerm(source="海豚", target="海豚旅店"), chapter=1),
+            "conflict",
+        )
+        self.assertEqual(len(self.store.open_conflicts()), 1)
+
+        self.store.upsert_term(
+            GlossaryTerm(source="海豚", target="海豚旅店", status=MANUAL_STATUS), chapter=1
+        )
+        term = self.store.get_term("海豚")
+        assert term is not None
+        self.assertEqual(term.target, "海豚旅店")
+        self.assertEqual(term.status, MANUAL_STATUS)
         self.assertEqual(self.store.open_conflicts(), [])
 
     def test_concurrent_upserts_make_one_atomic_conflict_decision(self):
