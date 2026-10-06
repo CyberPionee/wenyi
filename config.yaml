@@ -36,6 +36,7 @@ pipeline:
   review_agent_loop: true # Use evidence-based verification after the initial review identifies candidates
   review_agent_max_evidence_rounds: 2 # At most two rounds of selective evidence requests before a final decision
   review_conflict_arbitration: true # Arbitrate contradictory consistency proposals after all review blocks finish
+  glossary_conflict_arbitration: true # Settle terminology conflicts from book context once translation finishes, before review
   review_fix_loop: true # Revise an in-memory shadow translation and review it blindly; this loop does not publish changes
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
@@ -52,11 +53,12 @@ pipeline:
   glossary_extract_min_terms: 5
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
   tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
-  self_revision: false # Optional C-batch draft revision notes (analysis/events only)
-  editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
-  final_polish: false # Optional final polish candidates (analysis/events only)
-  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
-  back_translation: false # Optional back-translation QA notes (analysis/events only)
+  quality_passes: auto # Post-translation passes. auto: derive them from the tier and risk-gate chapters; full: every pass on every chapter; manual: the switches below; off: none
+  self_revision: false # Optional C-batch draft revision notes (analysis/events only; "manual" mode only)
+  editorial_pass: false # Optional whole-book editorial notes (analysis/events only; "manual" mode only)
+  final_polish: false # Optional final polish candidates (analysis/events only; "manual" mode only)
+  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only; "manual" mode only)
+  back_translation: false # Optional back-translation QA notes (analysis/events only; "manual" mode only)
   autonomy_tier: "standard" # off | speed | standard | precise
   evaluation_enabled: true # L0-L3 machine gate for autonomous acceptance
   risk_back_translation: true # L1 selective back-translation on risk/sampled segments

@@ -279,6 +279,7 @@ pipeline:
   review_agent_loop: true
   review_agent_max_evidence_rounds: 2
   review_conflict_arbitration: true
+  glossary_conflict_arbitration: true
   review_fix_loop: true
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
@@ -323,6 +324,7 @@ pipeline:
 - `review_agent_loop`：原有 Reviewer 提示词在成功叶块中发现候选后，允许 Agent Loop 选择性请求证据，再确认、驳回或细化这些候选。
 - `review_agent_max_evidence_rounds`：每个 Agent Loop 最多允许的选择性取证轮数，范围为 `0` 到 `2`；用完后必须给出最终结论。
 - `review_conflict_arbitration`：所有块结束后，同一术语、人称或固定表达的一致性建议若互相矛盾，再执行只给建议、不修改数据的终局仲裁。
+- `glossary_conflict_arbitration`：全书译完、进入审校之前，依据该术语在全书中的用法裁定未解决的术语冲突。仲裁只在「已确立译名」与「已记录的提议」之间选择，不会另造译名；无法区分的冲突保留给人处理。裁定结果会锁定该词条，并把仍带着被否译名的段落改写掉，使审校与导出前门禁面对的是同一套称谓。
 - `review_fix_loop`：针对确认的问题在本次运行的影子译文中生成完整单段替换，再从头盲审全书；关闭后保持单轮、只给建议的行为。
 - `review_fix_max_rounds`：最多生成的临时 Fix 轮数，范围为 `0` 到 `4`；它不是 Review 总轮数。
 - `review_clean_confirmations`：开启影子 Fix 后，需要连续无问题的全书 Review 次数，范围为 `1` 到 `2`，默认 `2`。
@@ -333,7 +335,8 @@ pipeline:
 - `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
 - `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`：抽取时已有术语的通用灵活注入（命中优先、预算封顶、最小兜底）。详见[术语注入](glossary-injection.md)。抽取提示词不带 Note；翻译/润色/审校仍保留 Note。
 - `tuning`：默认 `auto`。此时不再要求人工填调优数值：自治档位与批次预算决定 `review_scope`、`risk_back_translation`、`max_auto_redo_rounds`、`quality_judge_dual` 与 5 个术语提示预算，历史分数分布可标定 `bt_score_min` 与 `judge_score_min`。设为 `manual` 则完全沿用配置值。这些键里只要有任何一个被写成与出厂默认不同的值，就视为人工钉住，`auto` 不会再动它。每次运行都会把全部 27 个键的生效值与来源写进 `report.evaluation.tuning`，进度页据此展示。
-- `autonomy_tier`：质量与成本的唯一旋钮。`off` 只跑 L0 规则扫描——不抽样、不回译、不自动重做，只有 L0 能阻断；`speed` 另以减半抽样报告 L1–L3，同样不阻断；`standard` 要求 L0–L3 按配置抽样全绿；`precise` 抽样加倍、两次评分取平均、允许三轮自动重做，并把接受地板抬到 `0.6` / `4.0`。
+- `quality_passes`：默认 `auto`，译后质量精修的唯一旋钮（`self_revision` / `editorial_pass` / `final_polish` / `chapter_selfcheck` / `back_translation`）。`auto` 按 `autonomy_tier` 推导跑哪些：`off` 全不跑，`speed` 只跑逐章自检，`standard` 加终润色与全书编辑意见，`precise` 五个全跑；逐章的 pass 只作用于确定性检查命中的章节，没被命中的章节保留原译。`full` 对所有已译章节跑全部 pass，`off` 全不跑，`manual` 完全沿用下面五个开关的原值。这五个开关只在 `manual` 模式下生效。每个 pass 会记录已完成的部分，因此重跑或续跑不会重复付费。
+- `autonomy_tier`：质量与成本的唯一旋钮。`off` 只跑 L0 规则扫描——不抽样、不回译、不自动重做，只有 L0 能阻断；`speed` 另以减半抽样报告 L1–L3，同样不阻断；`standard` 要求 L0–L3 按配置抽样全绿；`precise` 抽样加倍、两次评分取平均、允许三轮自动重做，并把接受地板抬到 `0.6` / `4.0`。在 `auto` 模式下它也决定 `quality_passes`。
 - `review_scope`：`all` 审全部章节；`risk` 只审含机械检出风险段的章节，`off` 与 `speed` 会自动选它。
 - `max_auto_redo_rounds`：机器门未过后的自动重做轮数，`0` 到 `5`。
 - `auto_qa_strict`：默认关闭。开启后若 `report.auto_qa` 或机器评估门仍有空译、术语冲突、残留问题、未决 issue 或评估低分，则导出直接失败；默认导出不阻断。

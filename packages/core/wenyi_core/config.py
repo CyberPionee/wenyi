@@ -57,6 +57,7 @@ pipeline:
   review_agent_loop: true # Use evidence-based verification after the initial review identifies candidates
   review_agent_max_evidence_rounds: 2 # At most two rounds of selective evidence requests before a final decision
   review_conflict_arbitration: true # Arbitrate contradictory consistency proposals after all review blocks finish
+  glossary_conflict_arbitration: true # Settle terminology conflicts from book context once translation finishes, before review
   review_fix_loop: true # Revise an in-memory shadow translation and review it blindly; this loop does not publish changes
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
@@ -73,11 +74,12 @@ pipeline:
   glossary_extract_min_terms: 5
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
   tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
-  self_revision: false # Optional C-batch draft revision notes (analysis/events only)
-  editorial_pass: false # Optional whole-book editorial notes (analysis/events only)
-  final_polish: false # Optional final polish candidates (analysis/events only)
-  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only)
-  back_translation: false # Optional back-translation QA notes (analysis/events only)
+  quality_passes: auto # Post-translation passes. auto: derive them from the tier and risk-gate chapters; full: every pass on every chapter; manual: the switches below; off: none
+  self_revision: false # Optional C-batch draft revision notes (analysis/events only; "manual" mode only)
+  editorial_pass: false # Optional whole-book editorial notes (analysis/events only; "manual" mode only)
+  final_polish: false # Optional final polish candidates (analysis/events only; "manual" mode only)
+  chapter_selfcheck: false # Optional per-chapter LLM self-check notes (analysis/events only; "manual" mode only)
+  back_translation: false # Optional back-translation QA notes (analysis/events only; "manual" mode only)
   autonomy_tier: "standard" # off | speed | standard | precise
   evaluation_enabled: true # L0-L3 machine gate for autonomous acceptance
   risk_back_translation: true # L1 selective back-translation on risk/sampled segments
@@ -168,6 +170,9 @@ class PipelineConfig(BaseModel):
     review_conflict_arbitration: bool = (
         True  # Arbitrate contradictory consistency proposals after all blocks finish
     )
+    glossary_conflict_arbitration: bool = (
+        True  # Settle terminology conflicts from book context before review
+    )
     review_fix_loop: bool = (
         True  # Revise only the in-memory shadow translation and review it blindly
     )
@@ -193,6 +198,7 @@ class PipelineConfig(BaseModel):
     # auto: derive the tunable knobs from the autonomy tier, the batch budget and recorded
     # score distributions. manual: use the configured values as written.
     tuning: Literal["auto", "manual"] = "auto"
+    quality_passes: Literal["auto", "full", "manual", "off"] = "auto"
     self_revision: bool = False
     editorial_pass: bool = False
     final_polish: bool = False
@@ -321,15 +327,31 @@ class Config(BaseModel):
                 ]
                 if self.pipeline.polish:
                     groups.append("polisher")
+            # The glossary arbiter settles terminology for the translated text and runs in this
+            # workflow, so its templates belong to this plan. Hashing them into the review plan
+            # instead would change the review phase fingerprint, and a completed review is
+            # reused and resumed on that fingerprint: a terminology-prompt edit would silently
+            # throw away a finished whole-book review.
+            if self.pipeline.glossary_conflict_arbitration:
+                groups.append("glossary_arbiter")
             # Optional passes render their prompts from this phase, so their templates and rules
             # belong to its revision: a prompt edit must invalidate results derived from them.
+            # The post-translation passes are decided by quality_passes, so their prompt groups
+            # follow that plan rather than the individual switches.
+            from .pipeline.tuning import quality_pass_plan
+
+            passes, _coverage = quality_pass_plan(
+                self.pipeline.quality_passes,
+                tier=self.pipeline.autonomy_tier,
+                configured=self.pipeline.model_dump(),
+            )
             for enabled, group in (
-                (self.pipeline.self_revision, "self_revision"),
-                (self.pipeline.editorial_pass, "editorial_pass"),
-                (self.pipeline.final_polish, "final_polish"),
-                (self.pipeline.chapter_selfcheck, "chapter_selfcheck"),
+                ("self_revision" in passes, "self_revision"),
+                ("editorial_pass" in passes, "editorial_pass"),
+                ("final_polish" in passes, "final_polish"),
+                ("chapter_selfcheck" in passes, "chapter_selfcheck"),
                 (
-                    self.pipeline.back_translation or self.pipeline.risk_back_translation,
+                    "back_translation" in passes or self.pipeline.risk_back_translation,
                     "back_translation",
                 ),
                 (self.pipeline.quality_judge, "quality_judge"),

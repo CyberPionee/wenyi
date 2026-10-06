@@ -299,6 +299,7 @@ pipeline:
   review_agent_loop: true
   review_agent_max_evidence_rounds: 2
   review_conflict_arbitration: true
+  glossary_conflict_arbitration: true
   review_fix_loop: true
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
@@ -314,6 +315,7 @@ pipeline:
   glossary_extract_recent_max: 20
   glossary_extract_min_terms: 5
   tuning: "auto"
+  quality_passes: auto
   autonomy_tier: "standard"
   evaluation_enabled: true
   risk_back_translation: true
@@ -343,6 +345,7 @@ pipeline:
 - `review_agent_loop`: after the unchanged initial Reviewer finds candidates in a successful leaf chunk, let an Agent Loop selectively request evidence and confirm, dismiss, or refine those candidates.
 - `review_agent_max_evidence_rounds`: maximum selective evidence rounds per Agent Loop; the allowed range is `0` to `2`, after which the agent must return a final decision.
 - `review_conflict_arbitration`: after all chunks finish, run a recommendation-only arbiter when consistency proposals for the same term, pronoun, or fixed expression contradict one another.
+- `glossary_conflict_arbitration`: once the whole book is translated and before Review runs, settle open terminology conflicts from the term's use across the book. The arbiter chooses between the established rendering and the recorded proposals, never inventing a new one; a conflict it cannot separate stays open for a human. A settled choice locks the term and rewrites the paragraphs that still carried a rejected rendering, so Review and the export gate work with one name per entity.
 - `review_fix_loop`: generate complete provisional segment replacements for confirmed issues in a run-local shadow translation, then blindly review the whole book again. Disabling it keeps the single-pass recommendation-only behavior.
 - `review_fix_max_rounds`: maximum number of provisional Fix rounds, from `0` to `4`; this is not the total number of Review passes.
 - `review_clean_confirmations`: consecutive issue-free whole-book Review passes required after shadow fixing, from `1` to `2`; the default is `2`.
@@ -353,7 +356,8 @@ pipeline:
 - `glossary_note_chars`: maximum glossary `note` characters rendered into model prompts (default `120`; empty notes are omitted).
 - `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`: universal flexible injection of existing terms into extraction prompts (hit-first, budget-capped, minimum fallback). See the Chinese design doc `docs/zh/glossary-injection.md`. Extraction prompts omit notes; translate/polish/review keep notes.
 - `tuning`: `auto` by default. The tunable knobs are then derived instead of requested: the autonomy tier and the batch budget decide `review_scope`, `risk_back_translation`, `max_auto_redo_rounds`, `quality_judge_dual` and the five glossary prompt budgets, and the recorded score distribution may calibrate `bt_score_min` and `judge_score_min`. Set it to `manual` to keep every configured value in force. Writing any of those keys with a value that differs from the shipped default already counts as a deliberate choice: `auto` leaves it alone. Every run records the effective value and origin of all 27 keys in `report.evaluation.tuning`, which the progress page renders.
-- `autonomy_tier`: the quality/cost dial. `off` runs the L0 sweep alone — no sampling, no back-translation, no automatic revision, and only L0 can block. `speed` also reports L1–L3 at reduced sampling, still without blocking. `standard` requires L0–L3 to pass at the configured sampling. `precise` doubles sampling, averages two judge passes, allows three automatic revision rounds and raises the accept floors to `0.6` / `4.0`.
+- `quality_passes`: `auto` by default, the single knob for the post-translation passes (`self_revision`, `editorial_pass`, `final_polish`, `chapter_selfcheck`, `back_translation`). `auto` derives which of them run from `autonomy_tier` — `off` runs none, `speed` runs the per-chapter self-check, `standard` adds final polish and the whole-book editorial notes, `precise` runs all five — and applies the per-chapter ones only to chapters whose deterministic scans found something, so a clean chapter keeps its translation as it stands. `full` runs every pass on every translated chapter, `off` runs none, and `manual` keeps the five switches exactly as written. Each pass records what it finished, so a repeated or resumed run does not pay for it again.
+- `autonomy_tier`: the quality/cost dial. `off` runs the L0 sweep alone — no sampling, no back-translation, no automatic revision, and only L0 can block. `speed` also reports L1–L3 at reduced sampling, still without blocking. `standard` requires L0–L3 to pass at the configured sampling. `precise` doubles sampling, averages two judge passes, allows three automatic revision rounds and raises the accept floors to `0.6` / `4.0`. In `auto` mode it also decides `quality_passes`.
 - `review_scope`: `all` reviews every chapter; `risk` reviews only chapters containing mechanically detected risk segments, which `off` and `speed` select automatically.
 - `max_auto_redo_rounds`: automatic revision rounds after a failing machine gate, from `0` to `5`.
 - `auto_qa_strict`: off by default. When enabled, export fails if `report.auto_qa` or the machine evaluation gate still reports empty targets, glossary conflicts, residual findings, open review issues or low evaluation scores. Default export is never blocked.
