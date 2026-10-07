@@ -14,8 +14,10 @@ from wenyi_core.agents.reviewer import ReviewOutputError
 from wenyi_core.config import Config
 from wenyi_core.glossary.store import GlossaryStore
 from wenyi_core.ingest.models import Chapter, Segment
+from wenyi_core.llm.limits import RequestStopped
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.llm.usage import UsageSample
+from wenyi_core.pipeline import preparation
 from wenyi_core.pipeline.annotations import AnnotationService
 from wenyi_core.pipeline.context import RollingContext
 from wenyi_core.pipeline.orchestrator import Orchestrator
@@ -990,8 +992,9 @@ class TestBookUnderstanding(unittest.TestCase):
             store = require_file_storage(orch.prepare(txt))
             cfg.pipeline.book_understanding = True
             cfg.freeze_language_policies(store.load_manifest()["source_sha256"])
-            with self.assertRaisesRegex(ValueError, "Chapter digests.*1"):
-                orch.run(txt)
+            with patch.object(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0):
+                with self.assertRaisesRegex(RequestStopped, "Chapter digests.*1"):
+                    orch.run(txt)
             self.assertTrue(store.load_chapter(0).meta["source_digest"])
             self.assertFalse(store.load_chapter(1).meta.get("source_digest"))
             self.assertFalse(any(call["operation"] == "translation.body" for call in client.calls))

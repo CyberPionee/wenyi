@@ -9,6 +9,7 @@ synopsis as configured. Share pure language normalization with Runtime through t
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,7 @@ from ..ingest.epub_reader import peek_epub_title
 from ..ingest.models import Chapter, Document
 from ..ingest.segmenter import load_document
 from ..llm.errors import ProviderFailure, describe_provider_failure
+from ..llm.limits import RequestStopped
 from ..storage.protocol import Storage
 from .context import RollingContext
 from .language_policies import commit_revision, initialize_policies, translation_revision
@@ -30,6 +32,12 @@ if TYPE_CHECKING:
     from .runtime import PipelineRuntime
 
 ProgressFn = Callable[[int, int, str], None]
+
+# A chapter digest that comes back empty is retried this many times in one pass, pausing between
+# passes. A gateway that answers unavailable generates nothing, so the retries cost no tokens,
+# and a pause shorter than the provider's own backoff would only repeat the same failure.
+_DIGEST_ATTEMPTS = 3
+_DIGEST_RETRY_PAUSE_SECONDS = 20.0
 
 
 class LanguageDetectionError(ValueError):
@@ -626,44 +634,70 @@ class PreparationService:
             if not self._digest_is_current(ch.meta, chapter_fp[ci], digest_policy)
         ]
         if todo:
+            workers = max(1, self._runtime.config.pipeline.prescan_concurrency)
             store.log_event(
                 "book_understanding_chapter_digest_started",
                 chapters=[ci for ci, _ in todo],
-                workers=max(1, self._runtime.config.pipeline.prescan_concurrency),
+                workers=workers,
             )
-            workers = max(1, self._runtime.config.pipeline.prescan_concurrency)
+            total = len(todo)
+            reported = 0
             if progress:
-                progress(0, len(todo), "Prescanning chapter digests")
-            with ThreadPoolExecutor(max_workers=workers) as ex:
-                futs = {
-                    ex.submit(self._runtime.synopsizer.digest_chapter, src, chapter_terms[ci]): ci
-                    for ci, src in todo
-                }
-                for n_done, fut in enumerate(as_completed(futs), 1):
-                    ci = futs[fut]
-                    digest = fut.result()  # _ask_text already returns an empty fallback on failure.
-                    if not str(digest).strip():
-                        # Never cache a failure: keep the chapter out of date so a later
-                        # run retries it instead of reusing an empty digest.
-                        store.log_event(
-                            "book_understanding_chapter_digest_failed",
-                            chapter=ci,
-                        )
-                        if progress:
-                            progress(n_done, len(todo), "Prescanning chapter digests")
-                        continue
-                    loaded[ci].meta["source_digest"] = digest
-                    loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
-                    loaded[ci].meta["source_digest_gf"] = chapter_fp[ci]
-                    loaded[ci].meta["source_digest_policy"] = digest_policy
-                    store.save_chapter(loaded[ci])
+                progress(0, total, "Prescanning chapter digests")
+            pending = dict(todo)
+            # A gateway can answer unavailable for minutes at a time. A chapter whose digest call
+            # fails is retried here instead of ending the run and waiting for an operator to
+            # resume it; a rejected attempt generates nothing, so the retry costs no tokens.
+            for attempt in range(1, _DIGEST_ATTEMPTS + 1):
+                if attempt > 1:
                     store.log_event(
-                        "book_understanding_chapter_digest_saved",
-                        chapter=ci,
-                        digest=loaded[ci].meta["source_digest"],
+                        "book_understanding_chapter_digest_retry",
+                        chapters=sorted(pending),
+                        attempt=attempt,
+                        attempts=_DIGEST_ATTEMPTS,
                     )
-                    if progress:
-                        progress(n_done, len(todo), "Prescanning chapter digests")
+                    time.sleep(_DIGEST_RETRY_PAUSE_SECONDS)
+                still_missing: dict[int, str] = {}
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futs = {
+                        ex.submit(
+                            self._runtime.synopsizer.digest_chapter, src, chapter_terms[ci]
+                        ): ci
+                        for ci, src in pending.items()
+                    }
+                    for fut in as_completed(futs):
+                        ci = futs[fut]
+                        digest = (
+                            fut.result()
+                        )  # _ask_text already returns an empty fallback on failure.
+                        if not str(digest).strip():
+                            # Never cache a failure: keep the chapter out of date so the next
+                            # attempt retries it instead of reusing an empty digest.
+                            store.log_event(
+                                "book_understanding_chapter_digest_failed",
+                                chapter=ci,
+                                attempt=attempt,
+                            )
+                            still_missing[ci] = pending[ci]
+                        else:
+                            loaded[ci].meta["source_digest"] = digest
+                            loaded[ci].meta["source_digest_v"] = self.SOURCE_DIGEST_V
+                            loaded[ci].meta["source_digest_gf"] = chapter_fp[ci]
+                            loaded[ci].meta["source_digest_policy"] = digest_policy
+                            store.save_chapter(loaded[ci])
+                            store.log_event(
+                                "book_understanding_chapter_digest_saved",
+                                chapter=ci,
+                                digest=loaded[ci].meta["source_digest"],
+                            )
+                        reported += 1
+                        if progress:
+                            # The denominator is the first pass's work, so a retry cannot make the
+                            # bar move backwards.
+                            progress(min(reported, total), total, "Prescanning chapter digests")
+                pending = still_missing
+                if not pending:
+                    break
 
         # Assemble in manifest chapter order, independent of worker completion order.
         digests = [
@@ -672,8 +706,9 @@ class PreparationService:
         ]
 
         # Every translatable chapter needs a digest before translation: downstream prompts
-        # and the synopsis depend on them, so a partial prescan must fail loudly rather
-        # than translate with missing context.
+        # and the synopsis depend on them, so a partial prescan must stop loudly rather
+        # than translate with missing context. It stops resumably, because the digests that
+        # did succeed are saved and a resume regenerates only the chapters listed here.
         missing_digests = [
             ci
             for ci, ch in loaded.items()
@@ -684,10 +719,12 @@ class PreparationService:
             store.log_event(
                 "book_understanding_incomplete",
                 chapters=sorted(missing_digests),
+                attempts=_DIGEST_ATTEMPTS,
             )
-            raise ValueError(
+            raise RequestStopped(
                 "Chapter digests could not be generated for chapters: "
                 + ", ".join(str(ci) for ci in sorted(missing_digests))
+                + f" (after {_DIGEST_ATTEMPTS} attempts). Every other chapter is saved; resume to retry only these."
             )
 
         analysis = store.load_analysis() or {}

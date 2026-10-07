@@ -6,7 +6,7 @@ import os
 import tempfile
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from wenyi_core.agents.synopsis import Synopsizer
@@ -14,6 +14,7 @@ from wenyi_core.config import Config
 from wenyi_core.ingest.models import Chapter, Document, Segment
 from wenyi_core.llm.limits import RequestCancelled, RequestStopped
 from wenyi_core.llm.providers.fake import FakeClient
+from wenyi_core.pipeline import preparation
 from wenyi_core.pipeline.orchestrator import Orchestrator
 from wenyi_core.pipeline.preparation import PreparationService, _synopsis_complete
 from wenyi_core.storage.file import FileStorage
@@ -143,14 +144,16 @@ class SynopsisCompleteTests(unittest.TestCase):
 
 
 class DigestRequirementTests(unittest.TestCase):
-    def test_failed_digest_blocks_translation_and_is_not_cached(self):
+    def test_failed_digest_stops_resumably_and_is_not_cached(self):
+        """A chapter whose digest never arrives stops the run instead of failing it hard."""
         with tempfile.TemporaryDirectory() as d:
             txt = _write_book(d)
             cfg = _config(os.path.join(d, "state"))
-            orch = Orchestrator(cfg, client=FakeClient(handler=_handler({0})))
-
-            with self.assertRaisesRegex(ValueError, "digests could not be generated"):
-                orch.run(txt)
+            # Fail every digest call, so no chapter can be recovered by a retry pass.
+            orch = Orchestrator(cfg, client=FakeClient(handler=_handler(set(range(20)))))
+            with patch.object(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0):
+                with self.assertRaisesRegex(RequestStopped, "digests could not be generated"):
+                    orch.run(txt)
 
             # The failed chapter is not cached: a later run retries instead of reusing "".
             store = orch._preparation.locate_existing(txt)
@@ -159,6 +162,21 @@ class DigestRequirementTests(unittest.TestCase):
                 for c in store.load_manifest().get("chapters", [])
             ]
             self.assertTrue(any(not str(m.get("source_digest") or "").strip() for m in metas))
+            store.close()
+
+    def test_a_failed_digest_is_retried_in_the_same_run(self):
+        """The first unusable answer used to end the run; the digest is retried here instead."""
+        with tempfile.TemporaryDirectory() as d:
+            txt = _write_book(d)
+            cfg = _config(os.path.join(d, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=_handler({0})))
+            with patch.object(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0):
+                store = orch.run(txt)
+            metas = [
+                store.load_chapter(c["index"]).meta
+                for c in store.load_manifest().get("chapters", [])
+            ]
+            self.assertTrue(all(str(m.get("source_digest") or "").strip() for m in metas))
             store.close()
 
     def test_all_digests_succeed_then_translation_runs(self):

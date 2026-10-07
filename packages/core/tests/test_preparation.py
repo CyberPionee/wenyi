@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import pytest
 from wenyi_core.config import Config
+from wenyi_core.llm.limits import RequestStopped
 from wenyi_core.llm.providers.fake import FakeClient
+from wenyi_core.pipeline import preparation
 from wenyi_core.pipeline.orchestrator import Orchestrator
 from wenyi_core.storage.file import FileStorage
 
@@ -67,7 +69,7 @@ def test_initialization_analyses_style_before_any_chapter_prescan(
         assert ordering == ["style"]
 
 
-def test_required_prescan_failure_blocks_translation_without_half_state(tmp_path):
+def test_required_prescan_failure_blocks_translation_without_half_state(tmp_path, monkeypatch):
     source, config, store = _preparation_inputs(tmp_path)
     orchestrator = Orchestrator(config, client=FakeClient(handler=routing_handler), storage=store)
     store = orchestrator.prepare(str(source))
@@ -77,7 +79,8 @@ def test_required_prescan_failure_blocks_translation_without_half_state(tmp_path
             return ""
         return routing_handler(messages, tier, json_mode)
 
-    with pytest.raises(ValueError, match="Chapter digests could not be generated"):
+    monkeypatch.setattr(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0)
+    with pytest.raises(RequestStopped, match="Chapter digests could not be generated"):
         Orchestrator(
             config, client=FakeClient(handler=failing), storage=store
         ).prepare_for_translation(str(source))
