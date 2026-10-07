@@ -22,6 +22,13 @@ class ReviewOutputError(ValueError):
         self.reason = reason
 
 
+# The system message states the response shape and the user message states the count, twice:
+# "Review all N paragraphs and return JSON. Set reviewed_segments to N and complete to true
+# only when every required field holds its full semantic value." A placeholder keeps the shape
+# without repeating the count, which is what makes the system message identical on every chunk.
+_REVIEWED_SEGMENTS_SHAPE = "<paragraph count>"
+
+
 @dataclass(frozen=True)
 class ReviewResult:
     """Structured result of one review call, including whether local JSON repair was used."""
@@ -57,14 +64,17 @@ class Reviewer(Agent):
         """
         if not sources:
             return ReviewResult([], soft_findings=[])
-        # $n is the only per-call value in this system message, and the system message is the
-        # request's first block: it stops the provider from reusing the stable style, synopsis,
-        # digest and glossary prefix that follows it, which measured 1.9% cache hits over a
-        # 155-call review against 64-77% for the prompts whose system message is constant. Moving
-        # the count into the user message fixes that, but it also changes the review phase prompt
-        # fingerprint, and a completed whole-book review is reused and resumed on that
-        # fingerprint. Do it when no finished review is worth keeping.
-        system = self.render("reviewer_system", src=self.src, tgt=self.tgt, n=len(sources))
+        # The system message is the request's first block, so any per-call value in it stops the
+        # provider from reusing the stable style, synopsis, digest and glossary prefix that
+        # follows: interpolating the real count measured 1.9% cache hits over a 155-call review,
+        # against 64-77% for the prompts whose system message is constant. The count still
+        # reaches the model from the user message, so the response contract is unchanged.
+        # The template keeps its $n, because the review phase prompt fingerprint hashes template
+        # text and a completed whole-book review is reused and resumed on that fingerprint:
+        # editing the template would discard a finished review to save tokens on the next one.
+        system = self.render(
+            "reviewer_system", src=self.src, tgt=self.tgt, n=_REVIEWED_SEGMENTS_SHAPE
+        )
         user = self.render(
             "reviewer_user",
             src=self.src,

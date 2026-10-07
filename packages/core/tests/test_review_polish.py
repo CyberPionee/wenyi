@@ -76,7 +76,34 @@ class TestReviewer(unittest.TestCase):
         out = r.review(["あ", "い"], ["甲", "乙"])
         self.assertEqual(len(out), 2)
         self.assertEqual(client.calls[-1]["tier"], "cheap")  # Review uses the cheap tier.
-        self.assertIn('"reviewed_segments":2', client.calls[-1]["messages"][0]["content"])
+        # The count reaches the model from the user message; the system message states the shape
+        # only, so it stays identical on every chunk and the provider can reuse the stable
+        # style, synopsis, digest and glossary prefix that follows it.
+        self.assertIn("Set reviewed_segments to 2", client.calls[-1]["messages"][-1]["content"])
+        self.assertIn(
+            '"reviewed_segments":<paragraph count>', client.calls[-1]["messages"][0]["content"]
+        )
+
+    def test_reviewer_system_prompt_does_not_vary_with_the_paragraph_count(self):
+        """A per-call value in the system message stops the request prefix from being reused.
+
+        The system message is the request's first block, so interpolating the chunk's paragraph
+        count there measured 1.9% cache hits over a 155-call review, against 64-77% for the
+        prompts whose system message is constant.
+        """
+
+        def handler(messages, tier, json_mode):
+            count = int(re.search(r"Review all (\d+) paragraphs", messages[-1]["content"]).group(1))
+            return _review_response([], count)
+
+        client = FakeClient(handler=handler)
+        reviewer = Reviewer(client, _cfg())
+        reviewer.review_result(["あ", "い"], ["甲", "乙"])
+        reviewer.review_result(["あ", "い", "う"], ["甲", "乙", "丙"])
+        short, long = client.calls[-2], client.calls[-1]
+        self.assertEqual(short["messages"][0]["content"], long["messages"][0]["content"])
+        self.assertIn("Set reviewed_segments to 2", short["messages"][-1]["content"])
+        self.assertIn("Set reviewed_segments to 3", long["messages"][-1]["content"])
 
     def test_reviewer_drops_fields_outside_the_initial_issue_contract(self):
         """Cheap initial review cannot bypass the strong agent to inject cross-block
