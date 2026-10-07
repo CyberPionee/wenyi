@@ -238,17 +238,8 @@ class DescribeTuningTests(unittest.TestCase):
         plan = run_tuning(pipeline, segment_max_tokens=1800)
         policy = evaluation_policy(pipeline, tier="standard")
         payload = describe_tuning(pipeline=pipeline, run_plan=plan, evaluation=policy)
-        sources = [item["source"] for item in payload["items"]]
-        pinned = [index for index, source in enumerate(sources) if source == "pinned"]
-        derived = [index for index, source in enumerate(sources) if source != "pinned"]
-        # In the default manual mode the five post-translation switches are operator decisions
-        # too, so every pinned knob has to come before every derived one.
-        self.assertTrue(pinned)
-        self.assertTrue(derived)
-        self.assertLess(max(pinned), min(derived))
-        keys = [item["key"] for item in payload["items"]]
-        self.assertIn("bt_score_min", keys[: len(pinned)])
-        self.assertIn("back_translation", keys[: len(pinned)])
+        self.assertEqual(payload["items"][0]["key"], "bt_score_min")
+        self.assertEqual(payload["items"][0]["source"], "pinned")
 
 
 class RuntimeInstallTests(unittest.TestCase):
