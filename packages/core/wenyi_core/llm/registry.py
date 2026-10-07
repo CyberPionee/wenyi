@@ -117,6 +117,12 @@ PROVIDERS = register_providers(
         ProviderSpec("openrouter", "openrouter", "OpenRouterClient", "OpenRouterOptions"),
         ProviderSpec("opencode-go", "opencode_go", "OpenCodeGoClient", "OpenCodeGoOptions"),
         ProviderSpec(
+            "opencode-go-responses",
+            "opencode_go",
+            "OpenCodeGoResponsesClient",
+            "OpenCodeGoOptions",
+        ),
+        ProviderSpec(
             "openai-compatible",
             "openai_compatible",
             "OpenAICompatibleClient",

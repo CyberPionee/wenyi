@@ -16,6 +16,32 @@ OptionsT = TypeVar("OptionsT", bound=BaseModel)
 _JSON_MODE_INSTRUCTION = "Output must be valid json."
 
 
+def json_mode_messages(messages: Messages) -> Messages:
+    """Add the explicit JSON instruction where gateways look for it.
+
+    The system message carries it for providers that read it there, and the final user message
+    repeats it because some gateways validate only user content, including when mapping the
+    message list to Responses input.
+    """
+    request_messages = [dict(message) for message in messages]
+    for message in request_messages:
+        if message.get("role") == "system":
+            message["content"] = f"{message.get('content', '')}\n\n{_JSON_MODE_INSTRUCTION}"
+            break
+    else:
+        request_messages.insert(
+            0,
+            {"role": "system", "content": _JSON_MODE_INSTRUCTION},
+        )
+    for message in reversed(request_messages):
+        if message.get("role") == "user":
+            content = str(message.get("content", ""))
+            if "json" not in content.lower():
+                message["content"] = f"{content}\n\n{_JSON_MODE_INSTRUCTION}"
+            break
+    return request_messages
+
+
 def base_request_kwargs(
     model: str,
     messages: Messages,
@@ -23,27 +49,7 @@ def base_request_kwargs(
     json_mode: bool,
 ) -> dict[str, Any]:
     """Build base Chat Completions arguments and add explicit JSON instructions when requested."""
-    request_messages = messages
-    if json_mode:
-        request_messages = [dict(message) for message in messages]
-        for message in request_messages:
-            if message.get("role") == "system":
-                message["content"] = f"{message.get('content', '')}\n\n{_JSON_MODE_INSTRUCTION}"
-                break
-        else:
-            request_messages.insert(
-                0,
-                {"role": "system", "content": _JSON_MODE_INSTRUCTION},
-            )
-        # Some gateways validate only user content, including when mapping to Responses input.
-        # Mentioning JSON only in the system message may be insufficient,
-        # so also append the instruction to the final user message.
-        for message in reversed(request_messages):
-            if message.get("role") == "user":
-                content = str(message.get("content", ""))
-                if "json" not in content.lower():
-                    message["content"] = f"{content}\n\n{_JSON_MODE_INSTRUCTION}"
-                break
+    request_messages = json_mode_messages(messages) if json_mode else messages
     kwargs: dict[str, Any] = {
         "model": model,
         "messages": request_messages,

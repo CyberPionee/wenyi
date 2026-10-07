@@ -1,8 +1,11 @@
-"""OpenCode Go OpenAI-compatible endpoint with required identity headers.
+"""OpenCode Go endpoints with required identity headers.
 
 OpenCode Go expects clients to identify themselves and send a stable per-connection
 ``x-opencode-session`` header. See https://opencode.ai/docs/go/ and the turygo/wenyi
 compatibility notes.
+
+Two endpoints are exposed, and a model supports one of them: most answer Chat Completions,
+while some answer only the Responses API and reject the other protocol outright.
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from ._openai_compatible import (
     base_request_kwargs,
     deep_merge,
 )
+from ._openai_responses import OpenAIResponsesBaseClient, responses_request_kwargs
 
 DEFAULT_BASE_URL = "https://opencode.ai/zen/go/v1"
 DEFAULT_API_KEY_ENV = "OPENCODE_API_KEY"
@@ -32,6 +36,11 @@ class OpenCodeGoOptions(BaseModel):
     thinking: bool = False
     reasoning_effort: str = "high"
     extra_body: dict[str, Any] = Field(default_factory=dict)
+
+
+def _identity_headers(session_id: str) -> dict[str, str]:
+    """Identify this client to OpenCode Go; the session id stays stable across retries."""
+    return {"User-Agent": USER_AGENT, "x-opencode-session": session_id}
 
 
 def build_request_kwargs(
@@ -79,10 +88,7 @@ class OpenCodeGoClient(OpenAICompatibleBaseClient[OpenCodeGoOptions]):
                     base_url=self.base_url,
                     timeout=self.cfg.timeout,
                     max_retries=0,
-                    default_headers={
-                        "User-Agent": USER_AGENT,
-                        "x-opencode-session": self._session_id,
-                    },
+                    default_headers=_identity_headers(self._session_id),
                 )
         return self._client
 
@@ -99,4 +105,61 @@ class OpenCodeGoClient(OpenAICompatibleBaseClient[OpenCodeGoOptions]):
             messages,
             json_mode=json_mode,
             max_tokens=max_tokens,
+        )
+
+
+class OpenCodeGoResponsesClient(OpenAIResponsesBaseClient[OpenCodeGoOptions]):
+    """OpenCode Go transport over the Responses endpoint.
+
+    Some models answer only here and reject Chat Completions with ModelProtocolUnsupported, so
+    the endpoint is a separate provider rather than a flag on the Chat Completions one.
+    """
+
+    default_base_url = DEFAULT_BASE_URL
+    default_api_key_env = DEFAULT_API_KEY_ENV
+    requires_api_key = True
+
+    def __init__(self, cfg, *, credentials: tuple[str | None] | None = None):
+        super().__init__(cfg, credentials=credentials)
+        self._session_id = str(uuid.uuid4())
+
+    def _ensure_client(self) -> Any:
+        with self._client_lock:
+            if self._client is None:
+                from openai import OpenAI
+
+                self.validate_credentials()
+                api_key = self.api_key()
+                self._client = OpenAI(
+                    api_key=api_key or "no-key",
+                    base_url=self.base_url,
+                    timeout=self.cfg.timeout,
+                    max_retries=0,
+                    default_headers=_identity_headers(self._session_id),
+                )
+        return self._client
+
+    def _build_request_kwargs(
+        self,
+        model_config: ResolvedModel[OpenCodeGoOptions],
+        messages: Messages,
+        *,
+        json_mode: bool,
+        max_tokens: int | None,
+    ) -> dict[str, Any]:
+        # The Responses API has no way to turn reasoning off, and the gateway rejects "none";
+        # minimal is the cheapest effort it accepts, and a reasoning model can otherwise spend
+        # the whole output budget before writing anything.
+        reasoning = {
+            "effort": model_config.options.reasoning_effort
+            if model_config.options.thinking
+            else "minimal"
+        }
+        return responses_request_kwargs(
+            model_config.model,
+            messages,
+            json_mode=json_mode,
+            max_tokens=max_tokens,
+            reasoning=reasoning,
+            extra_body=dict(model_config.options.extra_body),
         )
