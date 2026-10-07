@@ -194,10 +194,32 @@ def _merged_occurrence_count(spans: set[tuple[int, int]]) -> int:
 
 
 class GlossaryOccurrenceMatcher:
-    """Reuse one normalized corpus to detect repeated terms by source and aliases."""
+    """Reuse one normalized corpus to detect repeated terms by source and aliases.
+
+    Occurrence counts are memoized per term key set. One corpus serves a whole run and the
+    callers that inject, auto-lock or always-on terms ask about the same terms again on every
+    batch and every chapter, so without the memo each query re-scans the entire book.
+    """
 
     def __init__(self, text: str):
         self.normalized_text = _match_text(text)
+        self._counts: dict[frozenset[str], int] = {}
+
+    def occurrence_count(self, term: GlossaryTerm) -> int:
+        """Return how many places in the corpus mention the term or one of its aliases."""
+        keys = frozenset(
+            normalized
+            for key in term_match_sources(term)
+            if (normalized := _match_text(key).strip())
+        )
+        cached = self._counts.get(keys)
+        if cached is None:
+            spans: set[tuple[int, int]] = set()
+            for key in keys:
+                spans.update(_source_occurrence_spans(key, self.normalized_text))
+            cached = _merged_occurrence_count(spans)
+            self._counts[keys] = cached
+        return cached
 
     def recurring_terms(
         self,
@@ -208,17 +230,19 @@ class GlossaryOccurrenceMatcher:
         """Select terms whose source/aliases occur at least the requested number of times."""
         if min_occurrences <= 1:
             return GlossaryStore.terms_in(terms, self.normalized_text)
+        return [term for term in terms if self.occurrence_count(term) >= min_occurrences]
 
-        recurring: list[GlossaryTerm] = []
-        for term in terms:
-            raw_keys = term_match_sources(term)
-            keys = {normalized for key in raw_keys if (normalized := _match_text(key).strip())}
-            spans: set[tuple[int, int]] = set()
-            for key in keys:
-                spans.update(_source_occurrence_spans(key, self.normalized_text))
-            if _merged_occurrence_count(spans) >= min_occurrences:
-                recurring.append(term)
-        return recurring
+
+@functools.lru_cache(maxsize=4)
+def corpus_matcher(text: str) -> GlossaryOccurrenceMatcher:
+    """Return the matcher for a whole-book corpus, shared by every caller that queries it.
+
+    Building a matcher normalizes the entire book and a query scans it once per term, so
+    rebuilding either per batch made the work grow with batches x terms x corpus. The key is the
+    corpus text itself, and the entries are bounded, so a long-lived worker cannot accumulate
+    books.
+    """
+    return GlossaryOccurrenceMatcher(text)
 
 
 # Branch an incoming term takes against an established mapping. Every storage adapter routes
@@ -560,7 +584,7 @@ class GlossaryStore:
         so bare-name aliases cannot falsely make them frequent. For other types, merge
         source and deduplicated alias occurrences.
         """
-        return GlossaryOccurrenceMatcher(text).recurring_terms(
+        return corpus_matcher(text).recurring_terms(
             terms,
             min_occurrences=min_occurrences,
         )

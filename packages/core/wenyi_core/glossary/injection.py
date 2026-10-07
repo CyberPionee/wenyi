@@ -17,8 +17,7 @@ from .store import (
     TYPE_SPEECH,
     GlossaryOccurrenceMatcher,
     GlossaryTerm,
-    source_matches_text,
-    term_match_sources,
+    corpus_matcher,
 )
 
 _ENTITY_TYPES = frozenset({"person", "place", "organization"})
@@ -36,26 +35,22 @@ class InjectionCandidate:
     forced: bool
 
 
-def _batch_hit(term: GlossaryTerm, batch_text: str) -> bool:
-    if not batch_text:
-        return False
-    for key in term_match_sources(term):
-        if key and source_matches_text(key, batch_text):
-            return True
-    return False
-
-
 def score_term(
     term: GlossaryTerm,
     *,
-    batch_text: str = "",
+    batch: GlossaryOccurrenceMatcher | None = None,
     core: bool = False,
     recent: bool = False,
     frequency: int = 0,
     forced: bool = False,
 ) -> InjectionCandidate:
-    """Score one term for extraction-time injection."""
-    hit = _batch_hit(term, batch_text)
+    """Score one term for extraction-time injection.
+
+    ``batch`` is the matcher for this batch's text. The caller builds it once so the batch is
+    normalized once: matching a term against raw text normalizes the whole batch for every key
+    of every term, which cost more than the corpus scans it was scoring.
+    """
+    hit = batch is not None and batch.occurrence_count(term) > 0
     score = 0
     if hit:
         score += 100
@@ -107,7 +102,8 @@ def select_extraction_terms(
 
     forced_set = {str(s) for s in open_conflict_sources if str(s).strip()}
     recent_set = {str(s) for s in recent_sources if str(s).strip()}
-    matcher = GlossaryOccurrenceMatcher(source_corpus) if source_corpus else None
+    matcher = corpus_matcher(source_corpus) if source_corpus else None
+    batch = GlossaryOccurrenceMatcher(batch_text) if batch_text else None
     always = frozenset(always_types or (TYPE_PERSON,))
 
     def is_core(term: GlossaryTerm) -> bool:
@@ -115,26 +111,27 @@ def select_extraction_terms(
             return False
         if matcher is None:
             return term.type in always
-        return bool(matcher.recurring_terms([term], min_occurrences=core_min_occurrences))
+        return matcher.occurrence_count(term) >= core_min_occurrences
 
     def is_recurring(term: GlossaryTerm) -> bool:
         if matcher is None:
             return True
-        return bool(matcher.recurring_terms([term], min_occurrences=2))
+        return matcher.occurrence_count(term) >= 2
 
     def frequency(term: GlossaryTerm) -> int:
         if matcher is None:
             return 0
-        if matcher.recurring_terms([term], min_occurrences=3):
+        count = matcher.occurrence_count(term)
+        if count >= 3:
             return 20
-        if is_recurring(term):
+        if count >= 2:
             return 10
         return 1
 
     scored_all = [
         score_term(
             term,
-            batch_text=batch_text,
+            batch=batch,
             core=is_core(term),
             recent=term.source in recent_set,
             frequency=frequency(term),

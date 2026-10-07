@@ -19,9 +19,9 @@ from .injection import select_extraction_terms
 from .store import (
     TYPE_PERSON,
     TYPE_TERM,
-    GlossaryOccurrenceMatcher,
     GlossaryStore,
     GlossaryTerm,
+    corpus_matcher,
     source_matches_text,
 )
 
@@ -45,49 +45,21 @@ class TranslatedSegmentEvidence:
     target: str
 
 
-def _recurrence_signature(term: GlossaryTerm) -> tuple[str, str, tuple[str, ...]]:
-    """Identify a term for recurrence caching; its match set depends on all three fields."""
-    return term.source, term.type, tuple(term.aliases)
-
-
 class GlossaryExtractor(Agent):
     def __init__(self, client: LLMClient, config: Config):
         super().__init__(client, config)
-        self._recurrence_corpus: str | None = None
-        self._recurrence_matcher: GlossaryOccurrenceMatcher | None = None
-        self._recurrence_cache: dict[tuple[str, str, tuple[str, ...]], bool] = {}
 
     def _recurring_sources(self, source_corpus: str | None, terms: list[GlossaryTerm]) -> set[str]:
-        """Return the sources occurring at least twice in the corpus, cached across calls.
+        """Return the sources occurring at least twice in the corpus.
 
-        One corpus serves a whole run, so rebuilding the matcher and re-scanning the book for
-        every term of every chapter repeated identical work tens of thousands of times. Cache
-        the verdict per term and drop it only when the corpus itself changes.
+        The corpus matcher is shared across callers and memoizes the count per term, so a run
+        pays for each term once instead of re-scanning the book for it on every chapter. The
+        recurrence gate itself is min_occurrences=2.
         """
         if not source_corpus:
             return set()
-        if source_corpus is not self._recurrence_corpus:
-            self._recurrence_corpus = source_corpus
-            self._recurrence_matcher = GlossaryOccurrenceMatcher(source_corpus)
-            self._recurrence_cache.clear()
-
-        assert self._recurrence_matcher is not None
-        missing = [
-            term for term in terms if _recurrence_signature(term) not in self._recurrence_cache
-        ]
-        if missing:
-            # recurring_terms(min_occurrences=2) is the book-wide recurrence gate.
-            matched = {
-                _recurrence_signature(term)
-                for term in self._recurrence_matcher.recurring_terms(missing, min_occurrences=2)
-            }
-            for term in missing:
-                signature = _recurrence_signature(term)
-                self._recurrence_cache[signature] = signature in matched
-
-        return {
-            term.source for term in terms if self._recurrence_cache[_recurrence_signature(term)]
-        }
+        matcher = corpus_matcher(source_corpus)
+        return {term.source for term in terms if matcher.occurrence_count(term) >= 2}
 
     def extract(
         self, source_text: str, target_text: str, existing: list[GlossaryTerm]

@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import wenyi_core.glossary.store as store_module
 from wenyi_core.agents.prompts import render_glossary
 from wenyi_core.config import Config
 from wenyi_core.glossary.extractor import GlossaryExtractor, TranslatedSegmentEvidence
@@ -171,7 +172,7 @@ class FinalizeChapterTests(unittest.TestCase):
                 extractor = GlossaryExtractor(_CountingClient(), Config.from_dict({}))  # type: ignore[arg-type]
                 corpus = "Ann Ann"
                 with mock.patch(
-                    "wenyi_core.glossary.extractor.GlossaryOccurrenceMatcher",
+                    "wenyi_core.glossary.store.GlossaryOccurrenceMatcher",
                     wraps=GlossaryOccurrenceMatcher,
                 ) as matcher:
                     for _ in range(3):
@@ -179,6 +180,46 @@ class FinalizeChapterTests(unittest.TestCase):
                     self.assertEqual(matcher.call_count, 1)
             finally:
                 store.close()
+
+    def test_repeated_selection_reuses_the_corpus_counts(self):
+        """Every batch re-scanned the whole book for every term it was scoring.
+
+        One selection over 816 terms of the real book performed 2524 whole-book scans, and the
+        extractor calls it once per batch, so the work grew with batches x terms x corpus.
+        """
+        corpus = "田中 came. " * 200
+        terms = [GlossaryTerm(source=f"词{i}", target=f"T{i}") for i in range(8)]
+        terms.append(GlossaryTerm(source="田中", target="田中", type="person"))
+        scans: list[int] = []
+        original = store_module._source_occurrence_spans
+
+        def counting(source, normalized_text):
+            scans[-1] += 1
+            return original(source, normalized_text)
+
+        store_module._source_occurrence_spans = counting
+        try:
+            per_call: list[int] = []
+            for _ in range(3):
+                scans.append(0)
+                select_extraction_terms(
+                    terms,
+                    batch_text="田中 came. ",
+                    source_corpus=corpus,
+                    budget_chars=10000,
+                    core_max=12,
+                    recent_max=20,
+                    min_terms=0,
+                    always_types=("person",),
+                    core_min_occurrences=3,
+                )
+                per_call.append(scans[-1])
+        finally:
+            store_module._source_occurrence_spans = original
+        self.assertGreater(per_call[0], 0)
+        # The corpus counts are memoized, so only the batch text is scanned after the first call.
+        self.assertLess(per_call[1], per_call[0])
+        self.assertEqual(per_call[1], per_call[2])
 
 
 class ConfigDefaultsTests(unittest.TestCase):
