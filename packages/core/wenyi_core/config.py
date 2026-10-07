@@ -74,7 +74,7 @@ pipeline:
   glossary_extract_min_terms: 5
   auto_qa_strict: false # When true, block export while auto_qa reports unresolved residuals
   tuning: "auto" # auto: derive the tunable knobs from the tier, batch budget and recorded scores; manual: keep the values below
-  quality_passes: auto # Post-translation passes. auto: derive them from the tier and risk-gate chapters; full: every pass on every chapter; manual: the switches below; off: none
+  quality_passes: manual # Post-translation passes. manual: the switches below (the default, so an existing project keeps exactly the passes it configured); auto: derive them from the tier and risk-gate chapters; full: every pass on every chapter; off: none
   self_revision: false # Optional C-batch draft revision notes (analysis/events only; "manual" mode only)
   editorial_pass: false # Optional whole-book editorial notes (analysis/events only; "manual" mode only)
   final_polish: false # Optional final polish candidates (analysis/events only; "manual" mode only)
@@ -198,7 +198,7 @@ class PipelineConfig(BaseModel):
     # auto: derive the tunable knobs from the autonomy tier, the batch budget and recorded
     # score distributions. manual: use the configured values as written.
     tuning: Literal["auto", "manual"] = "auto"
-    quality_passes: Literal["auto", "full", "manual", "off"] = "auto"
+    quality_passes: Literal["auto", "full", "manual", "off"] = "manual"
     self_revision: bool = False
     editorial_pass: bool = False
     final_polish: bool = False

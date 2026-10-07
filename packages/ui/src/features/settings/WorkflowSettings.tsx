@@ -228,7 +228,7 @@ export function WorkflowSettings({
               </Label>
               <Select
                 id="quality-passes"
-                value={String(pipeline.quality_passes || "auto")}
+                value={String(pipeline.quality_passes || "manual")}
                 onValueChange={(value) =>
                   onField("pipeline", "quality_passes", value)
                 }
@@ -250,7 +250,7 @@ export function WorkflowSettings({
                 {tr("settings.qualityPassesHelp")}
               </p>
             </div>
-            {String(pipeline.quality_passes || "auto") === "manual" && (
+            {String(pipeline.quality_passes || "manual") === "manual" && (
               <div className="grid sm:grid-cols-2 gap-3">
                 {QUALITY_PASSES.map(([key, label]) => (
                   <label key={key} className="flex gap-2 items-center text-sm">

@@ -335,7 +335,7 @@ pipeline:
 - `glossary_note_chars`：术语 `note` 写入提示词时的最大字符数（默认 `120`；空 note 不输出）。
 - `glossary_extract_inject` / `glossary_extract_budget_chars` / `glossary_extract_core_max` / `glossary_extract_recent_max` / `glossary_extract_min_terms`：抽取时已有术语的通用灵活注入（命中优先、预算封顶、最小兜底）。详见[术语注入](glossary-injection.md)。抽取提示词不带 Note；翻译/润色/审校仍保留 Note。
 - `tuning`：默认 `auto`。此时不再要求人工填调优数值：自治档位与批次预算决定 `review_scope`、`risk_back_translation`、`max_auto_redo_rounds`、`quality_judge_dual` 与 5 个术语提示预算，历史分数分布可标定 `bt_score_min` 与 `judge_score_min`。设为 `manual` 则完全沿用配置值。这些键里只要有任何一个被写成与出厂默认不同的值，就视为人工钉住，`auto` 不会再动它。每次运行都会把全部 27 个键的生效值与来源写进 `report.evaluation.tuning`，进度页据此展示。
-- `quality_passes`：默认 `auto`，译后质量精修的唯一旋钮（`self_revision` / `editorial_pass` / `final_polish` / `chapter_selfcheck` / `back_translation`）。`auto` 按 `autonomy_tier` 推导跑哪些：`off` 全不跑，`speed` 只跑逐章自检，`standard` 加终润色与全书编辑意见，`precise` 五个全跑；逐章的 pass 只作用于确定性检查命中的章节，没被命中的章节保留原译。`full` 对所有已译章节跑全部 pass，`off` 全不跑，`manual` 完全沿用下面五个开关的原值。这五个开关只在 `manual` 模式下生效。每个 pass 会记录已完成的部分，因此重跑或续跑不会重复付费。
+- `quality_passes`：默认 `manual`，译后质量精修的唯一旋钮（`self_revision` / `editorial_pass` / `final_polish` / `chapter_selfcheck` / `back_translation`）。`manual` 完全沿用下面五个开关的原值，作为默认值是为了让在这个旋钮出现之前写好的配置保持它已经选定的 pass。`auto` 按 `autonomy_tier` 推导跑哪些：`off` 全不跑，`speed` 只跑逐章自检，`standard` 加终润色与全书编辑意见，`precise` 五个全跑；逐章的 pass 只作用于确定性检查命中的章节，没被命中的章节保留原译。`full` 对所有已译章节跑全部 pass，`off` 全不跑。每个 pass 会记录已完成的部分，因此重跑或续跑不会重复付费。
 - `autonomy_tier`：质量与成本的唯一旋钮。`off` 只跑 L0 规则扫描——不抽样、不回译、不自动重做，只有 L0 能阻断；`speed` 另以减半抽样报告 L1–L3，同样不阻断；`standard` 要求 L0–L3 按配置抽样全绿；`precise` 抽样加倍、两次评分取平均、允许三轮自动重做，并把接受地板抬到 `0.6` / `4.0`。在 `auto` 模式下它也决定 `quality_passes`。
 - `review_scope`：`all` 审全部章节；`risk` 只审含机械检出风险段的章节，`off` 与 `speed` 会自动选它。
 - `max_auto_redo_rounds`：机器门未过后的自动重做轮数，`0` 到 `5`。

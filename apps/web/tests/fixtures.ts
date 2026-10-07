@@ -52,6 +52,9 @@ export const effective = {
     review_autofix: true,
     annotation_alignment: true,
     review_concurrency: 4,
+    // The derived mode, so the settings page hides the individual switches. A configuration
+    // without this key keeps the switches, which is the default mode.
+    quality_passes: "auto",
     pdf_backend: "mineru",
   },
   output: { punctuation_normalize: true },
