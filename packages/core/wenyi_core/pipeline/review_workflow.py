@@ -67,6 +67,7 @@ class ReviewService:
             "language_policy": self._runtime.config.language_policy("review").fingerprint,
             # Bind reuse and resume to the glossary scope actually used for this review.
             "review_glossary_policy": self._runtime.config.pipeline.glossary_scope,
+            "review_glossary_reading_source": "ja",
             "review_output_retries": self._runtime.config.pipeline.review_output_retries,
             "review_agent_loop": self._runtime.config.pipeline.review_agent_loop,
             "inference": inference_snapshot(
@@ -291,6 +292,7 @@ class ReviewService:
                     loaded,
                     all_terms,
                     analysis,
+                    source_lang=self._runtime.config.source_lang,
                     target_overrides=state.target_overrides,
                 )
                 with debug.round_scope(review_round):

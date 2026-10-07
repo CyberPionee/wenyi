@@ -111,6 +111,7 @@ export default function GlossaryPage() {
     refetchInterval: 3000,
   });
   const busy = isProjectBusy(project?.status);
+  const showReading = project?.source_lang === "ja";
   const { data: terms, error: termsError } = useQuery({
     queryKey: ["terms", pid, q, type],
     queryFn: () =>
@@ -273,7 +274,11 @@ export default function GlossaryPage() {
         )}
         <div className="flex flex-wrap items-center gap-2">
           <Input
-            placeholder={tr("glossary.searchSourceTermsTranslationsOrAliases")}
+            placeholder={tr(
+              showReading
+                ? "glossary.searchWithReadings"
+                : "glossary.searchSourceTermsTranslationsOrAliases",
+            )}
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="max-w-xs"
@@ -329,12 +334,11 @@ export default function GlossaryPage() {
 
         <Card>
           <CardContent className="overflow-x-auto p-0">
-            <table className="w-full min-w-[768px] table-fixed text-sm">
+            <table className="w-full min-w-[640px] table-fixed text-sm">
               <colgroup>
                 <col className="w-10" />
                 <col />
                 <col />
-                <col className="w-32" />
                 <col className="w-36" />
                 <col className="w-24" />
               </colgroup>
@@ -356,9 +360,6 @@ export default function GlossaryPage() {
                   </th>
                   <th className="text-left p-3 font-medium">
                     {tr("glossary.translatedTerm")}
-                  </th>
-                  <th className="text-left p-3 font-medium">
-                    {tr("glossary.reading")}
                   </th>
                   <th className="text-left p-3 font-medium">
                     {tr("common.type")}
@@ -389,14 +390,6 @@ export default function GlossaryPage() {
                     <td className="p-3">
                       <span className="block truncate" title={t.target}>
                         {t.target}
-                      </span>
-                    </td>
-                    <td className="p-3 text-muted-foreground">
-                      <span
-                        className="block truncate"
-                        title={t.reading || undefined}
-                      >
-                        {t.reading || "—"}
                       </span>
                     </td>
                     <td className="p-3">
@@ -438,7 +431,7 @@ export default function GlossaryPage() {
                 {terms && terms.length === 0 && (
                   <tr>
                     <td
-                      colSpan={6}
+                      colSpan={5}
                       className="p-8 text-center text-muted-foreground text-sm"
                     >
                       {tr("glossary.noTermsYetTermsAreExtractedDuring")}
@@ -514,6 +507,7 @@ export default function GlossaryPage() {
             <AddTermDialog
               pid={pid}
               open={addOpen}
+              showReading={showReading}
               onClose={() => setAddOpen(false)}
               onSaved={() => {
                 invalidate();
@@ -523,6 +517,7 @@ export default function GlossaryPage() {
             <EditTermDialog
               pid={pid}
               term={editTerm}
+              showReading={showReading}
               onClose={() => setEditTerm(null)}
               onSaved={() => {
                 invalidate();
@@ -550,11 +545,13 @@ export default function GlossaryPage() {
 function AddTermDialog({
   pid,
   open,
+  showReading,
   onClose,
   onSaved,
 }: {
   pid: string;
   open: boolean;
+  showReading: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -596,14 +593,17 @@ function AddTermDialog({
             onChange={(e) => setForm({ ...form, target: e.target.value })}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>{tr("glossary.reading")}</Label>
-            <Input
-              value={form.reading}
-              onChange={(e) => setForm({ ...form, reading: e.target.value })}
-            />
-          </div>
+        <div className={showReading ? "grid grid-cols-2 gap-3" : undefined}>
+          {showReading && (
+            <div>
+              <Label>{tr("glossary.reading")}</Label>
+              <Input
+                aria-label={tr("glossary.reading")}
+                value={form.reading}
+                onChange={(e) => setForm({ ...form, reading: e.target.value })}
+              />
+            </div>
+          )}
           <div>
             <Label>{tr("common.type")}</Label>
             <Select
@@ -646,11 +646,13 @@ function AddTermDialog({
 function EditTermDialog({
   pid,
   term,
+  showReading,
   onClose,
   onSaved,
 }: {
   pid: string;
   term: Term | null;
+  showReading: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -725,14 +727,17 @@ function EditTermDialog({
             onChange={(e) => setForm({ ...form, target: e.target.value })}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>{tr("glossary.reading")}</Label>
-            <Input
-              value={form.reading}
-              onChange={(e) => setForm({ ...form, reading: e.target.value })}
-            />
-          </div>
+        <div className={showReading ? "grid grid-cols-2 gap-3" : undefined}>
+          {showReading && (
+            <div>
+              <Label>{tr("glossary.reading")}</Label>
+              <Input
+                aria-label={tr("glossary.reading")}
+                value={form.reading}
+                onChange={(e) => setForm({ ...form, reading: e.target.value })}
+              />
+            </div>
+          )}
           <div>
             <Label>{tr("common.type")}</Label>
             <Select

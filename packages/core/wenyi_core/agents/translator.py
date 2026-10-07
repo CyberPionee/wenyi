@@ -118,6 +118,7 @@ class Translator(Agent):
             glossary=prompts.render_glossary(
                 glossary_terms,
                 max_note_chars=self.config.pipeline.glossary_note_chars,
+                source_lang=self.src,
             ),
             annotation_contexts=prompts.render_annotation_contexts(
                 annotation_contexts or [[] for _ in sources]

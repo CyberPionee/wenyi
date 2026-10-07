@@ -35,7 +35,7 @@ class QualityPassAgent(Agent):
             src=self.src,
             tgt=self.tgt,
             style=style or "(none)",
-            glossary=prompts.render_glossary(glossary_terms or []),
+            glossary=prompts.render_glossary(glossary_terms or [], source_lang=self.src),
             n=n,
             pairs=prompts.numbered_pairs(list(sources), list(targets)),
         )
@@ -101,7 +101,7 @@ class QualityPassAgent(Agent):
             src=self.src,
             tgt=self.tgt,
             style=style or "(none)",
-            glossary=prompts.render_glossary(glossary_terms or []),
+            glossary=prompts.render_glossary(glossary_terms or [], source_lang=self.src),
             n=n,
             numbered_target=prompts.numbered(list(targets)),
         )
@@ -133,7 +133,7 @@ class QualityPassAgent(Agent):
             "chapter_selfcheck_user",
             src=self.src,
             tgt=self.tgt,
-            glossary=prompts.render_glossary(glossary_terms or []),
+            glossary=prompts.render_glossary(glossary_terms or [], source_lang=self.src),
             n=n,
             pairs=prompts.numbered_pairs(list(sources), list(targets)),
         )

@@ -113,11 +113,14 @@ def _glossary_text(
     relevant_glossary: Sequence[GlossaryTerm] | str,
     *,
     max_note_chars: int = 120,
+    source_lang: str,
 ) -> str:
-    """Render relevant terms, or accept prelocalized read-only text from the pipeline."""
+    """Filter structured terms; legacy text remains caller-owned and is not rewritten."""
     if isinstance(relevant_glossary, str):
         return relevant_glossary.strip() or "(none)"
-    return prompts.render_glossary(list(relevant_glossary), max_note_chars=max_note_chars)
+    return prompts.render_glossary(
+        list(relevant_glossary), max_note_chars=max_note_chars, source_lang=source_lang
+    )
 
 
 class ReviewFixer(Agent):
@@ -247,6 +250,7 @@ class ReviewFixer(Agent):
             glossary=_glossary_text(
                 relevant_glossary,
                 max_note_chars=self.config.pipeline.glossary_note_chars,
+                source_lang=self.src,
             ),
             nearby_pairs=_nearby_text(nearby_pairs),
             issues_json=json.dumps(issue_payload, ensure_ascii=False, indent=2),

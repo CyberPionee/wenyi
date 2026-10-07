@@ -242,6 +242,8 @@ const en = {
   "glossary.theGlossaryIsReadOnlyWhileA":
     "The glossary is read-only while a project task is running.",
   "glossary.searchSourceTermsTranslationsOrAliases":
+    "Search terms, translations, aliases or notes…",
+  "glossary.searchWithReadings":
     "Search terms, translations, aliases, readings or notes…",
   "glossary.allTypes": "All types",
   "glossary.deleteSelectedTerms": "Delete selected terms ({count})?",

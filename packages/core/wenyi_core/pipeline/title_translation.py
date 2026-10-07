@@ -203,6 +203,7 @@ class TitleTranslationService:
         glossary_text = prompts.render_glossary(
             glossary.all_terms(),
             max_note_chars=self._translator.config.pipeline.glossary_note_chars,
+            source_lang=self._translator.src,
         )
         for batch_index, batch in enumerate(batches):
             titles = [item.source for item in batch]

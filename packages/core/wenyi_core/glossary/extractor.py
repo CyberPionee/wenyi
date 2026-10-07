@@ -74,6 +74,7 @@ class GlossaryExtractor(Agent):
                 existing,
                 include_note=False,
                 max_note_chars=0,
+                source_lang=self.src,
             ),
             source=source_text,
             target=target_text,
@@ -92,7 +93,7 @@ class GlossaryExtractor(Agent):
                 GlossaryTerm(
                     source=source,
                     target=target,
-                    reading=_text(d.get("reading")),
+                    reading=_text(d.get("reading")) if self.src == "ja" else "",
                     type=_text(d.get("type"), TYPE_TERM),
                     gender=gender,
                     aliases=[alias for a in aliases if (alias := _text(a))],

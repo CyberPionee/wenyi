@@ -82,6 +82,7 @@ class Reviewer(Agent):
             glossary=prompts.render_glossary(
                 glossary_terms or [],
                 max_note_chars=self.config.pipeline.glossary_note_chars,
+                source_lang=self.src,
             ),
             n=len(sources),
             pairs=prompts.numbered_pairs(sources, targets),

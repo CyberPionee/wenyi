@@ -89,6 +89,7 @@ class Polisher(Agent):
             glossary=prompts.render_glossary(
                 glossary_terms or [],
                 max_note_chars=self.config.pipeline.glossary_note_chars,
+                source_lang=self.src,
             ),
             style=style or "(none)",
             n=n,

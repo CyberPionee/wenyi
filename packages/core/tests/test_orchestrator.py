@@ -2907,7 +2907,7 @@ class TestTierRouting(unittest.TestCase):
             expect = {
                 "chapter digest writer": "fast",
                 "whole-book synopsis writer": "fast",
-                "terminology extractor": "fast",
+                "terminology and forms-of-address extractor": "fast",
                 "translation reviewer": "cheap",
                 "literary translator": "strong",
             }

@@ -13,13 +13,9 @@ def render_glossary(
     include_note: bool = True,
     max_note_chars: int = 120,
     max_terms: int | None = None,
+    source_lang: str = "",
 ) -> str:
-    """Render glossary objects as a line-by-line reference for prompts.
-
-    Non-empty notes are appended as ``Note:`` fragments when ``include_note`` is true.
-    Empty notes are omitted. Notes longer than ``max_note_chars`` are clipped.
-    ``max_terms`` keeps only the first N entries (insertion order) to bound prompt size.
-    """
+    """Render references, exposing readings only for the resolved Japanese source."""
     if not terms:
         return "(none)"
     if max_terms is not None and max_terms >= 0:
@@ -31,7 +27,7 @@ def render_glossary(
         extra = []
         if t.gender:
             extra.append(t.gender)
-        if t.reading:
+        if source_lang == "ja" and t.reading:
             extra.append(f"Pronunciation: {t.reading}")
         tag = f"({t.type}{(', ' + ', '.join(extra)) if extra else ''})"
         alias = f" [Aliases:  {', '.join(t.aliases)}]" if t.aliases else ""

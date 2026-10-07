@@ -43,6 +43,7 @@ class Synopsizer(Agent):
         glossary = prompts.render_glossary(
             glossary_terms or [],
             max_note_chars=self.config.pipeline.glossary_note_chars,
+            source_lang=self.src,
         )
         if _looks_non_story(source_text):
             system = self.render("chapter_digest_system", src=self.src, tgt=self.tgt)
@@ -120,6 +121,7 @@ class Synopsizer(Agent):
         glossary = prompts.render_glossary(
             glossary_terms or [],
             max_note_chars=self.config.pipeline.glossary_note_chars,
+            source_lang=self.src,
         )
         system = self.render("book_synopsis_system", src=self.src, tgt=self.tgt)
         user = self.render(
