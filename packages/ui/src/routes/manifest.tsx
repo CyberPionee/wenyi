@@ -1,4 +1,5 @@
 import { lazy, type ReactNode } from "react";
+import { Navigate } from "react-router-dom";
 import {
   BookOpenCheck,
   Captions,
@@ -77,6 +78,7 @@ export interface RouteEntry {
 export const routeEntries: RouteEntry[] = [
   { path: "/", element: <Dashboard /> },
   { path: "/settings", element: <InterfaceSettingsPage /> },
+  { path: "/settings/:section", element: <Navigate to="/settings" replace /> },
   { path: "/projects/new", element: <CreateProject /> },
   { path: "/projects/:pid", element: <ProgressPage /> },
   { path: "/projects/:pid/glossary", element: <GlossaryPage /> },

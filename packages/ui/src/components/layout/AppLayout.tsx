@@ -123,12 +123,14 @@ export function AppLayout() {
           collapsed={collapsed}
           end={entry.end}
           prefetch={entry.loader}
+          id={slot === "action" ? "create-project-trigger" : undefined}
+          state={slot === "action" ? { fromAppNavigation: true } : undefined}
           className={slot === "action" ? "w-full border" : undefined}
         />
       ));
 
   return (
-    <div className="flex h-screen w-full flex-col overflow-hidden md:flex-row">
+    <div className="flex h-dvh w-full flex-col overflow-hidden md:flex-row">
       <aside
         data-slot="sidebar"
         className={cn(

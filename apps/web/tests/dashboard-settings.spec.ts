@@ -20,7 +20,8 @@ for (const chinese of [false, true]) {
       if (!populated) await expect(page.getByText(chinese ? "还没有项目。" : "No projects yet.", { exact: true })).toBeVisible();
       await page.locator("#create-project-trigger").press("Enter");
       await expect(page).toHaveURL("/projects/new");
-      await expect(page.getByRole("dialog", { name: chinese ? "创建项目" : "Create project", exact: true })).toBeVisible();
+      // This branch keeps the full-page create route instead of main's dialog variant,
+      // so the URL check above is the observable outcome of pressing the trigger.
       await expect(page.getByRole("complementary", { includeHidden: true })).toHaveCount(1);
     });
   }
