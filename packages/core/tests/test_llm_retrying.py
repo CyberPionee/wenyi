@@ -216,6 +216,32 @@ def test_summary_exhaustion_respects_provider_attempt_limit(method, max_retries,
     assert client.usage_summary()["totals"]["calls"] == calls
 
 
+def test_book_synopsis_retries_a_truncated_answer_from_another_protocol():
+    """The retry matches the exception type: the Responses protocol reports this stop as
+    "was incomplete", so a message-text check would silently degrade to an empty synopsis."""
+    from wenyi_core.agents.synopsis import Synopsizer
+    from wenyi_core.llm.retrying import TruncatedResponseError
+
+    class _Client:
+        def __init__(self, message):
+            self.message = message
+            self.calls = 0
+
+        def complete(self, _messages, *, operation, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise TruncatedResponseError(self.message)
+            return "A synopsis."
+
+    for message in (
+        "OpenAI-compatible response was truncated at the token limit",
+        "opencode-go-responses response was incomplete (max_output_tokens)",
+    ):
+        client = _Client(message)
+        assert Synopsizer(client, Config()).book_synopsis(["Digest."], "") == "A synopsis."
+        assert client.calls == 2
+
+
 @pytest.mark.parametrize("truncated_attempts", [1, 2])
 def test_translation_truncation_uses_alignment_retry_and_paragraph_fallback(truncated_attempts):
     client = RoutedLLMClient(_config(max_retries=3))

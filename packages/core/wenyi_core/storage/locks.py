@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import errno
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 
@@ -18,8 +20,17 @@ def exclusive_file_lock(lock_path: str) -> Iterator[None]:
             if lock_file.tell() == 0:
                 lock_file.write(b"\0")
                 lock_file.flush()
-            lock_file.seek(0)
-            msvcrt.locking(lock_file.fileno(), msvcrt.LK_LOCK, 1)
+            # LK_LOCK abandons the wait after ten one-second retries and raises EDEADLK, which
+            # turns "another run holds this book" into a hard failure instead of waiting.
+            while True:
+                lock_file.seek(0)
+                try:
+                    msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as error:
+                    if error.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    time.sleep(0.05)
             try:
                 yield
             finally:

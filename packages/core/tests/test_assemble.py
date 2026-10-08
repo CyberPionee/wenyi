@@ -1684,6 +1684,133 @@ class TestReportAutoQA(unittest.TestCase):
             self.assertEqual(report["residual_findings"][0]["kind"], "number_residue")
             self.assertTrue(strict["auto_qa"]["blocking"])
 
+    def test_blank_targets_are_reported_without_failing_the_gate(self):
+        """A blank target is a completed MinerU allowance, not a pending segment."""
+        from wenyi_core.assemble.report import build_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "pdf",
+                    "meta": {},
+                    "source_lang": "en",
+                    "target_lang": "en",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            store.save_chapter(
+                Chapter(
+                    index=0,
+                    title="c",
+                    segments=[
+                        Segment(index=0, source="scan", target=""),
+                        Segment(index=1, source="ok", target="fine"),
+                    ],
+                )
+            )
+            glossary = GlossaryStore(os.path.join(directory, "g.db"))
+            try:
+                report = build_report(store, glossary, strict_auto_qa=True)
+            finally:
+                glossary.close()
+            qa = report["auto_qa"]
+            self.assertEqual(qa["empty_target_count"], 0)
+            self.assertEqual(report["summary"]["blank_targets"], 1)
+            self.assertTrue(qa["passed"])
+            self.assertFalse(qa["blocking"])
+
+    def test_pending_targets_still_fail_the_gate(self):
+        """Only a missing target means "not translated yet"."""
+        from wenyi_core.assemble.report import build_report
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "en",
+                    "source_sha256": "x",
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            store.save_chapter(
+                Chapter(
+                    index=0,
+                    title="c",
+                    segments=[Segment(index=0, source="ok", target=None)],
+                )
+            )
+            glossary = GlossaryStore(os.path.join(directory, "g.db"))
+            try:
+                report = build_report(store, glossary, strict_auto_qa=True)
+            finally:
+                glossary.close()
+            qa = report["auto_qa"]
+            self.assertEqual(qa["empty_target_count"], 1)
+            self.assertFalse(qa["passed"])
+            self.assertTrue(qa["blocking"])
+
+
+class TestExportGateSnapshot(unittest.TestCase):
+    def test_strict_gate_reads_live_state_instead_of_the_snapshot(self):
+        """The strict gate must answer from the live store: an ExportSnapshotStore only proxies
+        the manifest and chapters, so querying it raises AttributeError instead of blocking."""
+        from types import SimpleNamespace
+
+        from wenyi_core.pipeline.finalization import AssemblyService
+        from wenyi_core.pipeline.runstore import ExportSnapshotStore
+
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStorage(os.path.join(directory, "state", "book"))
+            store.save_manifest(
+                {
+                    "title": "book",
+                    "fmt": "text",
+                    "source_lang": "en",
+                    "target_lang": "en",
+                    "source_sha256": "0" * 64,
+                    "chapters": [{"index": 0, "title": "c", "status": "done"}],
+                }
+            )
+            store.save_chapter(
+                Chapter(
+                    index=0,
+                    title="c",
+                    segments=[Segment(index=0, source="ok", target=None)],
+                )
+            )
+            snapshot = store.create_export_snapshot(actual_sha256="0" * 64)
+            self.assertIsInstance(snapshot, ExportSnapshotStore)
+            self.assertFalse(hasattr(snapshot, "all_terms"))
+            self.assertFalse(hasattr(snapshot, "load_report"))
+
+            runtime = SimpleNamespace(
+                config=SimpleNamespace(
+                    pipeline=SimpleNamespace(auto_qa_strict=True, babeldoc_timeout=600),
+                    output=SimpleNamespace(),
+                )
+            )
+            service = AssemblyService(runtime)
+            try:
+                with self.assertRaises(ValueError) as raised:
+                    service.assemble_outputs(
+                        snapshot,
+                        input_path="source.txt",
+                        progress=None,
+                        out_format="txt",
+                        out_path=None,
+                        pdf_engine="mineru",
+                        policy_store=store,
+                    )
+                self.assertIn("auto_qa_strict", str(raised.exception))
+            finally:
+                store.close()
+
 
 class TestReport(unittest.TestCase):
     def test_report_summary(self):

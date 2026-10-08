@@ -196,6 +196,56 @@ class TestQualityPassService(unittest.TestCase):
             events = open(store.event_log_path, encoding="utf-8").read()
             self.assertIn("quality_pass_finished", events)
 
+    def test_a_failed_pass_is_not_recorded_as_done(self):
+        """A provider failure must not be checkpointed as a completed pass, otherwise a resumed
+        run keeps an empty result instead of retrying it."""
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _cfg(os.path.join(directory, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
+            store = orch.run(txt)
+
+            cfg.pipeline.chapter_selfcheck = True
+            agent = orch._runtime.quality_pass
+
+            def boom(*_args, **_kwargs):
+                raise RuntimeError("provider down")
+
+            agent.chapter_selfcheck = boom
+            try:
+                orch._quality_pass.run_after_translate(store)
+            finally:
+                del agent.chapter_selfcheck
+
+            recorded = (store.load_analysis() or {}).get("quality_pass_done") or {}
+            self.assertNotIn("chapter_selfcheck", recorded.get("0") or [])
+
+    def test_a_repeated_run_keeps_notes_from_an_earlier_run(self):
+        """Merging per key must not drop the notes an earlier run already recorded."""
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _cfg(os.path.join(directory, "state"))
+            cfg.pipeline.self_revision = True
+            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
+            store = orch.run(txt)
+
+            analysis = store.load_analysis() or {}
+            analysis["quality_pass"] = {
+                "self_revision_notes": [{"chapter": 99, "index": 0, "suggested": "kept"}]
+            }
+            analysis.pop("quality_pass_done", None)
+            store.save_analysis(analysis)
+
+            orch._quality_pass.run_after_translate(store)
+
+            merged = (store.load_analysis() or {}).get("quality_pass") or {}
+            self.assertIn(
+                {"chapter": 99, "index": 0, "suggested": "kept"},
+                merged.get("self_revision_notes") or [],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -55,8 +55,8 @@ class ReviewService:
             return glossary.all_terms()
         return store.all_terms()
 
-    def _review_config_snapshot(self) -> dict[str, Any]:
-        """Snapshot review configuration for persisted metadata and reuse checks."""
+    def _review_config_snapshot(self, store: Storage) -> dict[str, Any]:
+        """Snapshot review configuration and derived context for metadata and reuse checks."""
         from ..llm.operations import configured_operations
         from ..llm.routing import inference_snapshot
 
@@ -88,6 +88,11 @@ class ReviewService:
             "review_clean_confirmations": (
                 self._runtime.config.pipeline.review_clean_confirmations
             ),
+            # Rendered into the review prompts but not review settings themselves; they still belong
+            # in the reuse identity because changing any of them changes those prompts.
+            "glossary_note_chars": self._runtime.config.pipeline.glossary_note_chars,
+            "review_chunk_budget": self._runtime.config.segment.max_tokens_per_batch,
+            "derived_context": self._review_derived_fingerprint(store),
         }
 
     @staticmethod
@@ -96,6 +101,33 @@ class ReviewService:
         snapshot = [asdict(term) for term in terms]
         return hashlib.sha256(
             json.dumps(snapshot, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()
+
+    def _review_derived_fingerprint(self, store: Storage) -> str:
+        """Fingerprint the analysis-derived context that every review prompt renders.
+
+        The style brief, the book synopsis and the chapter digests come from the analysis phase,
+        not from review settings, so the configuration snapshot alone cannot see them change.
+        """
+        analysis = store.load_analysis() or {}
+        manifest = store.load_manifest()
+        digests: list[list[Any]] = []
+        for entry in manifest.get("chapters") or []:
+            index = entry.get("index") if isinstance(entry, dict) else None
+            if index is None:
+                continue
+            try:
+                chapter = store.load_chapter(index)
+            except (FileNotFoundError, OSError):
+                continue
+            digests.append([index, (chapter.meta or {}).get("source_digest") or ""])
+        payload = {
+            "style_guide": analysis.get("style_guide") or "",
+            "book_synopsis": analysis.get("book_synopsis") or "",
+            "chapter_digests": digests,
+        }
+        return hashlib.sha256(
+            json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
 
     def _review_skip_eligible(
@@ -115,7 +147,7 @@ class ReviewService:
         saved_glossary = metadata.get("glossary_fingerprint")
         return (
             isinstance(saved_config, dict)
-            and saved_config == self._review_config_snapshot()
+            and saved_config == self._review_config_snapshot(store)
             and isinstance(saved_glossary, str)
             and saved_glossary == self._review_glossary_fingerprint(terms)
         )
@@ -194,7 +226,7 @@ class ReviewService:
         debug = ReviewRunStore.find_resumable(
             store.run_dir,
             reviewed_content_digest,
-            config=self._review_config_snapshot(),
+            config=self._review_config_snapshot(store),
             glossary_fingerprint=self._review_glossary_fingerprint(all_terms),
             storage=store,
         )
@@ -214,7 +246,7 @@ class ReviewService:
                 "target_lang": self._runtime.config.target_lang,
                 "chapter_count": len(loaded),
                 "total_segments": total,
-                "config": self._review_config_snapshot(),
+                "config": self._review_config_snapshot(store),
                 "glossary_fingerprint": self._review_glossary_fingerprint(all_terms),
             },
         )

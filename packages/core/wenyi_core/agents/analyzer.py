@@ -31,6 +31,32 @@ def _text(value: Any, default: str = "") -> str:
 class Analyzer(Agent):
     policy_phase = "analysis"
 
+    def _profile_output_cap(self) -> int | None:
+        """Explicit max_output_tokens of the model serving analysis.style, when the profile sets one."""
+        from ..llm.routing import resolve_routes
+
+        route = resolve_routes(self.config.llm).get("analysis.style")
+        if route is None:
+            return None
+        model = self.config.llm.models.get(route.profile)
+        return model.max_output_tokens if model is not None else None
+
+    def _output_budgets(self) -> tuple[int | None, ...]:
+        """The retry ladder with the profile cap applied.
+
+        An explicit cap wins over the hint, so once it clamps every step the ladder would send the
+        same request again; keep only the steps that actually raise the budget.
+        """
+        cap = self._profile_output_cap()
+        if cap is None:
+            return _OUTPUT_BUDGETS
+        budgets: list[int] = []
+        for budget in _OUTPUT_BUDGETS:
+            effective = cap if budget is None else min(budget, cap)
+            if not budgets or effective > budgets[-1]:
+                budgets.append(effective)
+        return tuple(budgets)
+
     def analyze(self, sample_text: str) -> dict[str, Any]:
         """Analyze samples and return type-checked style, character and terminology data.
 
@@ -40,12 +66,13 @@ class Analyzer(Agent):
         system = self.render("analyzer_system", src=self.src, tgt=self.tgt)
         user = self.render("analyzer_user", src=self.src, tgt=self.tgt, sample=sample_text)
         data: dict[str, Any] = {}
-        for attempt, budget in enumerate(_OUTPUT_BUDGETS):
+        budgets = self._output_budgets()
+        for attempt, budget in enumerate(budgets):
             try:
                 # No default: propagate analysis failures for the caller to handle.
                 data = self._ask_json(system, user, operation="analysis.style", max_tokens=budget)
             except TruncatedResponseError as error:
-                if attempt == len(_OUTPUT_BUDGETS) - 1:
+                if attempt == len(budgets) - 1:
                     raise TruncatedResponseError(
                         "Style analysis was truncated at the output limit on every attempt; "
                         "raise max_output_tokens or lower reasoning_effort"

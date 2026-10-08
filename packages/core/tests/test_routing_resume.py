@@ -109,7 +109,10 @@ def test_ledger_journal_recovers_between_book_and_review_writes(
 
 def test_review_fingerprint_only_tracks_reachable_inference(tmp_path):
     config = _config(tmp_path)
-    first = ReviewService(PipelineRuntime(config, FakeClient()))._review_config_snapshot()
+    store = FileStorage(str(tmp_path / "state"))
+    store.save_manifest({"title": "t", "fmt": "text", "chapters": []})
+    store.save_analysis({})
+    first = ReviewService(PipelineRuntime(config, FakeClient()))._review_config_snapshot(store)
     changed = config.model_copy(deep=True)
     raw = changed.llm.model_dump()
     raw["models"]["alternate"] = {"provider": "default", "model": "alternate"}
@@ -117,11 +120,31 @@ def test_review_fingerprint_only_tracks_reachable_inference(tmp_path):
     raw["routes"]["review.verify"] = {"model": "alternate"}  # Disabled by review_agent_loop.
     changed.llm = LLMConfig.model_validate(raw)
     changed.pipeline.review_concurrency = 1
-    same = ReviewService(PipelineRuntime(changed, FakeClient()))._review_config_snapshot()
+    same = ReviewService(PipelineRuntime(changed, FakeClient()))._review_config_snapshot(store)
     assert same == first
     raw["routes"]["review.scan"] = {"model": "alternate"}
     changed.llm = LLMConfig.model_validate(raw)
-    assert ReviewService(PipelineRuntime(changed, FakeClient()))._review_config_snapshot() != first
+    assert (
+        ReviewService(PipelineRuntime(changed, FakeClient()))._review_config_snapshot(store)
+        != first
+    )
+
+
+def test_review_fingerprint_tracks_the_analysis_derived_context(tmp_path):
+    """The style brief and the book synopsis are rendered into every review prompt, so a change
+    to either must invalidate a completed review even though neither is a review setting."""
+    config = _config(tmp_path)
+    store = FileStorage(str(tmp_path / "state"))
+    store.save_manifest({"title": "t", "fmt": "text", "chapters": []})
+    store.save_analysis({"style_guide": "terse", "book_synopsis": "short"})
+    service = ReviewService(PipelineRuntime(config, FakeClient()))
+    first = service._review_config_snapshot(store)
+
+    store.save_analysis({"style_guide": "ornate", "book_synopsis": "short"})
+    assert service._review_config_snapshot(store) != first
+
+    store.save_analysis({"style_guide": "terse", "book_synopsis": "much longer"})
+    assert service._review_config_snapshot(store) != first
 
 
 @pytest.mark.parametrize(

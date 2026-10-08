@@ -23,6 +23,7 @@ def build_report(
     chapters_done = sum(1 for c in m["chapters"] if c["status"] == STATUS_DONE)
 
     empty_targets: list[dict] = []
+    blank_targets: list[dict] = []
     residual_findings: list[dict] = []
     terms = glossary.all_terms()
 
@@ -31,12 +32,19 @@ def build_report(
             continue
         ch = store.load_chapter(c["index"])
         for s in ch.text_segments:
-            if not (s.target and s.target.strip()):
+            if s.target is None:
                 empty_targets.append(
                     {"chapter": c["index"], "index": s.index, "source": s.source[:60]}
                 )
                 continue
-            for finding in scan_segment(s.source, s.target or "", terms):
+            if not s.target.strip():
+                # MinerU keeps a blank target where it could not read text; that is a completed
+                # segment rather than a pending one, so it is reported without failing the gate.
+                blank_targets.append(
+                    {"chapter": c["index"], "index": s.index, "source": s.source[:60]}
+                )
+                continue
+            for finding in scan_segment(s.source, s.target, terms):
                 residual_findings.append(
                     {
                         "chapter": c["index"],
@@ -56,9 +64,11 @@ def build_report(
             "terms": gstats["terms"],
             "open_conflicts": len(conflicts),
             "empty_targets": len(empty_targets),
+            "blank_targets": len(blank_targets),
         },
         "open_conflicts": conflicts,
         "empty_targets": empty_targets,
+        "blank_targets": blank_targets,
         "residual_findings": residual_findings,
     }
     review = store.load_latest_review_result()

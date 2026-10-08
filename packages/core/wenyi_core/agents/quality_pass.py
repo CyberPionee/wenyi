@@ -10,7 +10,7 @@ from typing import Any
 
 from ..glossary.store import GlossaryTerm
 from . import prompts
-from .base import Agent
+from .base import _RAISE, Agent
 
 
 class QualityPassAgent(Agent):
@@ -23,6 +23,7 @@ class QualityPassAgent(Agent):
         *,
         style: str = "",
         glossary_terms: list[GlossaryTerm] | None = None,
+        raise_on_failure: bool = False,
     ) -> list[str]:
         """Return revised drafts; unchanged input on count mismatch or failure."""
         if not targets:
@@ -39,7 +40,11 @@ class QualityPassAgent(Agent):
             pairs=prompts.numbered_pairs(list(sources), list(targets)),
         )
         items = self._ask_json(
-            system, user, operation="quality.self_revision", key="revised", default=None
+            system,
+            user,
+            operation="quality.self_revision",
+            key="revised",
+            default=_RAISE if raise_on_failure else None,
         )
         if isinstance(items, list) and len(items) == n:
             return [str(x) for x in items]
@@ -52,6 +57,7 @@ class QualityPassAgent(Agent):
         style: str = "",
         book_synopsis: str = "",
         max_notes: int = 12,
+        raise_on_failure: bool = False,
     ) -> list[str]:
         """Return whole-book editorial notes in the target language."""
         if not pairs:
@@ -66,7 +72,13 @@ class QualityPassAgent(Agent):
             pairs=prompts.numbered_pairs([s for s, _ in pairs], [t for _, t in pairs]),
             n=max_notes,
         )
-        items = self._ask_json(system, user, operation="quality.editorial", key="notes", default=[])
+        items = self._ask_json(
+            system,
+            user,
+            operation="quality.editorial",
+            key="notes",
+            default=_RAISE if raise_on_failure else [],
+        )
         if not isinstance(items, list):
             return []
         return [str(item) for item in items[:max_notes]]
@@ -77,6 +89,7 @@ class QualityPassAgent(Agent):
         *,
         style: str = "",
         glossary_terms: list[GlossaryTerm] | None = None,
+        raise_on_failure: bool = False,
     ) -> list[str]:
         """Return polished candidates; unchanged input on count mismatch or failure."""
         if not targets:
@@ -93,7 +106,11 @@ class QualityPassAgent(Agent):
             numbered_target=prompts.numbered(list(targets)),
         )
         items = self._ask_json(
-            system, user, operation="quality.final_polish", key="polished", default=None
+            system,
+            user,
+            operation="quality.final_polish",
+            key="polished",
+            default=_RAISE if raise_on_failure else None,
         )
         if isinstance(items, list) and len(items) == n:
             return [str(x) for x in items]
@@ -105,6 +122,7 @@ class QualityPassAgent(Agent):
         targets: list[str],
         *,
         glossary_terms: list[GlossaryTerm] | None = None,
+        raise_on_failure: bool = False,
     ) -> list[dict[str, Any]]:
         """Return cheap LLM findings for one chapter; never writes targets."""
         if not targets:
@@ -120,7 +138,11 @@ class QualityPassAgent(Agent):
             pairs=prompts.numbered_pairs(list(sources), list(targets)),
         )
         items = self._ask_json(
-            system, user, operation="quality.chapter_selfcheck", key="findings", default=[]
+            system,
+            user,
+            operation="quality.chapter_selfcheck",
+            key="findings",
+            default=_RAISE if raise_on_failure else [],
         )
         findings: list[dict[str, Any]] = []
         for item in self.dict_items(items, operation="quality.chapter_selfcheck", field="findings"):
@@ -144,7 +166,7 @@ class QualityPassAgent(Agent):
             )
         return findings
 
-    def back_translate(self, targets: list[str]) -> list[str]:
+    def back_translate(self, targets: list[str], *, raise_on_failure: bool = False) -> list[str]:
         """Back-translate drafts into the source language for QA comparison."""
         if not targets:
             return []
@@ -158,7 +180,11 @@ class QualityPassAgent(Agent):
             numbered_target=prompts.numbered(list(targets)),
         )
         items = self._ask_json(
-            system, user, operation="quality.back_translation", key="back", default=None
+            system,
+            user,
+            operation="quality.back_translation",
+            key="back",
+            default=_RAISE if raise_on_failure else None,
         )
         if isinstance(items, list) and len(items) == n:
             return [str(x) for x in items]

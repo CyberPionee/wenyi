@@ -254,3 +254,25 @@ class TestResponsesExecution:
         assert totals["prompt_tokens"] == 7
         assert totals["completion_tokens"] == 3
         assert totals["cache_hit_tokens"] == 2
+
+
+@pytest.mark.parametrize("field", ["input", "instructions", "text", "reasoning"])
+def test_responses_body_fields_cannot_be_replaced_through_extra_body(field):
+    """extra_body is merged last, so these must be reserved: otherwise a model profile could
+    replace the conversation, the system prompt or the JSON response format."""
+    from wenyi_core.llm.configuration import LLMConfig
+
+    with pytest.raises(ValueError, match="Reserved model option"):
+        LLMConfig.model_validate(
+            {
+                "providers": {"go": {"kind": "opencode-go-responses"}},
+                "models": {
+                    "m": {
+                        "provider": "go",
+                        "model": "muse-spark-1.3-contributor",
+                        "options": {"extra_body": {field: "x"}},
+                    }
+                },
+                "tiers": {"strong": "m", "cheap": "m", "fast": "m"},
+            }
+        )

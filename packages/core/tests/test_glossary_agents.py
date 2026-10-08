@@ -179,6 +179,26 @@ class TestAnalyzer(unittest.TestCase):
         self.assertEqual([call["max_tokens"] for call in client.calls], [8192, 12288, 16384])
         self.assertIn("max_output_tokens", str(raised.exception))
 
+    def test_a_capped_profile_does_not_repeat_the_same_budget(self):
+        """An explicit max_output_tokens wins over the hint, so every ladder step would send the
+        same request; only the steps that actually raise the budget are worth retrying."""
+
+        def handler(messages, tier, json_mode):
+            raise TruncatedResponseError(
+                "OpenAI-compatible response was truncated at the token limit"
+            )
+
+        cfg = _cfg()
+        profile = cfg.llm.tiers["strong"]
+        cfg.llm.models[profile] = cfg.llm.models[profile].model_copy(
+            update={"max_output_tokens": 4096}
+        )
+        client = FakeClient(handler=handler)
+        with self.assertRaises(TruncatedResponseError):
+            Analyzer(client, cfg).analyze("……样章……")
+
+        self.assertEqual([call["max_tokens"] for call in client.calls], [4096])
+
     def test_numeric_collections_are_normalized_to_empty_lists(self):
         analysis = {
             "genre": "novel",

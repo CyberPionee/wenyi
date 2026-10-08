@@ -5,7 +5,7 @@ from __future__ import annotations
 from arq.jobs import Job, JobStatus
 from wenyi_backend.project_service import storage_for
 
-from .. import dal
+from .. import dal, queue
 from ..db import get_pool
 
 _REMOTE_ACTIVE = {JobStatus.queued, JobStatus.deferred, JobStatus.in_progress}
@@ -48,8 +48,8 @@ async def recover_jobs(ctx: dict) -> None:
                 if not current or current["status"] not in {"queued", "running"}:
                     continue
                 if current["status"] == "queued":
-                    queue = "wenyi:exports" if is_export else "wenyi:workflows"
-                    remote = await Job(arq_id, ctx["redis"], _queue_name=queue).status()
+                    queue_name = queue.EXPORT_QUEUE if is_export else queue.WORKFLOW_QUEUE
+                    remote = await Job(arq_id, ctx["redis"], _queue_name=queue_name).status()
                     if remote in _REMOTE_ACTIVE:
                         continue
                 if is_export:

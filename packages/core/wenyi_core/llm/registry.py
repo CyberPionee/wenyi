@@ -27,6 +27,13 @@ def _check_options(value: Any) -> None:
         "messages",
         "contents",
         "system_instruction",
+        # Responses API body fields: same "protocol owns the request" rule as messages/contents,
+        # otherwise extra_body could replace the conversation, the system prompt or the JSON
+        # response format after the adapter has built them.
+        "input",
+        "instructions",
+        "text",
+        "reasoning",
         "stream",
         "max_tokens",
         "max_completion_tokens",

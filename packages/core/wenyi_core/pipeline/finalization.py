@@ -321,9 +321,12 @@ class AssemblyService:
         if getattr(self._runtime.config.pipeline, "auto_qa_strict", False):
             from ..assemble.report import build_report
 
-            report = build_report(store, store, strict_auto_qa=True)
+            # The gate reads live state rather than the export snapshot: ExportSnapshotStore
+            # only proxies the manifest and chapters, so the glossary and report reads below
+            # would fail when this runs on the snapshot path.
+            report = build_report(policy_store, policy_store, strict_auto_qa=True)
             qa = report.get("auto_qa") or {}
-            saved = store.load_report() or {}
+            saved = policy_store.load_report() or {}
             gate = saved.get("machine_gate") or {}
             if qa.get("blocking") or gate.get("blocking"):
                 raise ValueError(

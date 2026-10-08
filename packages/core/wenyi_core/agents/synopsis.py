@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 
 from ..glossary.store import GlossaryTerm
+from ..llm.retrying import TruncatedResponseError
 from . import prompts
 from .base import Agent
 
@@ -150,9 +151,12 @@ class Synopsizer(Agent):
                     )
                     or ""
                 ).strip()
-            except Exception as error:  # noqa: BLE001 - see the docstring above.
-                if "truncated" not in str(error).lower():
-                    return ""
+            except TruncatedResponseError:
+                # Match on the type: the Responses protocol words this stop differently
+                # ("was incomplete"), so the message text cannot be trusted here.
+                continue
+            except Exception:  # noqa: BLE001 - see the docstring above.
+                return ""
         return ""
 
 
