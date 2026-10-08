@@ -55,8 +55,8 @@ class ReviewService:
             return glossary.all_terms()
         return store.all_terms()
 
-    def _review_config_snapshot(self, store: Storage) -> dict[str, Any]:
-        """Snapshot review configuration and derived context for metadata and reuse checks."""
+    def _review_config_snapshot(self) -> dict[str, Any]:
+        """Snapshot review configuration for persisted metadata and reuse checks."""
         from ..llm.operations import configured_operations
         from ..llm.routing import inference_snapshot
 
@@ -92,7 +92,6 @@ class ReviewService:
             # in the reuse identity because changing any of them changes those prompts.
             "glossary_note_chars": self._runtime.config.pipeline.glossary_note_chars,
             "review_chunk_budget": self._runtime.config.segment.max_tokens_per_batch,
-            "derived_context": self._review_derived_fingerprint(store),
         }
 
     @staticmethod
@@ -103,38 +102,12 @@ class ReviewService:
             json.dumps(snapshot, ensure_ascii=False, sort_keys=True).encode("utf-8")
         ).hexdigest()
 
-    def _review_derived_fingerprint(self, store: Storage) -> str:
-        """Fingerprint the analysis-derived context that every review prompt renders.
-
-        The style brief, the book synopsis and the chapter digests come from the analysis phase,
-        not from review settings, so the configuration snapshot alone cannot see them change.
-        """
-        analysis = store.load_analysis() or {}
-        manifest = store.load_manifest()
-        digests: list[list[Any]] = []
-        for entry in manifest.get("chapters") or []:
-            index = entry.get("index") if isinstance(entry, dict) else None
-            if index is None:
-                continue
-            try:
-                chapter = store.load_chapter(index)
-            except (FileNotFoundError, OSError):
-                continue
-            digests.append([index, (chapter.meta or {}).get("source_digest") or ""])
-        payload = {
-            "style_guide": analysis.get("style_guide") or "",
-            "book_synopsis": analysis.get("book_synopsis") or "",
-            "chapter_digests": digests,
-        }
-        return hashlib.sha256(
-            json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
-        ).hexdigest()
-
     def _review_skip_eligible(
         self,
         store: Storage,
         latest: dict[str, Any],
         terms: list[GlossaryTerm],
+        config_snapshot: dict[str, Any],
     ) -> bool:
         """Reuse a completed review only when content, configuration and glossary all match."""
         review_id = latest.get("review_id")
@@ -147,7 +120,7 @@ class ReviewService:
         saved_glossary = metadata.get("glossary_fingerprint")
         return (
             isinstance(saved_config, dict)
-            and saved_config == self._review_config_snapshot(store)
+            and saved_config == config_snapshot
             and isinstance(saved_glossary, str)
             and saved_glossary == self._review_glossary_fingerprint(terms)
         )
@@ -204,6 +177,16 @@ class ReviewService:
             progress(0, 0, "Restoring review checkpoint…")
         analysis = store.load_analysis() or {}
         reviewed_content_digest = content_digest(loaded)
+        config_snapshot = self._review_config_snapshot()
+        # Bind the whole run (including round-scoped fixer traces) to effective guidance.
+        config_snapshot["guidance"] = {
+            "style": self._runtime.analyzer.style_brief(analysis),
+            "book_synopsis": str(analysis.get("book_synopsis", "") or ""),
+            "chapter_digests": {
+                str(chapter.index): str(chapter.meta.get("source_digest", "") or "")
+                for chapter in loaded
+            },
+        }
 
         # Reuse completed review results when content, configuration and glossary fingerprints match.
         latest_completed = store.load_latest_review_result()
@@ -211,7 +194,7 @@ class ReviewService:
             latest_completed is not None
             and latest_completed.get("status") == "completed"
             and latest_completed.get("reviewed_content_digest") == reviewed_content_digest
-            and self._review_skip_eligible(store, latest_completed, all_terms)
+            and self._review_skip_eligible(store, latest_completed, all_terms, config_snapshot)
         ):
             store.log_event("review_skipped", reason="already_completed")
             return ReviewOutcome(
@@ -226,7 +209,7 @@ class ReviewService:
         debug = ReviewRunStore.find_resumable(
             store.run_dir,
             reviewed_content_digest,
-            config=self._review_config_snapshot(store),
+            config=config_snapshot,
             glossary_fingerprint=self._review_glossary_fingerprint(all_terms),
             storage=store,
         )
@@ -246,7 +229,7 @@ class ReviewService:
                 "target_lang": self._runtime.config.target_lang,
                 "chapter_count": len(loaded),
                 "total_segments": total,
-                "config": self._review_config_snapshot(store),
+                "config": config_snapshot,
                 "glossary_fingerprint": self._review_glossary_fingerprint(all_terms),
             },
         )
