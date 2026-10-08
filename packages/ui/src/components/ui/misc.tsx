@@ -29,6 +29,8 @@ export function Dialog({
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         className={cn(
           "relative w-full max-w-lg rounded-lg border bg-background p-6 shadow-lg max-h-[85vh] overflow-auto",
           className,

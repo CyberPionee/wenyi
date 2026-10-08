@@ -34,7 +34,7 @@ for (const { locale, entry } of [
     await page.route(`${api}/projects/${pid}/review/0`, (route) => route.fulfill({
       json: {
         index: 0, title: chapter.title, title_translated: null, review_issues: [],
-        segments: [{ index: 0, kind: "text", source: "Parsed source paragraph.", target: state.initialized ? "Translated paragraph." : null }],
+        segments: [{ index: 0, kind: "text", source: "Parsed source paragraph.", target: state.initialized ? "Translated paragraph." : null, display_target: state.initialized ? "Translated paragraph." : null }],
       },
     }));
     const zh = locale === "zh-CN";
