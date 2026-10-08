@@ -275,6 +275,7 @@ Web 在创建书籍项目时选择翻译模式；新项目默认 `standard`，�
 pipeline:
   translation_mode: standard
   review: true
+  align_retry_limit: 2
   polish: true
   rolling_context_segments: 8
   rolling_context_with_source: true
@@ -319,6 +320,7 @@ pipeline:
 ```
 
 - `review`：默认开启；全书翻译完成时自动执行取证式全书审校。一键流程可用 `--no-review` 或设为 `false` 跳过。仍可显式调用 `wenyi review`。
+- `align_retry_limit`：模型输出结构无效时的额外尝试次数；默认 `2` 表示连同初次请求最多尝试三次，`0` 关闭此类重试。标准翻译耗尽后回退到逐段翻译；精翻的每份初稿和综合润色使用同一预算，仅重试失败阶段并保持上下文不变，耗尽后暂停，不自动拆段。实际请求（包括失败尝试）产生模型用量；网络等传输重试仍独立处理。
 - `polish`：翻译后再调用强模型润色，质量可能提升，但显著增加耗时和成本。
 - `rolling_context_segments`：每批翻译附带的最近源译对数量（默认 `8`）。翻译与润色还会内置附带同章下一条原文片段作为只读参考，此值为零时也保留后文参考；它不改变输出段数，也不写入滚动上下文。详见[全书理解与上下文](pipeline.md#全书理解与上下文)。
 - `rolling_context_with_source`：为真（默认）时，滚动上下文按 `Source`/`Translation` 成对渲染；为假时仅输出译文。仅含 `recent_targets` 的旧上下文文件仍可加载，并降级为仅译文。

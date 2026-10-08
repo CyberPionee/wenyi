@@ -43,6 +43,7 @@ segment:
 # ── Pipeline options (quality and cost)───────────────────────────────────────────
 pipeline:
   review: true # Run final review after whole-book translation; disable with --no-review
+  # Additional structural retries for standard translation and each precision stage; 0 disables retries.
   align_retry_limit: 2
   polish: true # Polish the full translation with the strong tier; enabled by default and adds substantial cost
   translation_mode: standard # standard | best_of_three; best_of_three requires polish
@@ -131,9 +132,8 @@ class PipelineConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     review: bool = True
-    align_retry_limit: int = (
-        2  # Retry misaligned batches this many times before falling back to single paragraphs
-    )
+    # Additional structural retries for standard translation and precision generation/synthesis.
+    align_retry_limit: int = 2
     polish: bool = (
         True  # Polish the full translation with the strong tier by default; disable to save cost
     )
