@@ -173,7 +173,7 @@ export function ChapterProofreading({
                 key={segment.index}
                 index={segment.index}
                 source={segment.source}
-                target={segment.target}
+                target={segment.display_target}
                 disabled={readOnly || chapter.isError}
                 onOpen={openEditor}
               />

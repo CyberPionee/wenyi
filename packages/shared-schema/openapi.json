@@ -4285,6 +4285,17 @@
             ],
             "title": "Target"
           },
+          "display_target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Target"
+          },
           "target_before_polish": {
             "anyOf": [
               {

@@ -83,8 +83,9 @@ def get_run(pid: str, rid: str) -> dict:
 
 @router.get("/{ci}", response_model=ChapterSegments)
 def get_chapter_for_review(pid: str, ci: int) -> dict:
-    require_book(require_project(pid))
-    return chapter_payload(storage_for(pid), ci)
+    project = require_project(pid)
+    require_book(project)
+    return chapter_payload(project, storage_for(pid), ci)
 
 
 @router.put("/{ci}/segments/{seg_idx}")

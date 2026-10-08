@@ -37,8 +37,11 @@ export function ParagraphEditor({
   const textarea = useRef<HTMLTextAreaElement>(null);
   const body = useRef<HTMLDivElement>(null);
   const [view, setView] = useState(initialView);
+  // The stored value stays the optimistic-concurrency token while the editor shows the same
+  // display copy the reading view renders.
   const [baseline, setBaseline] = useState(segment.target);
-  const [draft, setDraft] = useState(segment.target ?? "");
+  const shown = segment.display_target;
+  const [draft, setDraft] = useState(shown ?? "");
   const history = useQuery({
     queryKey: ["segmentHistory", pid, chapterIndex, segment.index],
     queryFn: () => api.segmentHistory(pid, chapterIndex, segment.index),
@@ -222,7 +225,7 @@ export function ParagraphEditor({
               disabled={save.isPending}
               onClick={() => {
                 setBaseline(segment.target);
-                setDraft(segment.target ?? "");
+                setDraft(segment.display_target ?? "");
                 save.reset();
               }}
             >
@@ -290,7 +293,7 @@ export function ParagraphEditor({
         </div>
       </div>
       <footer className="flex shrink-0 flex-wrap items-center justify-end gap-3 border-t bg-background p-4">
-        {draft !== (baseline ?? "") && (
+        {draft !== (shown ?? "") && (
           <p className="mr-auto text-xs text-muted-foreground">
             {t("proofreading.unsavedChanges")}
           </p>
@@ -300,7 +303,7 @@ export function ParagraphEditor({
         </Button>
         {view === "edit" && (
           <Button
-            disabled={disabled || stale || draft === (baseline ?? "")}
+            disabled={disabled || stale || draft === (shown ?? "")}
             onClick={() => save.mutate()}
           >
             {save.isPending ? t("common.saving") : t("review.saveTranslation")}

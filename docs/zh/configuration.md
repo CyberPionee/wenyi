@@ -381,7 +381,7 @@ output:
 - `bilingual_order`：`target_first` 表示译文在上，`source_first` 表示原文在上。
 - `bilingual_preserve_source_style`：设为 `true` 时，原文继承书籍正文样式，不使用灰色淡化背景；仅影响 EPUB 和 HTML。
 - `about_page`：在书籍末尾附加“关于此翻译”项目说明页；设为 `false` 可关闭。
-- `punctuation_normalize`：仅对简体中文目标的内存导出副本规范标点；繁体中文及其它目标语言跳过此机械转换。正式章节 `target`、Review 输入和续跑状态均保持不变。
+- `punctuation_normalize`：对简体中文目标的内存导出副本和只读显示副本规范标点；繁体中文及其它目标语言跳过此机械转换。正式章节 `target`、Review 输入和续跑状态均保持不变。应用内阅读视图以 `display_target` 返回该显示副本，`target` 仍为存档原值，编辑保存沿用 `target`。
 
 旧的顶层 `punctuation.normalize` 配置不再接受；请删除旧配置，并只使用 `output.punctuation_normalize`。
 

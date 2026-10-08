@@ -215,7 +215,7 @@ for (const locale of ["en", "zh-CN"] as const) {
           json: {
             index: 0,
             title: `${longTitle}${reference}`,
-            segments: [{ index: 12, source, target, kind: "text" }],
+            segments: [{ index: 12, source, target, display_target: target, kind: "text" }],
             review_issues: [],
           },
         }),

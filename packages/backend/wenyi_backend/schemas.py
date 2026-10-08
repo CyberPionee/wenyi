@@ -116,6 +116,9 @@ class SegmentOut(BaseModel):
     index: int
     source: str
     target: Optional[str] = None
+    # Read-only display copy of target under the target language conventions. It never replaces the
+    # stored value, so editors must keep saving `target`.
+    display_target: Optional[str] = None
     target_before_polish: str | None = None
     anchor: str | None = None
     kind: str = "text"

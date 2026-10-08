@@ -2,10 +2,56 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping, Sequence
 from difflib import SequenceMatcher
 
 from ..i18n.policy.models import ExportTextInput, ExportTextResult
-from .punct import normalize_zh_segments
+from .punct import normalize_zh_glyphs, normalize_zh_segments
+
+
+def logical_ranges(continuations: Sequence[bool]) -> tuple[tuple[int, int], ...]:
+    """Group segment positions into logical paragraphs.
+
+    A segment continues the previous paragraph exactly when its continuation flag is set, so a
+    paragraph split at a sentence boundary is normalized as one text.
+    """
+    ranges: list[tuple[int, int]] = []
+    position = 0
+    while position < len(continuations):
+        end = position + 1
+        while end < len(continuations) and continuations[end]:
+            end += 1
+        ranges.append((position, end))
+        position = end
+    return tuple(ranges)
+
+
+def apply_operations(
+    request: ExportTextInput,
+    handlers: Mapping[str, Callable[[ExportTextInput], ExportTextResult]],
+    operations: Sequence[str],
+) -> tuple[ExportTextInput, tuple[tuple[int, ...], ...]]:
+    """Apply selected text operations in order and compose their paragraph boundary maps.
+
+    Every handler result is validated before it replaces the working view, and maps compose from
+    the original text, so callers can remap boundary-anchored metadata once at the end.
+    """
+    maps = tuple(
+        tuple(range(len("".join(text or "" for text in request.targets[start:end])) + 1))
+        for start, end in request.logical_ranges
+    )
+    current = request
+    for operation in operations:
+        result = handlers[operation](current)
+        validate_result(current, result)
+        maps = tuple(
+            tuple(after[index] for index in before)
+            for before, after in zip(maps, result.logical_boundary_maps)
+        )
+        current = ExportTextInput(
+            result.segment_ids, result.targets, result.continuations, result.logical_ranges
+        )
+    return current, maps
 
 
 def boundary_map(before: str, after: str) -> tuple[int, ...]:
@@ -67,8 +113,14 @@ def normalize_chinese(request: ExportTextInput) -> ExportTextResult:
     for start, end in request.logical_ranges:
         values = request.targets[start:end]
         before = "".join(text or "" for text in values)
-        # A partially translated paragraph lacks the context for a safe full transformation.
-        after = before if None in values else normalize_zh_segments([before])[0]
+        # A pending or untranslated segment leaves the enclosing paragraph without reliable quote
+        # pairing, so its translated segments receive only the transformations that do not depend
+        # on that pairing. Leaving the whole paragraph untouched would let source punctuation
+        # reach an exported copy. A pending target stays None instead of becoming text.
+        if None in values:
+            after = "".join(normalize_zh_glyphs(text) if text else "" for text in values)
+        else:
+            after = normalize_zh_segments([before])[0]
         mapping = boundary_map(before, after)
         maps.append(mapping)
         position = 0

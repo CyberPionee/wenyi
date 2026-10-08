@@ -11,6 +11,7 @@ const segments = Array.from({ length: count }, (_, index) => ({
   kind: "text",
   source: `${index}: ${"The river crosses the quiet forest. 河流穿过宁静的树林。 ".repeat(12)}`,
   target: `${index}: ${"清晨的阳光照亮河岸。 Morning light reaches the riverbank. ".repeat(12)}`,
+  display_target: `${index}: ${"清晨的阳光照亮河岸。 Morning light reaches the riverbank. ".repeat(12)}`,
 }));
 
 test("large chapter reading, polling and editing measurements", async ({ page }, info) => {
@@ -111,6 +112,7 @@ test("large chapter reading, polling and editing measurements", async ({ page },
 test("large chapter preserves deep links, find, cross-paragraph selection and drafts during updates", async ({ page }) => {
   const rows = segments.slice(0, 1000).map((segment) => ({ ...segment }));
   rows[999].target = "Unique far-away translation 远处译文";
+  rows[999].display_target = rows[999].target;
   await fakeApi(page);
   await page.route(`**/api/projects/${pid}/review/0`, (route) =>
     route.fulfill({ json: { index: 0, title: "Synthetic chapter", segments: rows, review_issues: [] } }),
@@ -141,6 +143,7 @@ test("large chapter preserves deep links, find, cross-paragraph selection and dr
   const input = page.getByLabel("Edit translation", { exact: true });
   await input.fill("Keep my draft 保留草稿");
   rows[999].target = "";
+  rows[999].display_target = "";
   await expect(page.locator("#paragraph-999").getByTestId("translation-text")).toHaveText("(Empty translation)");
   await expect(input).toHaveValue("Keep my draft 保留草稿");
   await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).last().click();

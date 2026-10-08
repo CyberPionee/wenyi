@@ -48,6 +48,34 @@ def test_non_chinese_translation_has_no_chinese_target_instruction():
     assert "按中文" not in system
 
 
+def test_embedded_foreign_language_text_rule_reaches_every_judging_pass():
+    """A source passage in another language keeps its wording plus a bracketed translation."""
+    for name in (
+        "translator_system",
+        "polisher_system",
+        "polisher_continue_user",
+        "review_fixer_system",
+        "reviewer_system",
+        "review_agent_system",
+        "chapter_selfcheck_system",
+        "self_revision_system",
+        "final_polish_system",
+        "precision_generation_system",
+    ):
+        system = render(name, src="ja", tgt="zh", n=3, next_source="x", max_evidence_rounds=2)
+        assert "a language other than Japanese" in system, name
+        assert "Simplified Chinese translation in parentheses" in system, name
+
+    # Subtitles keep their own conventions and do not inherit the book rule.
+    assert "a language other than" not in render("srt_single_system", src="ja", tgt="zh")
+
+
+def test_embedded_foreign_language_text_rule_names_the_target_language():
+    system = render("translator_system", src="ja", tgt="en")
+    assert "a language other than Japanese" in system
+    assert "English translation in parentheses" in system
+
+
 def test_language_tags_preserve_script_and_region():
     assert normalize_language("zh-Hant") == "zh-Hant"
     assert normalize_language("en_US") == "en-US"

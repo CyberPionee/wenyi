@@ -11,12 +11,13 @@ import zipfile
 from pathlib import Path
 
 from wenyi_core.assemble.export_view import ExportViewStore
+from wenyi_core.assemble.target_view import display_targets
 from wenyi_core.config import Config
 from wenyi_core.i18n.languages import honorific_rule
 from wenyi_core.ingest.models import Chapter, Segment
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.pipeline.orchestrator import Orchestrator
-from wenyi_core.postprocess.punct import normalize_zh_segments
+from wenyi_core.postprocess.punct import normalize_zh_glyphs, normalize_zh_segments
 from wenyi_core.storage.file import FileStorage
 from wenyi_core.storage.protocol import Storage
 
@@ -156,6 +157,68 @@ class TestPunct(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "must have the same length"):
             normalize_zh_segments(["第一段"], [])
 
+    def test_glyph_only_normalization_keeps_unpaired_fragments_safe(self):
+        self.assertEqual(normalize_zh_glyphs("「未闭合"), "“未闭合")
+        self.assertEqual(normalize_zh_glyphs("他说,真的吗?"), "他说，真的吗？")
+        # Pairing straight quotes needs the whole paragraph, so a fragment keeps them as they are.
+        self.assertEqual(normalize_zh_glyphs('"他说"'), '"他说"')
+
+    def test_partially_translated_paragraph_still_normalizes_translated_segments(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStorage(str(Path(directory) / "state" / "book"))
+            store.save_chapter(
+                Chapter(
+                    index=0,
+                    segments=[
+                        # An untranslated source line, split inside one logical paragraph.
+                        Segment(index=0, source="And the China doll", target="And the China doll"),
+                        Segment(index=1, source="次の行", target="「你好」", cont=True),
+                        Segment(index=2, source="次の段", target="他说,真的吗?"),
+                    ],
+                )
+            )
+            store.save_manifest(
+                {"source_lang": "ja", "target_lang": "zh", "chapters": [{"index": 0}]}
+            )
+
+            exported = ExportViewStore(store, punctuation_normalize=True).load_chapter(0)
+
+            self.assertEqual(
+                [segment.target for segment in exported.text_segments],
+                ["And the China doll", "“你好”", "他说，真的吗？"],
+            )
+            stored = store.load_chapter(0).text_segments
+            self.assertEqual(
+                [segment.target for segment in stored],
+                [
+                    "And the China doll",
+                    "「你好」",
+                    "他说,真的吗?",
+                ],
+            )
+
+    def test_pending_target_stays_pending_while_its_paragraph_is_normalized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStorage(str(Path(directory) / "state" / "book"))
+            store.save_chapter(
+                Chapter(
+                    index=0,
+                    segments=[
+                        Segment(index=0, source="前の行", target=None),
+                        Segment(index=1, source="次の行", target="「你好」", cont=True),
+                    ],
+                )
+            )
+            store.save_manifest(
+                {"source_lang": "ja", "target_lang": "zh", "chapters": [{"index": 0}]}
+            )
+
+            exported = ExportViewStore(store, punctuation_normalize=True).load_chapter(0)
+
+            self.assertEqual(
+                [segment.target for segment in exported.text_segments], [None, "“你好”"]
+            )
+
     def test_non_chinese_target_does_not_enable_chinese_normalization(self):
         with tempfile.TemporaryDirectory() as directory:
             cfg = Config.from_dict(
@@ -274,6 +337,51 @@ class TestPunct(unittest.TestCase):
             persisted = store.load_chapter(0).segments[0]
             self.assertEqual(persisted.target, before)
             self.assertEqual(persisted.meta["epub_annotations"]["placements"][0]["target_start"], 4)
+
+
+class TestDisplayTargets(unittest.TestCase):
+    """The reading view reuses export operations on a disposable copy."""
+
+    def test_chinese_reading_view_matches_an_export_copy(self):
+        targets = ["「你好」", "他说,真的吗?", None, ""]
+
+        shown = display_targets(
+            [0, 1, 2, 3],
+            targets,
+            [False, False, True, False],
+            source="ja",
+            target="zh",
+        )
+
+        self.assertEqual(shown, ["“你好”", "他说，真的吗？", None, ""])
+        self.assertEqual(targets, ["「你好」", "他说,真的吗?", None, ""])
+
+    def test_other_target_languages_keep_the_stored_text(self):
+        for target in ("zh-Hant", "en"):
+            with self.subTest(target=target):
+                self.assertEqual(
+                    display_targets(
+                        [0],
+                        ["「你好」"],
+                        [False],
+                        source="ja",
+                        target=target,
+                    ),
+                    ["「你好」"],
+                )
+
+    def test_disabling_punctuation_normalization_keeps_the_stored_text(self):
+        self.assertEqual(
+            display_targets(
+                [0],
+                ["他说,真的吗?"],
+                [False],
+                source="ja",
+                target="zh",
+                punctuation_normalize=False,
+            ),
+            ["他说,真的吗?"],
+        )
 
 
 class TestLanguageProfile(unittest.TestCase):

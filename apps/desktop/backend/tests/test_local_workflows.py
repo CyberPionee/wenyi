@@ -216,6 +216,32 @@ def test_chapter_content_routes_use_shared_review_policy(desktop, route):
         store.close()
 
 
+def test_reading_routes_report_a_display_copy_without_changing_the_stored_target(desktop):
+    client, backend, _ = desktop
+    pid, store = initialize(backend)
+    try:
+        root = f"/projects/{pid}"
+        stored = "「你好」，他说,真的吗?"
+        body = {"target": stored, "expected_target": "译文"}
+        assert client.put(root + "/review/0/segments/0", json=body).status_code == 200
+
+        for route in ("chapters/0", "review/0"):
+            segment = client.get(f"{root}/{route}").json()["segments"][0]
+            assert segment["target"] == stored
+            assert segment["display_target"] == "“你好”，他说，真的吗？"
+
+        # Editing keeps saving the stored value, and the reading view normalizes it again.
+        assert store.load_chapter(0).segments[0].target == stored
+        edit = {"target": "人工译文", "expected_target": stored}
+        assert client.put(root + "/review/0/segments/0", json=edit).status_code == 200
+        assert store.load_chapter(0).segments[0].target == "人工译文"
+        assert (
+            client.get(root + "/chapters/0").json()["segments"][0]["display_target"] == "人工译文"
+        )
+    finally:
+        store.close()
+
+
 def test_chapter_edits_history_glossary_and_review_are_project_scoped(desktop):
     client, backend, _ = desktop
     pid, store = initialize(backend)

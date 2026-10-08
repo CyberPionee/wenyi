@@ -120,6 +120,10 @@ def _rules(context: PolicyContext) -> dict[str, str]:
             )
         ),
         "target_guidance": target_guidance,
+        "foreign_text_guidance": Template(common["foreign_text"]).substitute(
+            src_label=source.get("label", "the source language"),
+            tgt_label=target["label"],
+        ),
         "term_guidance": source.get("term_guidance", common["reading"]) + common["evidence"],
         "punct_rule": target["punctuation_rule"],
         "title_rule": target["title_rule"],

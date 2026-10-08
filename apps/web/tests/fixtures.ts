@@ -169,6 +169,7 @@ export async function fakeApi(
             index: 0,
             source: "原文第一段",
             target: "Original translation",
+            display_target: "Original translation",
             kind: "text",
           },
         ],

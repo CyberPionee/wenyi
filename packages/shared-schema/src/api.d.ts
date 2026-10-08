@@ -1697,6 +1697,8 @@ export interface components {
             source: string;
             /** Target */
             target?: string | null;
+            /** Display Target */
+            display_target?: string | null;
             /** Target Before Polish */
             target_before_polish?: string | null;
             /** Anchor */

@@ -30,12 +30,14 @@ test("proofreading is separate and refreshes saved batches before a chapter fini
             index: 12,
             source: "First source paragraph",
             target: saved ? "First saved batch" : null,
+            display_target: saved ? "First saved batch" : null,
             kind: "text",
           },
           {
             index: 18,
             source: "Next source paragraph",
             target: null,
+            display_target: null,
             kind: "text",
           },
         ],
@@ -101,6 +103,7 @@ test("paused partial proofreading preserves drafts while polling and isolates ch
           index: 12,
           source: "Another chapter",
           target: "Independent translation",
+          display_target: "Independent translation",
           kind: "text",
         },
       ],
@@ -114,8 +117,8 @@ test("paused partial proofreading preserves drafts while polling and isolates ch
         title: chapter.title,
         review_issues: [],
         segments: [
-          { index: 12, source: "First source", target, kind: "text" },
-          { index: 18, source: "Pending source", target: null, kind: "text" },
+          { index: 12, source: "First source", target, display_target: target, kind: "text" },
+          { index: 18, source: "Pending source", target: null, display_target: null, kind: "text" },
         ],
       },
     });
@@ -187,7 +190,7 @@ test("mobile Chinese navigation opens proofreading and distinguishes saved empty
       title: chapter.title,
       review_issues: [],
       segments: [
-        { index: 0, source: "Parser noise", target: "", kind: "text" },
+        { index: 0, source: "Parser noise", target: "", display_target: "", kind: "text" },
       ],
     },
   });

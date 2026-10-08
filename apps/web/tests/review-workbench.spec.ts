@@ -147,6 +147,7 @@ test("issue rows separate suggestions from published fixes and link to stable pa
           kind: "text",
           source: "Source evidence",
           target: "Current saved translation",
+          display_target: "Current saved translation",
         },
       ],
       review_issues: [],

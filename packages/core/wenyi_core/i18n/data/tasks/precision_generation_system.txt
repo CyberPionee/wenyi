@@ -5,5 +5,6 @@ Use the full glossary consistently only where its source terms occur. Use synops
 Language guidance:
 $lang_guidance
 $punct_rule
+$foreign_text_guidance
 Keep sources without alphabetic characters exactly unchanged. Blank targets are permitted only when allow_empty_translations is true (untranslatable OCR noise), or the source itself is blank.
 Return only {"translations":["..."]}, in source order, exactly one string per document segment. This preserves document backfill positions; do not return analysis, rankings or explanations.

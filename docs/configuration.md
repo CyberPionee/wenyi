@@ -407,7 +407,7 @@ output:
 - `bilingual_order`: `target_first` places the translation before the source; `source_first` reverses the order.
 - `bilingual_preserve_source_style`: when `true`, source blocks inherit the book's normal text style instead of using the subdued gray style. This affects EPUB and HTML output only.
 - `about_page`: append an “About this translation” project page to the book; set it to `false` to disable it.
-- `punctuation_normalize`: normalize punctuation only on the in-memory export copy for Simplified Chinese targets. Traditional Chinese and other targets skip this deterministic conversion. Formal chapter `target` values, Review input, and resume state remain unchanged.
+- `punctuation_normalize`: normalize punctuation on the in-memory export copy and on the read-only display copy for Simplified Chinese targets. Traditional Chinese and other targets skip this deterministic conversion. Formal chapter `target` values, Review input, and resume state remain unchanged. The reading view of the app reports that display copy as `display_target`, while `target` keeps the stored value that editing saves.
 
 The former top-level `punctuation.normalize` key is not accepted; remove it and configure only `output.punctuation_normalize`.
 

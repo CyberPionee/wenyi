@@ -14,7 +14,12 @@ from ..i18n.policy.models import ExportTextInput, ExportTextResult, PolicyContex
 from ..i18n.policy.resolver import resolve_policy
 from ..ingest.models import Chapter
 from ..pipeline.runstore import ExportSnapshotStore, RunStore
-from ..postprocess.export_text import boundary_map, normalize_chinese, validate_result
+from ..postprocess.export_text import (
+    apply_operations,
+    boundary_map,
+    logical_ranges,
+    normalize_chinese,
+)
 from ..storage.protocol import Storage
 from .writer_common import _manifest_target_lang
 
@@ -134,38 +139,21 @@ class ExportViewStore(RunStore):
             return chapter
 
         segments = chapter.text_segments
-        ranges = []
-        position = 0
-        while position < len(segments):
-            end = position + 1
-            while end < len(segments) and segments[end].cont:
-                end += 1
-            ranges.append((position, end))
-            position = end
+        continuations = tuple(segment.cont for segment in segments)
         request = ExportTextInput(
             tuple(segment.index for segment in segments),
             tuple(
                 segment.target if segment.target != segment.source else None for segment in segments
             ),
-            tuple(segment.cont for segment in segments),
-            tuple(ranges),
+            continuations,
+            logical_ranges(continuations),
         )
-        current = request
-        maps = tuple(
-            tuple(range(len("".join(text or "" for text in request.targets[start:end])) + 1))
-            for start, end in ranges
+        current, maps = apply_operations(
+            request,
+            TEXT_HANDLERS,
+            tuple(operation.id for operation in operations),
         )
-        for operation in operations:
-            result = TEXT_HANDLERS[operation.id](current)
-            validate_result(current, result)
-            maps = tuple(
-                tuple(after[index] for index in before)
-                for before, after in zip(maps, result.logical_boundary_maps)
-            )
-            current = ExportTextInput(
-                result.segment_ids, result.targets, result.continuations, result.logical_ranges
-            )
-        for (position, end), mapping in zip(ranges, maps):
+        for (position, end), mapping in zip(request.logical_ranges, maps):
             before = "".join(segment.target or "" for segment in segments[position:end])
             after = "".join(target or "" for target in current.targets[position:end])
             if any(segment.target == segment.source for segment in segments[position:end]):

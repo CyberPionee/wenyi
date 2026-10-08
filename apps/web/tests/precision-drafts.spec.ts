@@ -27,6 +27,7 @@ async function setup(page: Page, busy = false) {
         index: 42,
         source: "Dusk settled over the river; the last homeward bird brushed the willow tips.",
         target: "暮色渐染河面，晚归的鸟轻掠柳梢。（人工校订）",
+        display_target: "暮色渐染河面，晚归的鸟轻掠柳梢。（人工校订）",
         kind: "text",
       }],
       review_issues: [],

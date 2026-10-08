@@ -29,10 +29,9 @@ def _convert_quotes(
     double_open: bool = True,
     single_open: bool = True,
 ) -> tuple[str, bool, bool]:
-    """Convert Japanese/ASCII quotes and return updated single/double-quote state."""
-    # Map Japanese quotation marks directly.
-    text = text.translate(str.maketrans({"「": "“", "」": "”", "『": "‘", "』": "’"}))
-
+    """Convert straight ASCII quotes and apostrophes, returning the updated quote state."""
+    # Alternating straight quotes and apostrophes need the paragraph-wide state carried below, so
+    # this function deliberately performs only the stateful half of the conversion.
     # Alternate straight double quotes between opening and closing curly forms.
     out = []
     for ch in text:
@@ -100,6 +99,22 @@ def _convert_halfwidth(text: str) -> str:
     )
 
 
+def normalize_zh_glyphs(text: str) -> str:
+    """Apply the conventions that depend only on the characters around them.
+
+    Every transformation here is local, so a fragment of a paragraph can be normalized on its own.
+    Quotation marks that need paragraph-wide pairing stay in :func:`normalize_zh_segments` and are
+    never touched by this function.
+    """
+    if not text:
+        return text
+    text = text.translate(str.maketrans({"「": "“", "」": "”", "『": "‘", "』": "’"}))
+    text = _convert_ellipsis_dash(text)
+    text = _convert_halfwidth(text)
+    text = re.sub(r"([，。！？：；、])\s+", r"\1", text)
+    return re.sub(rf"([”’》】])\s+(?={_CJK_RE})", r"\1", text)
+
+
 def _normalize_with_quote_state(
     text: str,
     *,
@@ -114,11 +129,7 @@ def _normalize_with_quote_state(
         double_open=double_open,
         single_open=single_open,
     )
-    text = _convert_ellipsis_dash(text)
-    text = _convert_halfwidth(text)
-    text = re.sub(r"([，。！？：；、])\s+", r"\1", text)
-    text = re.sub(rf"([”’》】])\s+(?={_CJK_RE})", r"\1", text)
-    return text, double_open, single_open
+    return normalize_zh_glyphs(text), double_open, single_open
 
 
 def normalize_zh_segments(

@@ -5,12 +5,19 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from fastapi import APIRouter, HTTPException
+from wenyi_core.assemble.target_view import display_targets
 from wenyi_core.storage.precision_drafts import read_precision_drafts
 
 from .. import dal
 from ..chapter_state import chapter_review_state
 from ..job_service import start_job
-from ..project_service import project_write, require_book, require_project, storage_for
+from ..project_service import (
+    effective_config,
+    project_write,
+    require_book,
+    require_project,
+    storage_for,
+)
 from ..schemas import (
     ChapterSegments,
     ChapterSummary,
@@ -23,13 +30,23 @@ from ..schemas import (
 router = APIRouter(prefix="/projects/{pid}/chapters", tags=["chapters"])
 
 
-def chapter_payload(storage, ci: int) -> dict:
+def chapter_payload(project: dict, storage, ci: int) -> dict:
     try:
         chapter = storage.load_chapter(ci)
     except KeyError:
         raise HTTPException(404, "chapter not found") from None
     review = storage.load_latest_review_result() or {}
     text_segments = chapter.text_segments
+    config = effective_config(project)
+    shown = display_targets(
+        [segment.index for segment in text_segments],
+        [segment.target for segment in text_segments],
+        [segment.cont for segment in text_segments],
+        source=config.source_lang,
+        target=config.target_lang,
+        punctuation_normalize=config.output.punctuation_normalize,
+    )
+    displayed = {segment.index: value for segment, value in zip(text_segments, shown)}
     issues = []
     current_review = chapter_review_state(review, chapter.meta)[1]
     for issue in (review.get("issues") or []) if current_review else []:
@@ -54,6 +71,7 @@ def chapter_payload(storage, ci: int) -> dict:
                 "index": segment.index,
                 "source": segment.source,
                 "target": segment.target,
+                "display_target": displayed.get(segment.index, segment.target),
                 "target_before_polish": segment.target_before_polish,
                 "kind": segment.kind,
                 "anchor": segment.anchor,
@@ -72,8 +90,9 @@ def list_chapters(pid: str) -> list[dict]:
 
 @router.get("/{ci}", response_model=ChapterSegments)
 def get_chapter(pid: str, ci: int) -> dict:
-    require_book(require_project(pid))
-    return chapter_payload(storage_for(pid), ci)
+    project = require_project(pid)
+    require_book(project)
+    return chapter_payload(project, storage_for(pid), ci)
 
 
 @router.get("/{ci}/segments/{si}/precision-drafts", response_model=PrecisionDraftsOut)

@@ -7,6 +7,8 @@ You are a rigorous translation reviewer. Compare the $src_label source with its 
 - voice: character voice, register or narrative person that clearly contradicts the established voice.
 - style: definite style errors such as broken dialogue register or unnatural translationese that changes the passage, not mere preference.
 Report only substantive errors in issues. Reasonable reordering, natural paraphrase and stylistic polishing are acceptable. Every issue needs a directly actionable suggestion.
+$foreign_text_guidance
+Treat a bracketed translation this rule requires as source-supported content rather than an addition, and never report the original wording it preserves as untranslated residue.
 Put uncertain notes in soft_findings instead of omitting them. soft_findings are advisory only and never auto-fixed; suggestion is optional there.
 Write detail and suggestion in $tgt_label.
 Finish reviewing every paragraph before emitting the final completeness receipt. Return only JSON:

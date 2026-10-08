@@ -7,6 +7,55 @@ import asyncio
 import pytest
 from fastapi import HTTPException
 from wenyi_backend.routers import chapters
+from wenyi_core.config import Config
+from wenyi_core.ingest.models import Chapter, Segment
+from wenyi_core.storage.file import FileStorage
+
+
+def _project(**overrides) -> dict:
+    return {"id": "project-1", "fmt": "text", "source_lang": "ja", "target_lang": "zh", **overrides}
+
+
+def test_chapter_payload_returns_a_display_copy_without_touching_stored_targets(
+    tmp_path, monkeypatch
+):
+    store = FileStorage(str(tmp_path / "book"))
+    store.save_chapter(
+        Chapter(
+            index=0,
+            segments=[
+                Segment(index=0, source="原文", target="「你好」"),
+                Segment(index=1, source="ない", target=None),
+            ],
+        )
+    )
+    monkeypatch.setattr(
+        chapters,
+        "effective_config",
+        lambda project: Config.from_dict({"language": {"target": "zh"}}),
+    )
+
+    payload = chapters.chapter_payload(_project(), store, 0)
+
+    assert [segment["target"] for segment in payload["segments"]] == ["「你好」", None]
+    assert [segment["display_target"] for segment in payload["segments"]] == ["“你好”", None]
+    assert [segment.target for segment in store.load_chapter(0).text_segments] == ["「你好」", None]
+
+
+def test_chapter_payload_keeps_stored_targets_for_other_target_languages(tmp_path, monkeypatch):
+    store = FileStorage(str(tmp_path / "book"))
+    store.save_chapter(
+        Chapter(index=0, segments=[Segment(index=0, source="原文", target="「你好」")])
+    )
+    monkeypatch.setattr(
+        chapters,
+        "effective_config",
+        lambda project: Config.from_dict({"language": {"target": "en"}}),
+    )
+
+    payload = chapters.chapter_payload(_project(target_lang="en"), store, 0)
+
+    assert payload["segments"][0]["display_target"] == "「你好」"
 
 
 def test_translate_chapter_enqueues_only_requested_chapter(monkeypatch):
