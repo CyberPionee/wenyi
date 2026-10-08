@@ -1,4 +1,4 @@
-﻿# Web deployment and development
+# Web deployment and development
 
 [简体中文](zh/web.md) · [CLI usage](usage.md) · [Configuration](configuration.md)
 

@@ -1,4 +1,4 @@
-﻿import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
+import { expect, test, type Page, type WebSocketRoute } from "@playwright/test";
 import { fakeApi, globalConfiguration, pid, project } from "./fixtures";
 import type {} from "../src/runtime";
 

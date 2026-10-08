@@ -1,4 +1,4 @@
-﻿# Web 部署与开发
+# Web 部署与开发
 
 [English](../web.md) · [CLI 使用](usage.md) · [配置](configuration.md)
 

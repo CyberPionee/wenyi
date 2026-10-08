@@ -1,4 +1,4 @@
-﻿name: Desktop packages
+name: Desktop packages
 run-name: Desktop · ${{ inputs.tag || github.event.release.tag_name || format('dev {0}', github.ref_name) }}
 
 on:
@@ -97,7 +97,6 @@ jobs:
       # Packaging tests need the root dev group and CLI console fixtures.
       # The sidecar is still built in its separate desktop-only environment.
       - run: uv sync --locked --all-packages --group dev
-      - run: uv sync --locked --package wenyi-desktop --group dev
       - name: Prepare token-budget vocabulary
         run: uv run --no-sync python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
       - run: pnpm install --frozen-lockfile
