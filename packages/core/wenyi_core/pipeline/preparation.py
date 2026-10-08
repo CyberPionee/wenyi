@@ -65,8 +65,14 @@ def _synopsis_complete(text: str) -> bool:
 class PreparationService:
     """Domain service for state lookup, parsing, initialization and book understanding."""
 
-    def __init__(self, runtime: PipelineRuntime):
+    def __init__(
+        self,
+        runtime: PipelineRuntime,
+        *,
+        mineru_token_resolver: Callable[[], str | None] | None = None,
+    ):
         self._runtime = runtime
+        self._mineru_token_resolver = mineru_token_resolver
 
     @staticmethod
     def ingest_config(config) -> dict[str, Any]:
@@ -163,6 +169,7 @@ class PreparationService:
                 self._runtime.config,
                 expected_sha256=source_hash,
                 progress=progress,
+                mineru_token_resolver=self._mineru_token_resolver,
             )
             return self._prepare_locked(
                 doc,
