@@ -11,26 +11,6 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-_MAX_PATH = 260
-
-
-def _long_path(path: str) -> str:
-    """Qualify a Windows path with the ``\\\\?\\`` prefix only when it exceeds MAX_PATH.
-
-    Precision keys nest chapter, fingerprint and call identifiers, so an absolute path
-    below a long temporary directory can pass 260 characters even though every parent
-    directory exists. Shorter paths keep their original form so callers observe the same
-    path identity; other platforms and already-qualified paths are returned unchanged.
-    """
-    if os.name != "nt" or path.startswith("\\\\?\\"):
-        return path
-    absolute = os.path.abspath(path)
-    if len(absolute) < _MAX_PATH:
-        return path
-    if absolute.startswith("\\\\"):
-        return "\\\\?\\UNC\\" + absolute[2:]
-    return "\\\\?\\" + absolute
-
 
 class FileArtifacts:
     def __init__(self, run_dir: str):
@@ -49,25 +29,40 @@ class FileArtifacts:
             raise ValueError("Artifact key must remain within the run")
         return path
 
+    @staticmethod
+    def _io_path(path: Path) -> str:
+        """Return a string the Win32 API can open even past MAX_PATH.
+
+        Precision drafts live under a 64-char source hash, so a deep state
+        directory can push ``<draft>.json.tmp`` past the 260-character limit and
+        Windows then reports a bare "No such file or directory". The ``\\\\?\\``
+        prefix switches to the NT namespace, which has no such limit.
+        """
+        text = str(path)
+        if os.name != "nt" or text.startswith("\\\\?\\"):
+            return text
+        return "\\\\?\\" + os.path.abspath(text)
+
     def read_artifact(self, key: str) -> Any | None:
         try:
-            value = Path(_long_path(str(self._artifact_path(key)))).read_text(encoding="utf-8")
-            return json.loads(value)
+            return json.loads(
+                Path(self._io_path(self._artifact_path(key))).read_text(encoding="utf-8")
+            )
         except (OSError, json.JSONDecodeError):
             return None
 
     def write_artifact(self, key: str, value: Any) -> None:
-        path = str(self._artifact_path(key))
+        path = self._artifact_path(key)
+        os.makedirs(self._io_path(path.parent), exist_ok=True)
         with self._artifact_lock:
-            os.makedirs(_long_path(os.path.dirname(path) or "."), exist_ok=True)
-            # Qualify the temporary name, which is longer than the final path.
-            tmp = _long_path(path + ".tmp")
-            with open(tmp, "w", encoding="utf-8") as handle:
-                handle.write(json.dumps(value, ensure_ascii=False, indent=2))
-            os.replace(tmp, _long_path(path))
+            tmp = path.with_name(path.name + ".tmp")
+            Path(self._io_path(tmp)).write_text(
+                json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            os.replace(self._io_path(tmp), self._io_path(path))
 
     def delete_artifact(self, key: str) -> None:
-        Path(_long_path(str(self._artifact_path(key)))).unlink(missing_ok=True)
+        Path(self._io_path(self._artifact_path(key))).unlink(missing_ok=True)
 
     def list_artifacts(self, prefix: str = "") -> list[str]:
         base = Path(self._artifact_root).resolve()
@@ -81,19 +76,22 @@ class FileArtifacts:
         return sorted(key for key in keys if key.startswith(prefix))
 
     def append_artifact_record(self, key: str, record: dict) -> None:
-        path = str(self._artifact_path(key))
-        with self._artifact_lock:
-            os.makedirs(_long_path(os.path.dirname(path)), exist_ok=True)
-            with open(_long_path(path), "a", encoding="utf-8") as handle:
-                handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+        path = self._artifact_path(key)
+        os.makedirs(self._io_path(path.parent), exist_ok=True)
+        with self._artifact_lock, open(self._io_path(path), "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
 
     def read_artifact_records(self, key: str) -> list[dict]:
         try:
-            content = Path(_long_path(str(self._artifact_path(key)))).read_text(encoding="utf-8")
+            lines = (
+                Path(self._io_path(self._artifact_path(key)))
+                .read_text(encoding="utf-8")
+                .splitlines()
+            )
         except OSError:
             return []
         rows = []
-        for line in content.splitlines():
+        for line in lines:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
