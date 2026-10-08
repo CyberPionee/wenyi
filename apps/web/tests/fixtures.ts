@@ -1,4 +1,4 @@
-﻿import type { Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 export const pid = "book-1";
 export const project = {
@@ -342,6 +342,9 @@ function tableData(): Record<string, unknown> {
           index: 0,
           source: "原文第一段",
           target: "Original translation",
+          // The reading view renders display_target (punctuation-normalized copy); without it
+          // the segment reads as untranslated and shows the waiting placeholder instead.
+          display_target: "Original translation",
           kind: "text",
         },
       ],

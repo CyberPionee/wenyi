@@ -1,6 +1,6 @@
 import { useI18n } from "@/i18n";
 import { useEffect, useState } from "react";
-import { Link, Outlet, useParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useParams } from "react-router-dom";
 import {
   PanelLeftClose,
   PanelLeftOpen,
@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { NavigationLink, ProjectNavigation } from "./Navigation";
 import { navEntries } from "@/routes/manifest";
 import { RouteGate } from "@/routes/RouteGate";
+import { SelectDismissScope } from "@/components/ui/select";
 import { Toaster } from "sonner";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -129,6 +130,7 @@ export function AppLayout() {
         />
       ));
 
+  const location = useLocation();
   return (
     <div className="flex h-dvh w-full flex-col overflow-hidden md:flex-row">
       <aside
@@ -235,7 +237,9 @@ export function AppLayout() {
         {/* The route gate keeps the shell mounted while a lazy chunk loads and
             confines route failures to the content area. */}
         <RouteGate>
-          <Outlet />
+          <SelectDismissScope dismissKey={`${location.key}:${location.hash}`}>
+            <Outlet />
+          </SelectDismissScope>
         </RouteGate>
       </main>
     </div>

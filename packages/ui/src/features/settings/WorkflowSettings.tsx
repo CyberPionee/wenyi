@@ -128,7 +128,7 @@ export function WorkflowSettings({
                 {tr("settings.tuningHandsOnHelp")}
               </p>
             </div>
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid sm:grid-cols-2 gap-3 [&>*]:min-w-0">
               <div>
                 <Label htmlFor="tuning-mode">{tr("settings.tuning")}</Label>
                 <Select
@@ -180,7 +180,7 @@ export function WorkflowSettings({
                 </p>
               </div>
             </div>
-            <div className="grid sm:grid-cols-2 gap-3">
+            <div className="grid sm:grid-cols-2 gap-3 [&>*]:min-w-0">
               {HANDS_ON.map(([key, label]) => (
                 <label key={key} className="flex gap-2 items-center text-sm">
                   <input
@@ -193,7 +193,7 @@ export function WorkflowSettings({
               ))}
             </div>
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid sm:grid-cols-2 gap-3 [&>*]:min-w-0">
             {PIPELINE.map(([key, label]) => {
               const managed = isManaged(key);
               return (
@@ -251,7 +251,7 @@ export function WorkflowSettings({
               </p>
             </div>
             {String(pipeline.quality_passes || "auto") === "manual" && (
-              <div className="grid sm:grid-cols-2 gap-3">
+              <div className="grid sm:grid-cols-2 gap-3 [&>*]:min-w-0">
                 {QUALITY_PASSES.map(([key, label]) => (
                   <label key={key} className="flex gap-2 items-center text-sm">
                     <input
@@ -267,7 +267,7 @@ export function WorkflowSettings({
               </div>
             )}
           </div>
-          <div className="grid sm:grid-cols-2 gap-3">
+          <div className="grid sm:grid-cols-2 gap-3 [&>*]:min-w-0">
             <div>
               <Label htmlFor="glossary-scope">
                 {tr("settings.glossaryScope")}
@@ -415,7 +415,7 @@ export function WorkflowSettings({
             {tr("settings.paragraphAnnotationAlignment")}
           </label>
         )}
-        <div className="grid sm:grid-cols-2 gap-4">
+        <div className="grid sm:grid-cols-2 gap-4 [&>*]:min-w-0">
           <div>
             <Label htmlFor="batch-tokens">
               {tr("settings.tokensPerBatch")}
