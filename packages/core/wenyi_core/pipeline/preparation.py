@@ -1,4 +1,4 @@
-﻿"""AI preparation: language detection, chapter prescan and style analysis.
+"""AI preparation: language detection, chapter prescan and style analysis.
 Reuse model-free input preparation for source parsing and state location. Own sample
 selection, initial glossary and rolling context. Initialize derived state first, commit the
 initialized manifest last, then finish initialization. Build the book synopsis afterward as

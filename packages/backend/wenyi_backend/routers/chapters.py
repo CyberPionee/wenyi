@@ -17,7 +17,6 @@ from ..project_service import (
     read_storage_for,
     require_book,
     require_project,
-    storage_for,
 )
 from ..schemas import (
     ChapterSegments,

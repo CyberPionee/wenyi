@@ -1,4 +1,4 @@
-﻿# Wenyi Desktop
+# Wenyi Desktop
 
 [English](../desktop.md) · [Web 部署与开发](web.md)
 

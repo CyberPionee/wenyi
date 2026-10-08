@@ -1,4 +1,4 @@
-﻿"""Whole-book review history and guarded human translation edits."""
+"""Whole-book review history and guarded human translation edits."""
 
 from __future__ import annotations
 
