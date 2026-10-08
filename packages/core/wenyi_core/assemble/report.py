@@ -68,7 +68,6 @@ def build_report(
         },
         "open_conflicts": conflicts,
         "empty_targets": empty_targets,
-        "blank_targets": blank_targets,
         "residual_findings": residual_findings,
     }
     review = store.load_latest_review_result()
