@@ -11,7 +11,7 @@ import { NavigationLink, ProjectNavigation } from "./Navigation";
 import { navEntries } from "@/routes/manifest";
 import { RouteGate } from "@/routes/RouteGate";
 import { SelectDismissScope } from "@/components/ui/select";
-import { Toaster } from "sonner";
+import { NotificationToaster } from "@/components/NotificationToaster";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { platform } from "@/platform";
@@ -226,14 +226,7 @@ export function AppLayout() {
         data-slot="content"
         className="relative flex-1 min-h-0 min-w-0 overflow-y-auto"
       >
-        {/* Mounted inside the scrolling content so the toast stack tracks the
-            header actions instead of the viewport. */}
-        <Toaster
-          richColors
-          position="top-right"
-          offset={62}
-          toastOptions={{ duration: 1000 }}
-        />
+        <NotificationToaster />
         {/* The route gate keeps the shell mounted while a lazy chunk loads and
             confines route failures to the content area. */}
         <RouteGate>
