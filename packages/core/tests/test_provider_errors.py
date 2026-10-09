@@ -7,7 +7,11 @@ import httpx
 import pytest
 from openai import APIStatusError
 from wenyi_core.llm.errors import describe_provider_failure
-from wenyi_core.llm.retrying import EmptyResponseError, TruncatedResponseError
+from wenyi_core.llm.retrying import (
+    EmptyResponseError,
+    OutputBudgetExhausted,
+    TruncatedResponseError,
+)
 
 
 def _status_error(status):
@@ -70,6 +74,19 @@ def test_chained_diagnostics_are_safe(error, category):
     if category == "unknown_error":
         assert "RuntimeError" in failure.message
         assert "ValueError" in failure.message
+
+
+def test_exhausted_budget_surfaces_operator_guidance():
+    """The retry ladder's own error keeps the action it was written to name."""
+    failure = describe_provider_failure(
+        OutputBudgetExhausted(
+            "Style analysis was truncated at the output limit on every attempt; "
+            "raise max_output_tokens or lower reasoning_effort"
+        )
+    )
+    assert failure.category == "truncated_response"
+    assert "raise max_output_tokens" in failure.message
+    assert "reasoning_effort" in failure.message
 
 
 def test_chained_http402_and_cycle():

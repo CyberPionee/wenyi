@@ -52,6 +52,16 @@ class TruncatedResponseError(RuntimeError):
     """The provider stopped generation at its output token limit."""
 
 
+class OutputBudgetExhausted(TruncatedResponseError):
+    """Every budget a domain operation retries with still hit the output limit.
+
+    Raised by the caller that owns the retry ladder, whose message names the operator's
+    next step (raise ``max_output_tokens`` or lower ``reasoning_effort``). Unlike a bare
+    truncation raised while parsing a provider response, that text is written for the
+    operator and safe to surface verbatim.
+    """
+
+
 class ProviderRequestError(RuntimeError):
     """A credential-scoped failure containing only stable, safe classifications."""
 

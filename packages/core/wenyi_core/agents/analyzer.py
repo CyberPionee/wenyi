@@ -10,7 +10,7 @@ from typing import Any
 
 from ..glossary.store import TYPE_PERSON, GlossaryStore, GlossaryTerm
 from ..i18n.metadata import normalize_gender, normalize_term_type
-from ..llm.retrying import TruncatedResponseError
+from ..llm.retrying import OutputBudgetExhausted, TruncatedResponseError
 from ..storage.protocol import Storage
 from .base import Agent
 
@@ -73,7 +73,7 @@ class Analyzer(Agent):
                 data = self._ask_json(system, user, operation="analysis.style", max_tokens=budget)
             except TruncatedResponseError as error:
                 if attempt == len(budgets) - 1:
-                    raise TruncatedResponseError(
+                    raise OutputBudgetExhausted(
                         "Style analysis was truncated at the output limit on every attempt; "
                         "raise max_output_tokens or lower reasoning_effort"
                     ) from error

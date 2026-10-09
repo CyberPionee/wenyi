@@ -9,6 +9,7 @@ from typing import Any
 from .json_parser import JsonParseError
 from .retrying import (
     EmptyResponseError,
+    OutputBudgetExhausted,
     ProviderRequestError,
     TruncatedResponseError,
     error_status_code,
@@ -101,7 +102,12 @@ def describe_provider_failure(error: BaseException) -> ProviderFailure:
         names.append(type(current).__name__)
         for error_type, category, message in _RESPONSE_FAILURES:
             if isinstance(current, error_type):
-                return ProviderFailure(None, category, message)
+                # The exhausted-budget error is raised by the operation's own retry ladder,
+                # and its text names the operator's next step (raise max_output_tokens or
+                # lower reasoning_effort). Unlike a bare truncation surfaced while parsing a
+                # provider response, that message is ours and safe to show verbatim.
+                detail = str(current).strip() if isinstance(current, OutputBudgetExhausted) else ""
+                return ProviderFailure(None, category, detail or message)
         current = current.__cause__ or current.__context__
 
     reason = retry_reason(error)
