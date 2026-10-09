@@ -100,6 +100,41 @@ def _is_proper_noun_or_url_token(run: str) -> bool:
     return bool(run[0].isupper() and run[1:].islower())
 
 
+def _foreign_block_end(target: str, end: int, pattern: re.Pattern[str]) -> int:
+    """Extend a script run across single spaces separating same-script words.
+
+    Latin prose arrives as several letter runs split on spaces; the bracketed
+    translation follows the whole passage, not each word, so the check must look
+    at the end of the block.
+    """
+    while end < len(target) and target[end] == " ":
+        nxt = pattern.match(target, end + 1)
+        if nxt is None:
+            break
+        end = nxt.end()
+    return end
+
+
+def _has_parenthesized_translation(target: str, end: int) -> bool:
+    """True when a bracketed translation immediately follows the run ending at end.
+
+    Allows at most one space, accepts half- and full-width bracket pairs, and requires
+    non-empty content. The rule this checks is the shared foreign-text guidance: keep the
+    original wording and add the target-language translation in parentheses right after it.
+    """
+    i = end
+    if i < len(target) and target[i] == " ":
+        i += 1
+    if i >= len(target):
+        return False
+    opener = target[i]
+    closer = {"(": ")", "（": "）"}.get(opener)
+    if closer is None:
+        return False
+    close_at = target.find(closer, i + 1)
+    return close_at != -1 and close_at > i + 1
+
+
 def scan_number_residue(source: str, target: str) -> dict[str, Any] | None:
     """Report digits present in source but missing from target (deterministic)."""
     if not (source or "").strip() or not (target or "").strip():
@@ -143,6 +178,11 @@ def scan_untranslated_residue(source: str, target: str) -> dict[str, Any] | None
                 or _is_proper_noun_or_url_token(run)
             ):
                 continue
+            # A passage that already carries its required bracketed translation complies
+            # with the foreign-text rule and is not untranslated residue.
+            block_end = _foreign_block_end(target, match.end(), pattern)
+            if _has_parenthesized_translation(target, block_end):
+                continue
             leftover.append(run)
     if not leftover:
         return None
@@ -151,6 +191,57 @@ def scan_untranslated_residue(source: str, target: str) -> dict[str, Any] | None
         "kind": "untranslated_residue",
         "leftover": leftover,
         "detail": f"Possible untranslated source text remains in translation: {sample}",
+    }
+
+
+def scan_foreign_unbracketed(source: str, target: str) -> dict[str, Any] | None:
+    """Report source-present foreign runs that lack the required bracketed translation.
+
+    The foreign-text rule keeps the original wording and appends its target-language
+    translation in parentheses immediately after it. Runs that already follow the rule are
+    compliant; isolated proper nouns and labels never require brackets. This is the inverse
+    of scan_untranslated_residue, which reports runs that are missing entirely.
+    """
+    if not (source or "").strip() or not (target or "").strip():
+        return None
+    target_counts = _script_letter_counts(target)
+    dominant = max(target_counts, key=target_counts.get)  # type: ignore[arg-type]
+    if target_counts[dominant] < 5:
+        return None
+    missing: list[str] = []
+    covered = 0
+    for name, pattern in _SCRIPT_PATTERNS:
+        if name == dominant or target_counts[name] <= 0:
+            continue
+        min_len = 2 if name == "cjk" else 3
+        for match in pattern.finditer(target):
+            run = match.group()
+            if len(run) < min_len:
+                continue
+            if match.start() < covered:
+                continue
+            if run not in source:
+                continue
+            if name == "latin" and (
+                _looks_like_url_context(target, match.start(), match.end())
+                or _is_proper_noun_or_url_token(run)
+            ):
+                continue
+            block_end = _foreign_block_end(target, match.end(), pattern)
+            if _has_parenthesized_translation(target, block_end):
+                continue
+            # Report the whole word block, not the first word of it.
+            missing.append(target[match.start() : block_end])
+            covered = block_end
+    if not missing:
+        return None
+    sample = " / ".join(missing[:3])
+    return {
+        "kind": "foreign_unbracketed",
+        "unbracketed": missing,
+        "detail": (
+            "Source foreign passage lacks the required bracketed translation: {sample}"
+        ).format(sample=sample),
     }
 
 
@@ -205,6 +296,7 @@ def scan_segment(
     for finding in (
         scan_number_residue(source, target),
         scan_untranslated_residue(source, target),
+        scan_foreign_unbracketed(source, target),
         scan_term_drift(source, target, terms or []),
     ):
         if finding is not None:

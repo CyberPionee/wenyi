@@ -6,6 +6,7 @@ import unittest
 
 from wenyi_core.glossary.store import GlossaryTerm
 from wenyi_core.review.sweep import (
+    scan_foreign_unbracketed,
     scan_number_residue,
     scan_segment,
     scan_term_drift,
@@ -75,6 +76,99 @@ class TestSweep(unittest.TestCase):
         self.assertIsNotNone(scan_term_drift("Ann left", "Anne left", terms))
         self.assertIsNone(scan_term_drift("Ann left", "安 left", terms))
         self.assertIsNone(scan_term_drift("Bob left", "Anne left", terms))
+
+    def test_foreign_run_without_brackets_is_flagged(self):
+        finding = scan_foreign_unbracketed(
+            "He said hello world clearly and left at once",
+            "他说完了 hello world 这一段就离开了这里",
+        )
+        self.assertIsNotNone(finding)
+        assert finding is not None
+        self.assertEqual(finding["kind"], "foreign_unbracketed")
+        self.assertIn("hello world", finding["unbracketed"])
+
+    def test_half_width_brackets_make_the_passage_compliant(self):
+        self.assertIsNone(
+            scan_foreign_unbracketed(
+                "He said hello world clearly and left at once",
+                "他说完了 hello world (这一段)就离开了这里",
+            )
+        )
+
+    def test_full_width_brackets_make_the_passage_compliant(self):
+        self.assertIsNone(
+            scan_foreign_unbracketed(
+                "He said hello world clearly and left at once",
+                "他说完了 hello world（这一段）就离开了这里",
+            )
+        )
+
+    def test_single_space_before_the_bracket_is_allowed(self):
+        self.assertIsNone(
+            scan_foreign_unbracketed(
+                "He said hello world clearly and left at once",
+                "他说完了 hello world （这一段）就离开了这里",
+            )
+        )
+
+    def test_isolated_proper_noun_never_requires_brackets(self):
+        self.assertIsNone(
+            scan_foreign_unbracketed(
+                "They visited Paris today by train",
+                "他们今天乘火车访问了 Paris 地区",
+            )
+        )
+
+    def test_url_context_is_skipped(self):
+        self.assertIsNone(
+            scan_foreign_unbracketed(
+                "See example.com/path for the archive",
+                "请在 example.com/path 页面查看存档内容",
+            )
+        )
+
+    def test_foreign_run_absent_from_source_is_ignored(self):
+        # The rule only covers passages the source itself writes in another language;
+        # wording the translator introduced is a different concern.
+        self.assertIsNone(
+            scan_foreign_unbracketed(
+                "他说了很多中文内容然后停了下来",
+                "他说了很多中文内容 elephant 很大然后停了下来",
+            )
+        )
+
+    def test_empty_inputs_return_none(self):
+        self.assertIsNone(scan_foreign_unbracketed("", "他说中文内容很多"))
+        self.assertIsNone(scan_foreign_unbracketed("Source text here", ""))
+
+    def test_scan_segment_aggregates_foreign_unbracketed(self):
+        findings = scan_segment(
+            "He said hello world clearly and left at once",
+            "他说完了 hello world 这一段就离开了这里",
+        )
+        kinds = {item["kind"] for item in findings}
+        self.assertIn("foreign_unbracketed", kinds)
+
+    def test_bracketed_passage_is_not_untranslated_residue(self):
+        # Regression: correctly bracketed foreign text must not count as residue,
+        # matching reviewer_system.txt's instruction never to report it.
+        self.assertIsNone(
+            scan_untranslated_residue(
+                "He said hello world clearly and left at once",
+                "他说完了 hello world (这一段)就离开了这里",
+            )
+        )
+        self.assertIsNone(
+            scan_untranslated_residue(
+                "He said hello world clearly and left at once",
+                "他说完了 hello world（这一段）就离开了这里",
+            )
+        )
+
+    def test_foreign_unbracketed_maps_to_missing_issue_type(self):
+        from wenyi_core.pipeline.autofix_candidates import _SWEEP_ISSUE_TYPE
+
+        self.assertEqual(_SWEEP_ISSUE_TYPE["foreign_unbracketed"], "missing")
 
     def test_scan_segment_collects_all_residuals(self):
         terms = [GlossaryTerm(source="Ann", target="安", type="person")]

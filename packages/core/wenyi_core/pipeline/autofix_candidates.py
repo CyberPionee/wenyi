@@ -24,6 +24,7 @@ _SWEEP_ISSUE_TYPE = {
     "term_drift": "terminology",
     "number_residue": "mistranslation",
     "untranslated_residue": "added",
+    "foreign_unbracketed": "missing",
 }
 
 

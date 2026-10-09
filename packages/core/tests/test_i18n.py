@@ -70,6 +70,23 @@ def test_embedded_foreign_language_text_rule_reaches_every_judging_pass():
     assert "a language other than" not in render("srt_single_system", src="ja", tgt="zh")
 
 
+def test_foreign_text_check_reaches_only_review_prompts():
+    """The active bracket check is review's duty; translation passes keep only the rule."""
+    marker = "Actively check this rule"
+    for name in ("reviewer_system", "review_agent_system"):
+        system = render(name, src="ja", tgt="zh", n=3, next_source="x", max_evidence_rounds=2)
+        assert marker in system, name
+    for name in (
+        "translator_system",
+        "polisher_system",
+        "self_revision_system",
+        "final_polish_system",
+        "chapter_selfcheck_system",
+    ):
+        system = render(name, src="ja", tgt="zh", n=3, next_source="x", max_evidence_rounds=2)
+        assert marker not in system, name
+
+
 def test_embedded_foreign_language_text_rule_names_the_target_language():
     system = render("translator_system", src="ja", tgt="en")
     assert "a language other than Japanese" in system
