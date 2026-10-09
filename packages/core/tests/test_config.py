@@ -72,6 +72,8 @@ class TestConfigFileCreation(unittest.TestCase):
             self.assertEqual(cfg.pipeline.review_agent_max_evidence_rounds, 2)
             self.assertTrue(cfg.pipeline.review_conflict_arbitration)
             self.assertTrue(cfg.pipeline.glossary_conflict_arbitration)
+            self.assertTrue(cfg.pipeline.glossary_target_disambiguation)
+            self.assertIn("  glossary_target_disambiguation: true", generated)
             self.assertTrue(cfg.pipeline.review_fix_loop)
             self.assertEqual(cfg.pipeline.review_fix_max_rounds, 2)
             self.assertEqual(cfg.pipeline.review_clean_confirmations, 2)

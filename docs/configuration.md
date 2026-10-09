@@ -311,6 +311,7 @@ pipeline:
   review_agent_max_evidence_rounds: 2
   review_conflict_arbitration: true
   glossary_conflict_arbitration: true
+  glossary_target_disambiguation: true
   review_fix_loop: true
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
@@ -358,6 +359,7 @@ pipeline:
 - `review_agent_max_evidence_rounds`: maximum selective evidence rounds per Agent Loop; the allowed range is `0` to `2`, after which the agent must return a final decision.
 - `review_conflict_arbitration`: after all chunks finish, run a recommendation-only arbiter when consistency proposals for the same term, pronoun, or fixed expression contradict one another.
 - `glossary_conflict_arbitration`: once the whole book is translated and before Review runs, settle open terminology conflicts from the term's use across the book. The arbiter chooses between the established rendering and the recorded proposals, never inventing a new one; a conflict it cannot separate stays open for a human. A settled choice locks the term and rewrites the paragraphs that still carried a rejected rendering, so Review and the export gate work with one name per entity.
+- `glossary_target_disambiguation`: once the whole book is translated and before Review runs, find distinct source terms that share one target and judge each group against sampled passages from the book. The judge records whether the sources name the same entity and, when they do, whether a source-side distinction the shared target no longer preserves still matters. The verdict lands in the term note for later passes and never rewrites a target: splitting a rendering stays a translation decision. A group the passages cannot decide stays open for a human.
 - `review_fix_loop`: generate complete provisional segment replacements for confirmed issues in a run-local shadow translation, then blindly review the whole book again. Disabling it keeps the single-pass recommendation-only behavior.
 - `review_fix_max_rounds`: maximum number of provisional Fix rounds, from `0` to `4`; this is not the total number of Review passes.
 - `review_clean_confirmations`: consecutive issue-free whole-book Review passes required after shadow fixing, from `1` to `2`; the default is `2`.

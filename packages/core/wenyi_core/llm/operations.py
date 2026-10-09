@@ -211,6 +211,14 @@ OPERATIONS = register_operations(
             flags=("glossary_conflict_arbitration",),
             resumable_conversation=True,
         ),
+        OperationSpec(
+            "glossary.disambiguate",
+            "Judge whether terms sharing one target stay distinct in context",
+            "strong",
+            workflows=("translate",),
+            flags=("glossary_target_disambiguation",),
+            resumable_conversation=True,
+        ),
         OperationSpec("srt.translate", "Translate subtitle cues", "strong", workflows=("srt",)),
     )
 )

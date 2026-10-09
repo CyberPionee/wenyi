@@ -81,6 +81,8 @@ class TestOrchestratorContract(unittest.TestCase):
         self.review_autofix.resume_pending.return_value = None
         self.glossary_arbitration = MagicMock(spec=type(orch._glossary_arbitration))
         orch._glossary_arbitration = self.glossary_arbitration
+        self.glossary_disambiguation = MagicMock(spec=type(orch._glossary_disambiguation))
+        orch._glossary_disambiguation = self.glossary_disambiguation
         self.quality_pass = MagicMock(spec=type(orch._quality_pass))
         orch._quality_pass = self.quality_pass
         self.report = MagicMock(spec=type(orch._report))
@@ -125,6 +127,8 @@ class TestOrchestratorContract(unittest.TestCase):
         )
         # Terminology conflicts are settled after translation, before later passes read the text.
         self.glossary_arbitration.run.assert_called_once_with(store, progress=progress)
+        # Same window: same-target collisions are judged from the finished book, once.
+        self.glossary_disambiguation.run.assert_called_once_with(store, progress=progress)
         self.quality_pass.run_after_translate.assert_called_once_with(store, progress=progress)
         self.assertEqual(store.lock_events, ["lock:enter", "lock:exit"])
 
@@ -141,6 +145,7 @@ class TestOrchestratorContract(unittest.TestCase):
         orch.run("novel.txt")
 
         self.glossary_arbitration.run.assert_not_called()
+        self.glossary_disambiguation.run.assert_not_called()
 
     def test_run_rejects_unknown_chapter_before_translation(self):
         """Reject unknown chapter indices before translation and propagate the validation

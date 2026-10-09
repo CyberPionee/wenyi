@@ -17,6 +17,8 @@ TASKS = (
     "final_polish_user",
     "glossary_arbiter_system",
     "glossary_arbiter_user",
+    "glossary_disambiguation_system",
+    "glossary_disambiguation_user",
     "glossary_extractor_system",
     "glossary_extractor_user",
     "glossary_history_system",

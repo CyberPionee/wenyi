@@ -227,6 +227,29 @@ def test_glossary_arbitration_does_not_change_the_review_policy():
     ]
 
 
+def test_glossary_disambiguation_does_not_change_the_review_policy():
+    """Same pin as the arbiter: this judge runs in the translate workflow.
+
+    Its templates belong to the translation plan, so toggling the judge or editing its
+    prompts can never invalidate a completed whole-book review through the config snapshot.
+    """
+    settings = {"language": {"source": "ja", "target": "zh"}}
+    off = Config.from_dict({**settings, "pipeline": {"glossary_target_disambiguation": False}})
+    on = Config.from_dict({**settings, "pipeline": {"glossary_target_disambiguation": True}})
+
+    assert on.language_policy("review").fingerprint == off.language_policy("review").fingerprint
+    assert (
+        on.language_policy("translation").fingerprint
+        != off.language_policy("translation").fingerprint
+    )
+    assert "glossary_disambiguation_system" in [
+        name for name, _ in on.language_policy("translation").templates
+    ]
+    assert "glossary_disambiguation_system" not in [
+        name for name, _ in on.language_policy("review").templates
+    ]
+
+
 def test_unavailable_pinned_handler_is_rejected_before_calls(tmp_path):
     source, config, store = book(tmp_path)
     Orchestrator(config, client=FakeClient(handler=routing_handler), storage=store).prepare(

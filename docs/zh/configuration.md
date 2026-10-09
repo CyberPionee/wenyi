@@ -289,6 +289,7 @@ pipeline:
   review_agent_max_evidence_rounds: 2
   review_conflict_arbitration: true
   glossary_conflict_arbitration: true
+  glossary_target_disambiguation: true
   review_fix_loop: true
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
@@ -335,6 +336,7 @@ pipeline:
 - `review_agent_max_evidence_rounds`：每个 Agent Loop 最多允许的选择性取证轮数，范围为 `0` 到 `2`；用完后必须给出最终结论。
 - `review_conflict_arbitration`：所有块结束后，同一术语、人称或固定表达的一致性建议若互相矛盾，再执行只给建议、不修改数据的终局仲裁。
 - `glossary_conflict_arbitration`：全书译完、进入审校之前，依据该术语在全书中的用法裁定未解决的术语冲突。仲裁只在「已确立译名」与「已记录的提议」之间选择，不会另造译名；无法区分的冲突保留给人处理。裁定结果会锁定该词条，并把仍带着被否译名的段落改写掉，使审校与导出前门禁面对的是同一套称谓。
+- `glossary_target_disambiguation`：全书译完、进入审校之前，找出共用同一译文的不同原文词条，并为每组采样书中的实际用法交由模型判断。判断记录这些原文是否同指一个实体；若同指，再判断原文侧的差别在共用译文中是否已经丢失、这种差别是否仍然重要。结论写入词条备注供后续环节参考，不会改写任何译文——是否拆分译名始终是翻译决策。上下文不足以判断的组保留给人处理。
 - `review_fix_loop`：针对确认的问题在本次运行的影子译文中生成完整单段替换，再从头盲审全书；关闭后保持单轮、只给建议的行为。
 - `review_fix_max_rounds`：最多生成的临时 Fix 轮数，范围为 `0` 到 `4`；它不是 Review 总轮数。
 - `review_clean_confirmations`：开启影子 Fix 后，需要连续无问题的全书 Review 次数，范围为 `1` 到 `2`，默认 `2`。

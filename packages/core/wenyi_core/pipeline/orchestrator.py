@@ -21,6 +21,7 @@ from ..storage.protocol import Storage
 from .annotations import AnnotationService
 from .finalization import AssemblyService, ReportService
 from .glossary_arbitration import GlossaryArbitrationService
+from .glossary_disambiguation import GlossaryDisambiguationService
 from .preparation import PreparationService
 from .quality_pass import QualityPassService
 from .review_autofix import ReviewAutofixService
@@ -55,6 +56,7 @@ class Orchestrator:
         self._review = ReviewService(self._runtime)
         self._review_autofix = ReviewAutofixService(self._runtime, self._annotations)
         self._glossary_arbitration = GlossaryArbitrationService(self._runtime)
+        self._glossary_disambiguation = GlossaryDisambiguationService(self._runtime)
         self._quality_pass = QualityPassService(self._runtime)
         self._report = ReportService(self._runtime)
         self._assembly = AssemblyService(self._runtime)
@@ -333,6 +335,9 @@ class Orchestrator:
         if store.pending_chapters():
             return
         self._glossary_arbitration.run(store, progress=progress)
+        # After the arbiter: settled targets may merge or split groups, so the collision set
+        # is only final once conflicts have been resolved.
+        self._glossary_disambiguation.run(store, progress=progress)
 
     def _finish_steps_locked(
         self,

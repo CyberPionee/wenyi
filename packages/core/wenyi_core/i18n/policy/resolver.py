@@ -32,6 +32,7 @@ TASK_GROUPS = {
         "glossary_extractor",
         "glossary_history",
         "glossary_arbiter",
+        "glossary_disambiguation",
         "annotation_aligner",
         "self_revision",
         "editorial_pass",

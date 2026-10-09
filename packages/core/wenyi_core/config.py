@@ -59,6 +59,7 @@ pipeline:
   review_agent_max_evidence_rounds: 2 # At most two rounds of selective evidence requests before a final decision
   review_conflict_arbitration: true # Arbitrate contradictory consistency proposals after all review blocks finish
   glossary_conflict_arbitration: true # Settle terminology conflicts from book context once translation finishes, before review
+  glossary_target_disambiguation: true # Judge same-target term collisions from book context once translation finishes, before review
   review_fix_loop: true # Revise an in-memory shadow translation and review it blindly; this loop does not publish changes
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
@@ -172,6 +173,9 @@ class PipelineConfig(BaseModel):
     )
     glossary_conflict_arbitration: bool = (
         True  # Settle terminology conflicts from book context before review
+    )
+    glossary_target_disambiguation: bool = (
+        True  # Judge same-target term collisions from book context before review
     )
     review_fix_loop: bool = (
         True  # Revise only the in-memory shadow translation and review it blindly
@@ -334,6 +338,10 @@ class Config(BaseModel):
             # throw away a finished whole-book review.
             if self.pipeline.glossary_conflict_arbitration:
                 groups.append("glossary_arbiter")
+            # Same reasoning as the arbiter above: this judge runs in this workflow, so its
+            # templates belong to this plan and must never enter the review fingerprint.
+            if self.pipeline.glossary_target_disambiguation:
+                groups.append("glossary_disambiguation")
             # Optional passes render their prompts from this phase, so their templates and rules
             # belong to its revision: a prompt edit must invalidate results derived from them.
             # The post-translation passes are decided by quality_passes, so their prompt groups
