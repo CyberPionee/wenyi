@@ -53,7 +53,12 @@ def test_precision_structural_retry_finishes_without_manual_resume(desktop, stag
     assert wait_job(dal.list_jobs(pid)[0]["run_id"])["status"] == "done"
     configured = client.put(
         root + "/config",
-        json={"yaml": "pipeline: {review: false, book_understanding: false, align_retry_limit: 2}"},
+        json={
+            # Resume must spend nothing here; the evaluation-redo loop (this branch's own
+            # feature, pinned by test_evaluation_redo.py) would otherwise start a repair
+            # round and add autofix.verify calls on the second translate.
+            "yaml": "pipeline: {review: false, book_understanding: false, align_retry_limit: 2, max_auto_redo_rounds: 0}"
+        },
     )
     assert configured.status_code == 200, configured.text
     translated = client.post(root + "/translate")
@@ -235,7 +240,11 @@ def test_precision_keeps_protected_source_when_model_changes_spacing(desktop):
     assert wait_job(dal.list_jobs(pid)[0]["run_id"])["status"] == "done"
     configured = client.put(
         root + "/config",
-        json={"yaml": "pipeline: {review: false, book_understanding: false}"},
+        json={
+            # Same loop as above: keep it off so the resume assertion measures idempotence
+            # of the precision flow itself, not this branch's redo rounds.
+            "yaml": "pipeline: {review: false, book_understanding: false, max_auto_redo_rounds: 0}"
+        },
     )
     assert configured.status_code == 200, configured.text
     translated = client.post(root + "/translate")
