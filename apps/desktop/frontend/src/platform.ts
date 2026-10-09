@@ -12,8 +12,6 @@ const loadDesktopCredential = () => import("./DesktopCredential");
 const DesktopCredential = lazy(() =>
   loadDesktopCredential().then((module) => ({ default: module.DesktopCredential })),
 );
-// Warm the credential chunk at startup so the settings page never waits on it.
-void loadDesktopCredential().catch(() => { /* The route retries when opened. */ });
 const DesktopUpdates = lazy(() =>
   import("./DesktopUpdates").then((module) => ({ default: module.DesktopUpdates })),
 );
