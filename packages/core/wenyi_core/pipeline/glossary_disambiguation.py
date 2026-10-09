@@ -118,7 +118,7 @@ class GlossaryDisambiguationService:
         summary["unresolved"] = len(unresolved)
         if not judgements:
             store.write_artifact(
-                _INDEX, {"status": "completed", "judgements": [], "unresolved": unresolved}
+                _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
             )
             return summary
         # Persist the verdicts before touching notes so an interruption resumes from this index.
@@ -127,7 +127,7 @@ class GlossaryDisambiguationService:
         )
         summary["notes_written"] = self._apply(store, judgements, progress=progress)
         store.write_artifact(
-            _INDEX, {"status": "completed", "judgements": [], "unresolved": unresolved}
+            _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
         )
         store.log_event("glossary_disambiguation_finished", **summary)
         return summary
@@ -152,7 +152,7 @@ class GlossaryDisambiguationService:
         )
         summary["notes_written"] = self._apply(store, judgements, progress=progress)
         store.write_artifact(
-            _INDEX, {"status": "completed", "judgements": [], "unresolved": unresolved}
+            _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
         )
         store.log_event("glossary_disambiguation_finished", **summary)
         return summary

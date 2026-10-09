@@ -220,6 +220,23 @@ def test_a_recorded_verdict_resumes_without_asking_the_model_again(tmp_path):
     assert "[target-disambiguation]" in store.get_term("いるかホテル").note
 
 
+def test_a_completed_run_is_not_rejudged_on_the_next_translate(tmp_path):
+    """The verdict ids stay in the completed index so a later run cannot repeat the calls."""
+    store = _store(str(tmp_path))
+    client = _client("judged", same_entity=True, needs_distinction=False)
+    orchestrator = Orchestrator(_config(str(tmp_path)), client=client, storage=store)
+
+    first = _run(orchestrator, store)
+    assert first["judged"] == 1
+    spent = len(client.calls)
+
+    second = _run(orchestrator, store)
+
+    assert second["collisions"] == 0
+    assert second["judged"] == 0
+    assert len(client.calls) == spent
+
+
 def test_a_judged_collision_is_not_judged_twice(tmp_path):
     """A kept verdict id skips an already-settled group without paying for another call."""
     store = _store(str(tmp_path))
