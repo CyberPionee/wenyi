@@ -196,6 +196,9 @@ class TestOrchestratorContract(unittest.TestCase):
         self.preparation.locate_existing.assert_called_once_with("novel.txt", progress=progress)
         self.review.session_terms.assert_called_once_with(store)
         self.review.run_session.assert_called_once_with(store, ["术语"], progress=progress)
+        # Even the standalone review path settles terminology (conflicts and same-target
+        # collisions) before Review reads the text.
+        self.glossary_disambiguation.run.assert_called_once_with(store, progress=progress)
         self.review_autofix.resume_pending.assert_called_once_with(store, progress=progress)
         self.review_autofix.run.assert_not_called()
         self.assertEqual(
@@ -227,6 +230,9 @@ class TestOrchestratorContract(unittest.TestCase):
         self.preparation.prepare.assert_not_called()
         self.translation.run.assert_not_called()
         self.review.run_session.assert_called_once()
+        # A review-only run_steps settles terminology first (orchestrator guards it behind
+        # "translate" not in steps); progress is unset on this entry point.
+        self.glossary_disambiguation.run.assert_called_once_with(store, progress=None)
         self.assertEqual(result["review_result"], {"r": 1})
         self.assertIsNone(result["report"])
 
