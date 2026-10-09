@@ -28,11 +28,14 @@ export function cacheRate(slot: Record<string, unknown>) {
   const hit = amount(slot.cache_hit_tokens);
   const miss = amount(slot.cache_miss_tokens);
   const input = amount(slot.prompt_tokens);
+  // Providers that do not report prompt cache details leave part of the input unclassified;
+  // the reported part still carries a usable rate. Only a report larger than the input
+  // itself is malformed and gets hidden.
   if (
     hit === undefined ||
     miss === undefined ||
     hit + miss === 0 ||
-    (input !== undefined && hit + miss !== input)
+    (input !== undefined && hit + miss > input)
   )
     return undefined;
   return hit / (hit + miss);

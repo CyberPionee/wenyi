@@ -68,14 +68,17 @@ const stats = {
   },
 };
 
-test("cache partitions preserve input totals and rates require complete cache information", () => {
+test("cache partitions preserve input totals and rates use every reported cache token", () => {
   for (const [cache, expectedRate, unknown] of [
     [{ cache_hit_tokens: 60, cache_miss_tokens: 40 }, 0.6, 0],
     [{ cache_hit_tokens: 0, cache_miss_tokens: 100 }, 0, 0],
     [{ cache_hit_tokens: 100, cache_miss_tokens: 0 }, 1, 0],
     [{}, undefined, 100],
     [{ cache_hit_tokens: 0, cache_miss_tokens: 0 }, undefined, 100],
-    [{ cache_hit_tokens: 20, cache_miss_tokens: 30 }, undefined, 50],
+    // A provider that omits cache details for some calls leaves part of the input
+    // unclassified; the reported part still yields a usable rate.
+    [{ cache_hit_tokens: 20, cache_miss_tokens: 30 }, 0.4, 50],
+    // Reporting more cache tokens than the input itself is malformed and stays hidden.
     [{ cache_hit_tokens: 120, cache_miss_tokens: 0 }, undefined, 100],
   ] as const) {
     const slot = {
@@ -395,6 +398,7 @@ test("unknown cache usage remains distinct from uncached input", async ({
   await expect(row).toContainText("Cached input: 200");
   await expect(row).toContainText("Uncached input: 100");
   await expect(row).toContainText("Input with unknown cache status: 700");
-  await expect(row).toContainText("Cache hit rate: —");
-  await expect(row).not.toContainText("66.7%");
+  // The rate is computed over the reported tokens; the unknown slice is shown above, so the
+  // number is not presented as if it covered the whole input.
+  await expect(row).toContainText("Cache hit rate: 66.7%");
 });
