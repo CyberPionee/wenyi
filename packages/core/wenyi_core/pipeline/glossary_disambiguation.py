@@ -1,11 +1,11 @@
-"""Judge source terms that share one target, from their use in the book.
+"""Judge source terms that share one target and split the ones that must read apart.
 
-Distinct sources mapped to a single rendering are not necessarily wrong: they may be one
-entity, distinct entities that happen to share a name, or one entity whose source-side
-distinction the target no longer preserves. This service finds those groups after the whole
-book is translated, has each judged against sampled passages, and records the verdict in the
-term note for later passes. It never rewrites a target: splitting a rendering stays a
-translation decision.
+Distinct sources mapped to a single rendering may be one entity, distinct entities that
+happen to share a name, or one entity whose source-side distinction the target no longer
+preserves. After each chapter's extraction this service finds those groups, has each judged
+against sampled passages, and applies the verdict: a source judged distinct moves to its own
+wording in the glossary and every passage that mentions it is rewritten to match. Groups the
+passages cannot decide wait for a later pass with wider context.
 """
 
 from __future__ import annotations
@@ -16,7 +16,11 @@ from typing import TYPE_CHECKING, Any
 
 from ..agents.glossary_disambiguator import GlossaryTargetDisambiguator
 from ..glossary.store import GlossaryTerm, source_matches_text, term_match_sources
-from ..glossary.writeback import load_chapters
+from ..glossary.writeback import (
+    apply_target_rewrites,
+    load_chapters,
+    plan_conflict_writeback,
+)
 from ..review.evidence import BookEvidenceIndex
 from ..review.run_store import ReviewRunStore
 from ..storage.protocol import Storage
@@ -41,34 +45,33 @@ def _collision_id(target: str, sources: list[str]) -> str:
 
 
 def _empty_summary() -> dict[str, Any]:
-    return {"collisions": 0, "judged": 0, "unresolved": 0, "notes_written": 0, "reason": ""}
+    return {"collisions": 0, "judged": 0, "unresolved": 0, "renderings_applied": 0, "reason": ""}
 
 
-def _verdict_note(judgement: dict[str, Any], others: list[str]) -> str:
+def _verdict_note(
+    judgement: dict[str, Any], others: list[str], *, wording: str, changed: bool
+) -> str:
     """One short line for the term note; the full reason stays in the event and artifact."""
     listed = ", ".join(others)
+    if changed:
+        return f"{_VERDICT_TAG} Distinguished from {listed}; now rendered as {wording}."
     if judgement.get("same_entity") is True:
-        if judgement.get("needs_distinction") is True:
-            return (
-                f"{_VERDICT_TAG} Same entity as {listed}; the source distinction is not "
-                "preserved in the shared target."
-            )
-        return (
-            f"{_VERDICT_TAG} Same entity as {listed}; the shared target is kept for all spellings."
-        )
-    if judgement.get("same_entity") is False:
-        return f"{_VERDICT_TAG} Distinct from {listed} despite sharing this target."
-    return ""
+        return f"{_VERDICT_TAG} Same entity as {listed}; unified rendering kept."
+    return f"{_VERDICT_TAG} Distinct from {listed}; shared rendering kept."
 
 
 class GlossaryDisambiguationService:
-    """Decide whether same-target term collisions need distinct renderings, then note them."""
+    """Apply same-target collision verdicts, splitting the renderings that must read apart."""
 
     def __init__(self, runtime: PipelineRuntime):
         self._runtime = runtime
 
     def run(self, store: Storage, *, progress: ProgressFn | None = None) -> dict[str, Any]:
-        """Judge every unjudged collision once the whole book has been translated."""
+        """Judge every unjudged collision and apply its renderings.
+
+        Called after each chapter's extraction so a split lands before the next chapter is
+        translated, and again before review as a whole-book backstop.
+        """
         summary = _empty_summary()
         if not self._runtime.config.pipeline.glossary_target_disambiguation:
             summary["reason"] = "disabled"
@@ -125,7 +128,7 @@ class GlossaryDisambiguationService:
         store.write_artifact(
             _INDEX, {"status": "judged", "judgements": judgements, "unresolved": unresolved}
         )
-        summary["notes_written"] = self._apply(store, judgements, progress=progress)
+        summary["renderings_applied"] = self._apply(store, judgements, progress=progress)
         store.write_artifact(
             _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
         )
@@ -150,7 +153,7 @@ class GlossaryDisambiguationService:
             "glossary_disambiguation_resumed",
             collision_ids=[str(item.get("collision_id") or "") for item in judgements],
         )
-        summary["notes_written"] = self._apply(store, judgements, progress=progress)
+        summary["renderings_applied"] = self._apply(store, judgements, progress=progress)
         store.write_artifact(
             _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
         )
@@ -164,11 +167,9 @@ class GlossaryDisambiguationService:
         done_index = store.read_artifact(_INDEX)
         done_ids: set[str] = set()
         if isinstance(done_index, dict):
-            recorded = [
-                *(done_index.get("judgements") or []),
-                *(done_index.get("unresolved") or []),
-            ]
-            for item in recorded:
+            # Only judged groups are settled. An unresolved group stays eligible so the next
+            # chapter's extraction can retry it with wider context.
+            for item in done_index.get("judgements") or []:
                 if isinstance(item, dict) and item.get("collision_id"):
                     done_ids.add(str(item["collision_id"]))
         by_target: dict[str, list[GlossaryTerm]] = {}
@@ -236,46 +237,80 @@ class GlossaryDisambiguationService:
         *,
         progress: ProgressFn | None,
     ) -> int:
-        """Record each verdict in the term notes; targets are never rewritten here."""
-        written = 0
+        """Apply judged renderings: replace changed targets in the glossary and the text."""
+        applied = 0
         total = len(judgements)
         for done, judgement in enumerate(judgements, start=1):
             if progress:
-                progress(done - 1, total, "Recording collision verdicts")
+                progress(done - 1, total, "Applying judged renderings")
             sources = [str(value) for value in judgement.get("sources") or [] if value]
+            renderings = {
+                str(entry.get("source") or ""): str(entry.get("target") or "")
+                for entry in judgement.get("renderings") or []
+                if isinstance(entry, dict)
+            }
             for source in sources:
                 term = store.get_term(source)
                 if term is None:
                     continue
                 others = [value for value in sources if value != source]
-                note = _verdict_note(judgement, others)
-                if not note or _VERDICT_TAG in (term.note or ""):
-                    continue
-                combined = f"{term.note}\n{note}" if (term.note or "").strip() else note
-                with store.state_lock():
-                    store.upsert_term(
-                        GlossaryTerm(
-                            source=term.source,
-                            target=term.target,
-                            reading=term.reading,
-                            type=term.type,
-                            gender=term.gender,
-                            aliases=list(term.aliases or []),
-                            note=combined,
-                            status=term.status,
-                            first_chapter=term.first_chapter,
-                        ),
-                        chapter=term.first_chapter,
+                old_wording = (term.target or "").strip()
+                new_wording = renderings.get(source, "")
+                changed = bool(new_wording) and new_wording != old_wording
+                if changed:
+                    # Source-anchored rewrite: only passages mentioning this source that still
+                    # carry the old wording move to the new one, exactly like conflict settling.
+                    plan = plan_conflict_writeback(
+                        load_chapters(store),
+                        term_source=source,
+                        term=term,
+                        rejected_targets=[old_wording],
+                        chosen_target=new_wording,
                     )
-                    store.log_event(
-                        "glossary_target_disambiguated",
-                        source=source,
-                        collision_id=str(judgement.get("collision_id") or ""),
-                        same_entity=judgement.get("same_entity"),
-                        needs_distinction=judgement.get("needs_distinction"),
-                        reason=str(judgement.get("reason") or ""),
-                    )
-                written += 1
+                    if plan:
+                        apply_target_rewrites(
+                            store,
+                            plan,
+                            term_source=source,
+                            rejected_targets=[old_wording],
+                            chosen_target=new_wording,
+                        )
+                    with store.state_lock():
+                        store.resolve_term(source, new_wording)
+                    applied += 1
+                note = _verdict_note(
+                    judgement,
+                    others,
+                    wording=new_wording if changed else old_wording,
+                    changed=changed,
+                )
+                if _VERDICT_TAG not in (term.note or ""):
+                    combined = f"{term.note}\n{note}" if (term.note or "").strip() else note
+                    with store.state_lock():
+                        store.upsert_term(
+                            GlossaryTerm(
+                                source=term.source,
+                                target=new_wording if changed else old_wording,
+                                reading=term.reading,
+                                type=term.type,
+                                gender=term.gender,
+                                aliases=list(term.aliases or []),
+                                note=combined,
+                                status=term.status,
+                                first_chapter=term.first_chapter,
+                            ),
+                            chapter=term.first_chapter,
+                        )
+                store.log_event(
+                    "glossary_target_disambiguated",
+                    source=source,
+                    collision_id=str(judgement.get("collision_id") or ""),
+                    same_entity=judgement.get("same_entity"),
+                    old_target=old_wording,
+                    new_target=new_wording if changed else old_wording,
+                    changed=changed,
+                    reason=str(judgement.get("reason") or ""),
+                )
         if progress:
-            progress(total, total, "Recording collision verdicts")
-        return written
+            progress(total, total, "Applying judged renderings")
+        return applied

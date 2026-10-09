@@ -1,8 +1,9 @@
 """Prepare target-collision judgement prompts and validate the outcome.
 
 Distinct source terms that share one target are judged from their use in the book: whether
-they name the same entity, and whether the source distinction still matters. The judge
-records that verdict with its evidence; it never proposes a replacement rendering.
+they name the same entity, and which final rendering each source should carry. The caller
+applies the validated renderings to the glossary and rewrites the passages that still use an
+old wording, so an unresolved group simply waits for a later pass with more context.
 """
 
 from __future__ import annotations
@@ -61,7 +62,7 @@ class GlossaryTargetDisambiguator:
                 "target": target,
                 "status": "unresolved",
                 "same_entity": None,
-                "needs_distinction": None,
+                "renderings": [],
                 "reason": reason,
                 "evidence_refs": sorted(refs or set()),
             }
@@ -124,6 +125,7 @@ class GlossaryTargetDisambiguator:
         # Preauthorize only the sampled refs whose text appears in the prompt; anything the
         # judge wants beyond them has to be requested through the evidence tools.
         allowed_refs = set(sampled_refs)
+        supplied_sources = [entry["source"] for entry in sources]
 
         def validate_final(data: dict[str, Any], valid_refs: set[str]) -> dict[str, Any]:
             if data.get("collision_id") != collision_id:
@@ -135,23 +137,37 @@ class GlossaryTargetDisambiguator:
             if not reason:
                 raise ReviewLoopProtocolError("disambiguation_without_reason")
             same_entity = data.get("same_entity")
-            needs_distinction = data.get("needs_distinction")
+            renderings = data.get("renderings")
             if status == "judged":
-                if not isinstance(same_entity, bool) or not isinstance(needs_distinction, bool):
+                if not isinstance(same_entity, bool):
                     raise ReviewLoopProtocolError("judgement_without_verdict")
-                # A distinction only applies when the sources are one entity; two distinct
-                # entities already differ by identity, so the flag would carry no meaning.
-                if not same_entity and needs_distinction:
-                    raise ReviewLoopProtocolError("distinction_without_same_entity")
+                if not isinstance(renderings, list):
+                    raise ReviewLoopProtocolError("judgement_without_renderings")
+                final: dict[str, str] = {}
+                for item in renderings:
+                    if not isinstance(item, dict):
+                        raise ReviewLoopProtocolError("rendering_not_an_object")
+                    source = str(item.get("source") or "")
+                    wording = clean_text(item.get("target"))
+                    if source not in supplied_sources:
+                        raise ReviewLoopProtocolError("rendering_for_unknown_source")
+                    if not wording:
+                        raise ReviewLoopProtocolError("rendering_without_target")
+                    final[source] = wording
+                if set(final) != set(supplied_sources):
+                    raise ReviewLoopProtocolError("renderings_missing_sources")
+                renderings = [
+                    {"source": source, "target": final[source]} for source in supplied_sources
+                ]
             else:
                 same_entity = None
-                needs_distinction = None
+                renderings = []
             return {
                 "collision_id": collision_id,
                 "target": target,
                 "status": status,
                 "same_entity": same_entity,
-                "needs_distinction": needs_distinction,
+                "renderings": renderings,
                 "reason": reason,
                 "evidence_refs": validate_evidence_refs(data.get("evidence_refs"), valid_refs),
             }

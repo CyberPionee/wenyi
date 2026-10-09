@@ -65,7 +65,9 @@ def _store(directory: str) -> FileStorage:
     return store
 
 
-def _client(status: str, *, same_entity: bool | None, needs_distinction: bool | None) -> FakeClient:
+def _client(
+    status: str, *, same_entity: bool | None, renderings: dict[str, str] | None
+) -> FakeClient:
     """Reply as the disambiguation agent does, echoing the supplied collision id."""
 
     def handler(messages, _tier, _json_mode):
@@ -75,7 +77,10 @@ def _client(status: str, *, same_entity: bool | None, needs_distinction: bool | 
                 "collision_id": COLLISION_ID.search(messages[-1]["content"]).group(1),
                 "status": status,
                 "same_entity": same_entity,
-                "needs_distinction": needs_distinction,
+                "renderings": [
+                    {"source": source, "target": wording}
+                    for source, wording in (renderings or {}).items()
+                ],
                 "reason": "Both spellings refer to the same hotel throughout the passages.",
                 "evidence_refs": [],
                 "complete": True,
@@ -87,16 +92,24 @@ def _client(status: str, *, same_entity: bool | None, needs_distinction: bool | 
     return FakeClient(handler)
 
 
+def _targets(store: FileStorage) -> list[str]:
+    return [segment.target for segment in store.load_chapter(0).text_segments]
+
+
 def _run(orchestrator: Orchestrator, store: FileStorage) -> dict:
     return orchestrator._glossary_disambiguation.run(store)
 
 
-def test_a_shared_entity_is_noted_and_the_target_stays_untouched(tmp_path):
-    """The verdict lands in the note; the rendering this book uses is never rewritten."""
+def test_a_judged_split_changes_the_term_and_the_passages(tmp_path):
+    """A source judged distinct moves to its own wording, in the glossary and in the text."""
     store = _store(str(tmp_path))
     orchestrator = Orchestrator(
         _config(str(tmp_path)),
-        client=_client("judged", same_entity=True, needs_distinction=False),
+        client=_client(
+            "judged",
+            same_entity=False,
+            renderings={"いるかホテル": "海豚宾馆", "ドルフィン・ホテル": "海豚旅店"},
+        ),
         storage=store,
     )
 
@@ -104,58 +117,49 @@ def test_a_shared_entity_is_noted_and_the_target_stays_untouched(tmp_path):
 
     assert summary["collisions"] == 1
     assert summary["judged"] == 1
-    assert summary["notes_written"] == 2
+    assert summary["renderings_applied"] == 1
+    # The glossary moves only for the source the judge split off.
     assert store.get_term("いるかホテル").target == "海豚宾馆"
-    assert store.get_term("ドルフィン・ホテル").target == "海豚宾馆"
-    note = store.get_term("いるかホテル").note
-    assert "[target-disambiguation]" in note
-    assert "ドルフィン・ホテル" in note
-    assert "shared target is kept" in note
-    assert store.read_artifact("glossary-disambiguation/judgements.json")["status"] == "completed"
+    assert store.get_term("ドルフィン・ホテル").target == "海豚旅店"
+    # The passage that mentions that source is rewritten; passages of the other stay.
+    assert _targets(store) == ["去海豚宾馆。", "海豚宾馆很旧。", "海豚旅店是白色的。"]
     events = store.list_events(event_type="glossary_target_disambiguated")
     assert len(events) == 2
-    assert events[0]["same_entity"] is True
-    assert events[0]["needs_distinction"] is False
+    split = next(event for event in events if event["source"] == "ドルフィン・ホテル")
+    assert split["changed"] is True
+    assert split["old_target"] == "海豚宾馆"
+    assert split["new_target"] == "海豚旅店"
+    assert "[target-disambiguation]" in store.get_term("ドルフィン・ホテル").note
 
 
-def test_an_unpreserved_distinction_is_recorded_as_such(tmp_path):
-    """same_entity with needs_distinction says the shared target dropped the difference."""
+def test_a_unified_group_keeps_one_rendering_and_changes_nothing(tmp_path):
+    """same_entity with identical renderings is a no-op on the text."""
     store = _store(str(tmp_path))
     orchestrator = Orchestrator(
         _config(str(tmp_path)),
-        client=_client("judged", same_entity=True, needs_distinction=True),
+        client=_client(
+            "judged",
+            same_entity=True,
+            renderings={"いるかホテル": "海豚宾馆", "ドルフィン・ホテル": "海豚宾馆"},
+        ),
         storage=store,
     )
 
-    _run(orchestrator, store)
+    summary = _run(orchestrator, store)
 
-    note = store.get_term("ドルフィン・ホテル").note
-    assert "source distinction is not preserved" in note
-    # Still no rewrite: the note informs later passes, the operator decides the split.
-    assert store.get_term("ドルフィン・ホテル").target == "海豚宾馆"
-
-
-def test_distinct_entities_sharing_a_target_are_noted_as_distinct(tmp_path):
-    store = _store(str(tmp_path))
-    orchestrator = Orchestrator(
-        _config(str(tmp_path)),
-        client=_client("judged", same_entity=False, needs_distinction=False),
-        storage=store,
-    )
-
-    _run(orchestrator, store)
-
-    note = store.get_term("いるかホテル").note
-    assert "Distinct from" in note
+    assert summary["renderings_applied"] == 0
     assert store.get_term("いるかホテル").target == "海豚宾馆"
+    assert store.get_term("ドルフィン・ホテル").target == "海豚宾馆"
+    assert _targets(store) == ["去海豚宾馆。", "海豚宾馆很旧。", "海豚宾馆是白色的。"]
+    assert "unified rendering kept" in store.get_term("いるかホテル").note
 
 
-def test_an_unresolved_collision_leaves_the_note_alone(tmp_path):
-    """A collision the passages cannot decide stays open for a human."""
+def test_an_unresolved_collision_waits_and_stays_retryable(tmp_path):
+    """A collision the passages cannot decide writes nothing and is retried next chapter."""
     store = _store(str(tmp_path))
     orchestrator = Orchestrator(
         _config(str(tmp_path)),
-        client=_client("unresolved", same_entity=None, needs_distinction=None),
+        client=_client("unresolved", same_entity=None, renderings=None),
         storage=store,
     )
 
@@ -163,16 +167,16 @@ def test_an_unresolved_collision_leaves_the_note_alone(tmp_path):
 
     assert summary["judged"] == 0
     assert summary["unresolved"] == 1
-    assert summary["notes_written"] == 0
+    assert summary["renderings_applied"] == 0
     assert store.get_term("いるかホテル").note == ""
-    index = store.read_artifact("glossary-disambiguation/judgements.json")
-    assert index["status"] == "completed"
-    assert index["unresolved"]
+    # Unresolved ids never block a retry: the group is still detected next time.
+    groups = orchestrator._glossary_disambiguation._collision_groups(store)
+    assert len(groups) == 1
 
 
 def test_disambiguation_can_be_disabled(tmp_path):
     store = _store(str(tmp_path))
-    client = _client("judged", same_entity=True, needs_distinction=False)
+    client = _client("judged", same_entity=False, renderings={"ドルフィン・ホテル": "海豚旅店"})
     orchestrator = Orchestrator(
         _config(str(tmp_path), glossary_target_disambiguation=False),
         client=client,
@@ -183,11 +187,12 @@ def test_disambiguation_can_be_disabled(tmp_path):
 
     assert summary["reason"] == "disabled"
     assert client.calls == []
-    assert store.get_term("いるかホテル").note == ""
+    assert store.get_term("ドルフィン・ホテル").target == "海豚宾馆"
+    assert _targets(store)[2] == "海豚宾馆是白色的。"
 
 
 def test_a_recorded_verdict_resumes_without_asking_the_model_again(tmp_path):
-    """An interrupted run finishes from its own index rather than paying for another call."""
+    """An interrupted run applies its recorded renderings without paying for another call."""
     store = _store(str(tmp_path))
     store.write_artifact(
         "glossary-disambiguation/judgements.json",
@@ -198,8 +203,11 @@ def test_a_recorded_verdict_resumes_without_asking_the_model_again(tmp_path):
                     "collision_id": "collision-recorded",
                     "target": "海豚宾馆",
                     "status": "judged",
-                    "same_entity": True,
-                    "needs_distinction": False,
+                    "same_entity": False,
+                    "renderings": [
+                        {"source": "いるかホテル", "target": "海豚宾馆"},
+                        {"source": "ドルフィン・ホテル", "target": "海豚旅店"},
+                    ],
                     "reason": "recorded",
                     "evidence_refs": [],
                     "sources": ["いるかホテル", "ドルフィン・ホテル"],
@@ -208,22 +216,27 @@ def test_a_recorded_verdict_resumes_without_asking_the_model_again(tmp_path):
             "unresolved": [],
         },
     )
-    client = _client("judged", same_entity=True, needs_distinction=False)
+    client = _client("judged", same_entity=False, renderings={"ドルフィン・ホテル": "海豚旅店"})
     orchestrator = Orchestrator(_config(str(tmp_path)), client=client, storage=store)
 
     summary = orchestrator._glossary_disambiguation.resume_pending(store)
 
     assert summary is not None
     assert summary["resumed"] is True
-    assert summary["notes_written"] == 2
+    assert summary["renderings_applied"] == 1
     assert client.calls == []
-    assert "[target-disambiguation]" in store.get_term("いるかホテル").note
+    assert store.get_term("ドルフィン・ホテル").target == "海豚旅店"
+    assert _targets(store)[2] == "海豚旅店是白色的。"
 
 
-def test_a_completed_run_is_not_rejudged_on_the_next_translate(tmp_path):
+def test_a_completed_run_is_not_rejudged_on_the_next_chapter(tmp_path):
     """The verdict ids stay in the completed index so a later run cannot repeat the calls."""
     store = _store(str(tmp_path))
-    client = _client("judged", same_entity=True, needs_distinction=False)
+    client = _client(
+        "judged",
+        same_entity=True,
+        renderings={"いるかホテル": "海豚宾馆", "ドルフィン・ホテル": "海豚宾馆"},
+    )
     orchestrator = Orchestrator(_config(str(tmp_path)), client=client, storage=store)
 
     first = _run(orchestrator, store)
@@ -233,23 +246,18 @@ def test_a_completed_run_is_not_rejudged_on_the_next_translate(tmp_path):
     second = _run(orchestrator, store)
 
     assert second["collisions"] == 0
-    assert second["judged"] == 0
     assert len(client.calls) == spent
 
 
-def test_a_judged_collision_is_not_judged_twice(tmp_path):
-    """A kept verdict id skips an already-settled group without paying for another call."""
+def test_a_kept_verdict_id_skips_the_group(tmp_path):
+    """A stored judged id keeps the next run from re-detecting the settled group."""
     store = _store(str(tmp_path))
     real_id = _collision_id("海豚宾馆", ["ドルフィン・ホテル", "いるかホテル"])
     store.write_artifact(
         "glossary-disambiguation/judgements.json",
-        {
-            "status": "completed",
-            "judgements": [],
-            "unresolved": [{"collision_id": real_id}],
-        },
+        {"status": "completed", "judgements": [{"collision_id": real_id}], "unresolved": []},
     )
-    client = _client("judged", same_entity=True, needs_distinction=False)
+    client = _client("judged", same_entity=True, renderings=None)
     orchestrator = Orchestrator(_config(str(tmp_path)), client=client, storage=store)
 
     groups = orchestrator._glossary_disambiguation._collision_groups(store)

@@ -21,6 +21,7 @@ from ..ingest.models import Chapter, Segment
 from ..storage.protocol import Storage
 from .context import RollingContext
 from .docx_styles import DocxStyleService
+from .glossary_disambiguation import GlossaryDisambiguationService
 from .precision import PrecisionBatchExecutor, PrecisionError
 from .runstore import STATUS_DONE
 from .title_translation import TitleTranslationService
@@ -442,6 +443,10 @@ class TranslationService:
             chapter=ci,
             summary=chapter_glossary_summary,
         )
+        # A split decided here lands before the next chapter translates. Unresolved
+        # collisions stay eligible, so a later chapter's extraction retries them with
+        # wider context; the pre-review pass sweeps whatever is still open.
+        GlossaryDisambiguationService(self._runtime).run(store)
 
         store.save_chapter_with_status(chapter, STATUS_DONE)
         store.log_event(
