@@ -10,7 +10,11 @@ from wenyi_core.config import Config
 from wenyi_core.glossary.store import GlossaryTerm
 from wenyi_core.ingest.models import Chapter, Segment
 from wenyi_core.llm.providers.fake import FakeClient
-from wenyi_core.pipeline.glossary_disambiguation import _collision_id
+from wenyi_core.pipeline.glossary_disambiguation import (
+    _MAX_GROUPS_PER_RUN,
+    _MAX_UNRESOLVED_ATTEMPTS,
+    _collision_id,
+)
 from wenyi_core.pipeline.orchestrator import Orchestrator
 from wenyi_core.pipeline.runstore import STATUS_DONE
 from wenyi_core.storage.file import FileStorage
@@ -264,3 +268,107 @@ def test_a_kept_verdict_id_skips_the_group(tmp_path):
 
     assert groups == []
     assert client.calls == []
+
+
+def test_judged_ids_accumulate_across_runs(tmp_path):
+    """Regression: a group judged in an earlier run is never judged again by a later one.
+
+    Each run used to overwrite the index with only its own batch, so ids judged chapters ago
+    fell out and the next run re-judged them, burning tokens on settled collisions.
+    """
+    store = _store(str(tmp_path))
+    first_client = _client(
+        "judged",
+        same_entity=True,
+        renderings={"いるかホテル": "海豚宾馆", "ドルフィン・ホテル": "海豚宾馆"},
+    )
+    first_orch = Orchestrator(_config(str(tmp_path)), client=first_client, storage=store)
+    first = _run(first_orch, store)
+    assert first["judged"] == 1
+    first_id = _collision_id("海豚宾馆", ["ドルフィン・ホテル", "いるかホテル"])
+    index = store.read_artifact("glossary-disambiguation/judgements.json")
+    assert [item["collision_id"] for item in index["judgements"]] == [first_id]
+
+    # A later chapter extracts a second source sharing the same target: a new group appears,
+    # while the settled one must stay settled.
+    store.upsert_term(
+        GlossaryTerm(source="Blue Whale Hotel", target="海豚宾馆", type="place"), chapter=0
+    )
+    second_client = _client(
+        "judged",
+        same_entity=False,
+        renderings={
+            "いるかホテル": "海豚宾馆",
+            "ドルフィン・ホテル": "海豚宾馆",
+            "Blue Whale Hotel": "蓝鲸宾馆",
+        },
+    )
+    second_orch = Orchestrator(_config(str(tmp_path)), client=second_client, storage=store)
+    second = _run(second_orch, store)
+
+    # Only the new group is judged; the settled one is not re-asked.
+    assert second["collisions"] == 1
+    assert second["judged"] == 1
+    index = store.read_artifact("glossary-disambiguation/judgements.json")
+    judged_ids = [item["collision_id"] for item in index["judgements"]]
+    assert len(judged_ids) == 2, judged_ids  # accumulated, not overwritten
+    assert first_id in judged_ids
+
+
+def test_unresolved_groups_stop_retrying_after_max_attempts(tmp_path):
+    """An undecided group retries with wider context, then exhausts and waits for a human."""
+    store = _store(str(tmp_path))
+    client = _client("unresolved", same_entity=None, renderings=None)
+    orchestrator = Orchestrator(_config(str(tmp_path)), client=client, storage=store)
+
+    for attempt in range(1, _MAX_UNRESOLVED_ATTEMPTS + 1):
+        summary = _run(orchestrator, store)
+        assert summary["collisions"] == 1, attempt
+        index = store.read_artifact("glossary-disambiguation/judgements.json")
+        assert index["unresolved"][0]["attempts"] == attempt
+
+    spent = len(client.calls)
+    summary = _run(orchestrator, store)
+    assert summary["collisions"] == 0  # exhausted: no further model calls
+    assert len(client.calls) == spent
+
+
+def test_one_run_judges_at_most_the_group_cap(tmp_path):
+    """A burst of new collisions is split across close-outs instead of stalling translation."""
+    store = _store(str(tmp_path))  # two sources sharing one target -> one group
+    renderings = {"いるかホテル": "海豚宾馆", "ドルフィン・ホテル": "海豚宾馆"}
+    source_parts = []
+    for i in range(6):
+        # One group per target: each target needs at least two distinct sources.
+        store.upsert_term(
+            GlossaryTerm(source=f"Place {i} left", target=f"译名{i}", type="place"), chapter=0
+        )
+        store.upsert_term(
+            GlossaryTerm(source=f"Place {i} right", target=f"译名{i}", type="place"), chapter=0
+        )
+        renderings[f"Place {i} left"] = f"译名{i}"
+        renderings[f"Place {i} right"] = f"译名{i}"
+        source_parts.append(f"Place {i} left and Place {i} right opened")
+    # The judge needs located occurrences: every new source must appear in the book text.
+    store.save_chapter(
+        Chapter(
+            index=0,
+            title="第一章",
+            segments=[
+                Segment(
+                    index=0,
+                    source=" / ".join(source_parts),
+                    target=" / ".join(f"译文{i}" for i in range(6)),
+                ),
+                Segment(index=1, source="いるかホテルへ行く", target="去海豚宾馆。"),
+            ],
+        )
+    )
+    client = _client("judged", same_entity=True, renderings=renderings)
+    orchestrator = Orchestrator(_config(str(tmp_path)), client=client, storage=store)
+
+    summary = _run(orchestrator, store)
+
+    assert summary["collisions"] == _MAX_GROUPS_PER_RUN
+    assert summary["deferred"] == 1  # seven groups, cap six
+    assert len(client.calls) == _MAX_GROUPS_PER_RUN

@@ -45,7 +45,66 @@ def _collision_id(target: str, sources: list[str]) -> str:
 
 
 def _empty_summary() -> dict[str, Any]:
-    return {"collisions": 0, "judged": 0, "unresolved": 0, "renderings_applied": 0, "reason": ""}
+    return {
+        "collisions": 0,
+        "judged": 0,
+        "unresolved": 0,
+        "renderings_applied": 0,
+        "deferred": 0,
+        "reason": "",
+    }
+
+
+# A group the passages cannot decide is retried with wider context on later chapters, but
+# only a bounded number of times: an endlessly undecided collision must not burn a model
+# call at every chapter close-out.
+_MAX_UNRESOLVED_ATTEMPTS = 3
+# One chapter close-out judges at most this many groups so a burst of new collisions cannot
+# stall translation behind a long synchronous judging loop. The rest wait for the next
+# chapter or the pre-review backstop, which shares the same idempotent index.
+_MAX_GROUPS_PER_RUN = 6
+
+
+def _merge_index(
+    existing: Any,
+    *,
+    status: str,
+    judgements: list[dict[str, Any]],
+    unresolved: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Accumulate verdicts across runs instead of overwriting them.
+
+    Every run used to persist only its own batch, so ids judged chapters ago fell out of the
+    index and the next run judged them all again. Judgements merge by id (a later verdict for
+    the same id wins); unresolved entries merge too and count this attempt, so an exhausted
+    group leaves the retry pool while remaining on record for a human.
+    """
+    judged_by_id: dict[str, dict[str, Any]] = {}
+    open_by_id: dict[str, dict[str, Any]] = {}
+    if isinstance(existing, dict):
+        for item in existing.get("judgements") or []:
+            if isinstance(item, dict) and item.get("collision_id"):
+                judged_by_id[str(item["collision_id"])] = item
+        for item in existing.get("unresolved") or []:
+            if isinstance(item, dict) and item.get("collision_id"):
+                open_by_id[str(item["collision_id"])] = item
+    for item in judgements:
+        collision_id = str(item.get("collision_id") or "")
+        if collision_id:
+            judged_by_id[collision_id] = item
+            open_by_id.pop(collision_id, None)
+    for item in unresolved:
+        collision_id = str(item.get("collision_id") or "")
+        if not collision_id or collision_id in judged_by_id:
+            continue
+        previous = open_by_id.get(collision_id) or {}
+        attempts = int(previous.get("attempts") or 0) + 1
+        open_by_id[collision_id] = {**item, "attempts": attempts}
+    return {
+        "status": status,
+        "judgements": list(judged_by_id.values()),
+        "unresolved": list(open_by_id.values()),
+    }
 
 
 def _verdict_note(
@@ -82,7 +141,12 @@ class GlossaryDisambiguationService:
         groups = self._collision_groups(store)
         if not groups:
             return summary
+        # A burst of new collisions must not stall translation behind one long judging loop;
+        # the remainder runs at the next chapter close-out or the pre-review backstop.
+        deferred = max(0, len(groups) - _MAX_GROUPS_PER_RUN)
+        groups = groups[:_MAX_GROUPS_PER_RUN]
         summary["collisions"] = len(groups)
+        summary["deferred"] = deferred
         debug = ReviewRunStore(store.run_dir, storage=store, kind="glossary-disambiguation")
         debug.start(
             reviewed_content_digest="glossary-disambiguation",
@@ -120,18 +184,12 @@ class GlossaryDisambiguationService:
         summary["judged"] = len(judgements)
         summary["unresolved"] = len(unresolved)
         if not judgements:
-            store.write_artifact(
-                _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
-            )
+            self._write_index(store, status="completed", judgements=[], unresolved=unresolved)
             return summary
         # Persist the verdicts before touching notes so an interruption resumes from this index.
-        store.write_artifact(
-            _INDEX, {"status": "judged", "judgements": judgements, "unresolved": unresolved}
-        )
+        self._write_index(store, status="judged", judgements=judgements, unresolved=unresolved)
         summary["renderings_applied"] = self._apply(store, judgements, progress=progress)
-        store.write_artifact(
-            _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
-        )
+        self._write_index(store, status="completed", judgements=judgements, unresolved=unresolved)
         store.log_event("glossary_disambiguation_finished", **summary)
         return summary
 
@@ -154,11 +212,26 @@ class GlossaryDisambiguationService:
             collision_ids=[str(item.get("collision_id") or "") for item in judgements],
         )
         summary["renderings_applied"] = self._apply(store, judgements, progress=progress)
-        store.write_artifact(
-            _INDEX, {"status": "completed", "judgements": judgements, "unresolved": unresolved}
-        )
+        self._write_index(store, status="completed", judgements=judgements, unresolved=unresolved)
         store.log_event("glossary_disambiguation_finished", **summary)
         return summary
+
+    def _write_index(
+        self,
+        store: Storage,
+        *,
+        status: str,
+        judgements: list[dict[str, Any]],
+        unresolved: list[dict[str, Any]],
+    ) -> None:
+        """Persist this run's batch merged into the accumulated index."""
+        merged = _merge_index(
+            store.read_artifact(_INDEX),
+            status=status,
+            judgements=judgements,
+            unresolved=unresolved,
+        )
+        store.write_artifact(_INDEX, merged)
 
     # -- internals ----------------------------------------------------------
 
@@ -167,10 +240,16 @@ class GlossaryDisambiguationService:
         done_index = store.read_artifact(_INDEX)
         done_ids: set[str] = set()
         if isinstance(done_index, dict):
-            # Only judged groups are settled. An unresolved group stays eligible so the next
-            # chapter's extraction can retry it with wider context.
+            # Judged groups are settled forever. An unresolved group stays eligible so a later
+            # chapter can retry it with wider context — until it exhausts its attempts, after
+            # which only a human can reopen it.
             for item in done_index.get("judgements") or []:
                 if isinstance(item, dict) and item.get("collision_id"):
+                    done_ids.add(str(item["collision_id"]))
+            for item in done_index.get("unresolved") or []:
+                if not isinstance(item, dict) or not item.get("collision_id"):
+                    continue
+                if int(item.get("attempts") or 0) >= _MAX_UNRESOLVED_ATTEMPTS:
                     done_ids.add(str(item["collision_id"]))
         by_target: dict[str, list[GlossaryTerm]] = {}
         for term in store.all_terms():
