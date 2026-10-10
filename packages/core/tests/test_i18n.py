@@ -93,6 +93,24 @@ def test_embedded_foreign_language_text_rule_names_the_target_language():
     assert "English translation in parentheses" in system
 
 
+def test_editorial_pass_requests_located_findings():
+    """The editorial pass ships sample-numbered findings alongside book-level notes."""
+    system = render("editorial_pass_system", src="ja", tgt="zh")
+    assert '"findings"' in system
+    assert "sample number" in system
+    user = render(
+        "editorial_pass_user",
+        src="ja",
+        tgt="zh",
+        style="s",
+        book_synopsis="b",
+        pairs="[0] Source: a\n    Translation: 甲",
+        n=12,
+    )
+    assert '"findings"' in user
+    assert "sample numbers shown above" in user
+
+
 def test_language_tags_preserve_script_and_region():
     assert normalize_language("zh-Hant") == "zh-Hant"
     assert normalize_language("en_US") == "en-US"

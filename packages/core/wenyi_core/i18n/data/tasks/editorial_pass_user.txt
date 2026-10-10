@@ -7,4 +7,4 @@ $style
 [Sampled source–target pairs]
 $pairs
 
-Return JSON: {"notes":[...]}, with at most $n notes.
+Return JSON: {"notes":[...], "findings":[{"pair":<sample number>,"detail":"...","suggested":"..."}]}, with at most $n notes. findings may be empty; each pair must be one of the sample numbers shown above.

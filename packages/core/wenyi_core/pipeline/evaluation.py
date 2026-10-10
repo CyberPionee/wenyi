@@ -406,8 +406,9 @@ def quality_pass_notes_to_issues(
 
     - self-revision / final-polish notes carry a replacement.
     - chapter self-check findings carry a detail only; the detail guides the fixer.
+    - editorial findings already carry chapter/index/suggested (mapped from the sample
+      number by the pass); book-level editorial notes stay analysis-only and are skipped.
     - back-translation notes are candidates only when their offline score is low.
-    - editorial notes are book-level and have no paragraph location, so they are skipped.
     """
     notes: list[dict[str, Any]] = []
     for key in ("self_revision_notes", "final_polish_notes"):
@@ -420,6 +421,9 @@ def quality_pass_notes_to_issues(
         if not item.get("suggested"):
             item = {**item, "suggested": str(item.get("detail") or "").strip()}
         notes.append(item)
+    for item in quality.get("editorial_findings") or []:
+        if isinstance(item, dict):
+            notes.append(item)
     for item in quality.get("back_translation_notes") or []:
         if not isinstance(item, dict):
             continue

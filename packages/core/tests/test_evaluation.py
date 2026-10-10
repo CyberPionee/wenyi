@@ -342,6 +342,19 @@ class QualityPassNoteMappingTests(unittest.TestCase):
         quality = {"chapter_selfcheck_findings": [{"chapter": 0, "index": 2}]}
         self.assertEqual(quality_pass_notes_to_issues(quality), [])
 
+    def test_editorial_findings_map_but_book_notes_stay_analysis_only(self):
+        quality = {
+            "editorial_notes": ["全书体例笔记没有段落定位"],
+            "editorial_findings": [
+                {"chapter": 5, "index": 11, "detail": "重复的州字", "suggested": "改后的句子"}
+            ],
+        }
+        issues = quality_pass_notes_to_issues(quality, bt_min=0.45)
+        self.assertEqual(len(issues), 1)
+        self.assertEqual((issues[0]["chapter"], issues[0]["index"]), (5, 11))
+        self.assertEqual(issues[0]["suggestion"], "改后的句子")
+        self.assertEqual(issues[0]["type"], "fluency")
+
 
 class EvaluationTrendTests(unittest.TestCase):
     def test_history_is_appended_and_capped(self):

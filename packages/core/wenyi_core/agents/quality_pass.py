@@ -58,10 +58,14 @@ class QualityPassAgent(Agent):
         book_synopsis: str = "",
         max_notes: int = 12,
         raise_on_failure: bool = False,
-    ) -> list[str]:
-        """Return whole-book editorial notes in the target language."""
+    ) -> dict[str, Any]:
+        """Return whole-book editorial notes plus passage-level findings.
+
+        Findings carry the caller's sample number (pair) with a concrete suggested
+        replacement; the caller maps that number back to real chapter/segment positions.
+        """
         if not pairs:
-            return []
+            return {"notes": [], "findings": []}
         system = self.render("editorial_pass_system", src=self.src, tgt=self.tgt)
         user = self.render(
             "editorial_pass_user",
@@ -72,16 +76,30 @@ class QualityPassAgent(Agent):
             pairs=prompts.numbered_pairs([s for s, _ in pairs], [t for _, t in pairs]),
             n=max_notes,
         )
-        items = self._ask_json(
+        data = self._ask_json(
             system,
             user,
             operation="quality.editorial",
-            key="notes",
-            default=_RAISE if raise_on_failure else [],
+            key=None,
+            default=_RAISE if raise_on_failure else None,
         )
-        if not isinstance(items, list):
-            return []
-        return [str(item) for item in items[:max_notes]]
+        if not isinstance(data, dict):
+            return {"notes": [], "findings": []}
+        raw_notes = data.get("notes")
+        notes = [str(item) for item in raw_notes[:max_notes]] if isinstance(raw_notes, list) else []
+        findings: list[dict[str, Any]] = []
+        for item in data.get("findings") or []:
+            if not isinstance(item, dict):
+                continue
+            pair = item.get("pair")
+            if not isinstance(pair, int) or isinstance(pair, bool) or pair < 0:
+                continue
+            detail = str(item.get("detail") or "").strip()
+            suggested = str(item.get("suggested") or "").strip()
+            if not detail or not suggested:
+                continue
+            findings.append({"pair": pair, "detail": detail, "suggested": suggested})
+        return {"notes": notes, "findings": findings}
 
     def final_polish(
         self,

@@ -312,6 +312,7 @@ pipeline:
   review_conflict_arbitration: true
   glossary_conflict_arbitration: true
   glossary_target_disambiguation: true
+  editorial_autofix: true
   review_fix_loop: true
   review_fix_max_rounds: 2
   review_clean_confirmations: 2
@@ -360,6 +361,7 @@ pipeline:
 - `review_conflict_arbitration`: after all chunks finish, run a recommendation-only arbiter when consistency proposals for the same term, pronoun, or fixed expression contradict one another.
 - `glossary_conflict_arbitration`: once the whole book is translated and before Review runs, settle open terminology conflicts from the term's use across the book. The arbiter chooses between the established rendering and the recorded proposals, never inventing a new one; a conflict it cannot separate stays open for a human. A settled choice locks the term and rewrites the paragraphs that still carried a rejected rendering, so Review and the export gate work with one name per entity.
 - `glossary_target_disambiguation`: runs after every chapter's glossary extraction and again before Review. Distinct source terms that share one target are judged against sampled passages from the book: the judge decides whether they name the same entity and returns the final wording for each source. A source judged distinct moves to that wording — the glossary entry changes and every passage mentioning that source is rewritten to match. A group the passages cannot decide stays untouched and is retried after a later chapter, so an early, thin context never forces a split.
+- `editorial_autofix`: the editorial pass now reads an evenly spread sample of the whole book and returns passage-level findings next to its book-level notes, each carrying the sampled passage's number and a concrete suggested replacement. With this enabled the findings are mapped back to chapter and segment positions and enter the existing Autofix chain (shadow rewrite → verification → publish, still gated by `review_autofix` and the redo-round budget); book-level notes remain analysis-only. Disabled, only the notes are recorded, matching the historical behavior.
 - `review_fix_loop`: generate complete provisional segment replacements for confirmed issues in a run-local shadow translation, then blindly review the whole book again. Disabling it keeps the single-pass recommendation-only behavior.
 - `review_fix_max_rounds`: maximum number of provisional Fix rounds, from `0` to `4`; this is not the total number of Review passes.
 - `review_clean_confirmations`: consecutive issue-free whole-book Review passes required after shadow fixing, from `1` to `2`; the default is `2`.

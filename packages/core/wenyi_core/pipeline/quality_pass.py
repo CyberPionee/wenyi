@@ -17,6 +17,55 @@ if TYPE_CHECKING:
 
 ProgressFn = Callable[[int, int, str], None]
 
+# The editorial pass reads a fixed-size sample; spread it across the whole book so later
+# chapters are visible (each chapter's head would lock the sample to the opening chapters).
+_EDITORIAL_SAMPLE = 24
+
+
+def _even_sample(
+    pairs: list[tuple[str, str]],
+    locations: list[tuple[int, int]],
+    limit: int = _EDITORIAL_SAMPLE,
+) -> tuple[list[tuple[str, str]], list[tuple[int, int]]]:
+    """Return up to limit pairs and their locations at equal steps through the book."""
+    if len(pairs) <= limit:
+        return pairs, locations
+    step = len(pairs) / limit
+    picked = [min(len(pairs) - 1, int(i * step)) for i in range(limit)]
+    return [pairs[i] for i in picked], [locations[i] for i in picked]
+
+
+def _map_editorial_findings(
+    findings: list[dict[str, Any]],
+    locations: list[tuple[int, int]],
+) -> list[dict[str, Any]]:
+    """Map a finding's sample number back to chapter/text-position for the Autofix contract.
+
+    Only the sampled locations are addressable, so a pair outside the sample is dropped
+    instead of guessed.
+    """
+    mapped: list[dict[str, Any]] = []
+    for item in findings:
+        pair = item.get("pair")
+        if not isinstance(pair, int) or isinstance(pair, bool) or pair < 0:
+            continue
+        if pair >= len(locations):
+            continue
+        chapter_index, text_position = locations[pair]
+        detail = str(item.get("detail") or "").strip()
+        suggested = str(item.get("suggested") or "").strip()
+        if not detail or not suggested:
+            continue
+        mapped.append(
+            {
+                "chapter": chapter_index,
+                "index": text_position,
+                "detail": detail,
+                "suggested": suggested,
+            }
+        )
+    return mapped
+
 
 class QualityPassService:
     """Run disabled-by-default self-revision / editorial / polish / self-check / back-translation."""
@@ -108,6 +157,9 @@ class QualityPassService:
                 progress(done, total, label)
 
         sampled_pairs: list[tuple[str, str]] = []
+        # Parallel to sampled_pairs: the real location of each sampled passage so a
+        # finding's sample number can be mapped back to chapter/text-position for Autofix.
+        sampled_locations: list[tuple[int, int]] = []
         chapter_notes: list[dict[str, Any]] = []
         revision_notes: list[dict[str, Any]] = []
         polish_notes: list[dict[str, Any]] = []
@@ -122,7 +174,10 @@ class QualityPassService:
             positions = [text_segments.index(s) for s in segments]
             sources = [s.source for s in segments]
             targets = [s.target or "" for s in segments]
-            sampled_pairs.extend(list(zip(sources, targets))[:8])
+            # Collect every translated passage; the editorial sample is drawn evenly across
+            # this book-wide list later instead of taking each chapter's head.
+            sampled_pairs.extend(zip(sources, targets))
+            sampled_locations.extend((chapter.index, p) for p in positions)
             completed: set[str] = set()
             if "self_revision" in pending:
                 report(f"Quality pass · self revision{where}")
@@ -215,8 +270,9 @@ class QualityPassService:
         if editorial_pending:
             report("Quality pass · editorial notes")
             try:
-                result["editorial_notes"] = agent.editorial_notes(
-                    sampled_pairs[:24],
+                sample_pairs, sample_locations = _even_sample(sampled_pairs, sampled_locations)
+                editorial = agent.editorial_notes(
+                    sample_pairs,
                     style=style,
                     book_synopsis=book_synopsis,
                     raise_on_failure=True,
@@ -224,6 +280,13 @@ class QualityPassService:
             except Exception:
                 failed.append("editorial_pass")
             else:
+                result["editorial_notes"] = editorial["notes"]
+                # editorial_autofix ships passage findings into the Autofix chain; without
+                # it only the book-level notes are recorded (the historical behavior).
+                if cfg.editorial_autofix:
+                    findings = _map_editorial_findings(editorial["findings"], sample_locations)
+                    if findings:
+                        result["editorial_findings"] = findings
                 recorded["editorial_pass"] = {"editorial_pass"}
             done += 1
         if revision_notes:

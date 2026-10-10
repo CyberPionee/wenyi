@@ -60,6 +60,7 @@ pipeline:
   review_conflict_arbitration: true # Arbitrate contradictory consistency proposals after all review blocks finish
   glossary_conflict_arbitration: true # Settle terminology conflicts from book context once translation finishes, before review
   glossary_target_disambiguation: true # Judge same-target term collisions from book context once translation finishes, before review
+  editorial_autofix: true # Send passage-level editorial findings (with the sampled location and suggested replacement) into the Autofix chain
   review_fix_loop: true # Revise an in-memory shadow translation and review it blindly; this loop does not publish changes
   review_fix_max_rounds: 2 # At most two replacement rounds; consecutive clean confirmations also affect total review rounds
   review_clean_confirmations: 2 # Require two consecutive clean rounds to accept the shadow translation
@@ -177,6 +178,7 @@ class PipelineConfig(BaseModel):
     glossary_target_disambiguation: bool = (
         True  # Judge same-target term collisions from book context before review
     )
+    editorial_autofix: bool = True  # Passage-level editorial findings enter the Autofix chain
     review_fix_loop: bool = (
         True  # Revise only the in-memory shadow translation and review it blindly
     )
