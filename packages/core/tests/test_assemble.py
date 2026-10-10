@@ -197,6 +197,21 @@ class TestAssembleText(unittest.TestCase):
                 content = f.read()
             self.assertIn("润0", content)  # Translations have been written.
 
+    def test_exports_publish_atomically_without_temporary_files(self):
+        """A completed export leaves no temporary sibling behind.
+
+        Every writer builds its file beside the destination and publishes it with
+        os.replace, so a pause mid-export cannot leave a partial output in place.
+        """
+        with tempfile.TemporaryDirectory() as d:
+            txt = os.path.join(d, "novel.txt")
+            write_sample_txt(txt)
+            store, _ = _run(txt, os.path.join(d, "state"))
+            for fmt in ("txt", "html", "docx"):
+                out = assemble(store, txt, out_format=fmt)
+                self.assertTrue(os.path.exists(out), fmt)
+                self.assertFalse(os.path.exists(out + ".tmp"), fmt)
+
     def test_about_page_is_not_written_when_opf_cannot_reference_it(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "broken.epub")

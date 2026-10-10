@@ -306,5 +306,113 @@ class RedoCandidateTests(unittest.TestCase):
                 store.close()
 
 
+class RedoRoundResumeTests(unittest.TestCase):
+    def test_an_interrupted_round_resumes_from_its_saved_plan(self):
+        """A round interrupted after planning publishes that plan instead of re-verifying.
+
+        Planning (verification) is the expensive half and the saved plan is its durable
+        artifact, so a pause between planning and publishing must resume the round rather
+        than re-run every verification call.
+        """
+        from wenyi_core.llm.routing import inference_snapshot
+        from wenyi_core.review.models import text_hash
+        from wenyi_core.review.run_store import ReviewRunStore
+
+        with tempfile.TemporaryDirectory() as d:
+            store = _store(d)
+            try:
+                manifest = store.load_manifest()
+                for row in manifest["chapters"]:
+                    row["status"] = "done"
+                store.save_manifest(manifest)
+                config = _config(os.path.join(d, "state"))
+                runtime = PipelineRuntime(config, client=FakeClient(_confirming_handler))
+                service = EvaluationRedoService(runtime)
+
+                # A redo round paused after its plan was written: running status + a plan.
+                debug = ReviewRunStore(store.run_dir, storage=store, kind="evaluation-redo")
+                debug.start(
+                    reviewed_content_digest="evaluation-redo",
+                    metadata={"kind": "evaluation_redo"},
+                )
+                inference = inference_snapshot(
+                    runtime.llm_config, ("autofix.verify", "autofix.fix")
+                )
+                before_text = "去了那家旅馆。"
+                debug.write_json(
+                    "autofix/index.json",
+                    {
+                        "version": 1,
+                        "inference": inference,
+                        "review_id": debug.review_id,
+                        "status": "applying",
+                        "records": [],
+                        "locations": [
+                            {
+                                "chapter": 0,
+                                "index": 0,
+                                "segment_ref": "ch0:text0:seg0",
+                                "before": before_text,
+                                "before_hash": text_hash(before_text),
+                                "target": "去了海豚酒店。",
+                                "target_hash": text_hash("去了海豚酒店。"),
+                                "record_ids": [],
+                                "status": "pending",
+                                "alignment_status": "pending",
+                            }
+                        ],
+                    },
+                )
+
+                resumed = service._resumable_round(store)
+                self.assertIsNotNone(resumed)
+                resumed_debug, index = resumed
+                self.assertEqual(resumed_debug.review_id, debug.review_id)
+                self.assertEqual(len(index["locations"]), 1)
+
+                before_calls = len(runtime.client.calls)
+                summary = service.repair_once(store, {})
+
+                self.assertTrue(summary.get("resumed"))
+                self.assertEqual(summary["published_segment_count"], 1)
+                # No verification was re-run: the saved plan was published directly.
+                self.assertEqual(len(runtime.client.calls), before_calls)
+                self.assertEqual(store.load_chapter(0).segments[0].target, "去了海豚酒店。")
+            finally:
+                store.close()
+
+    def test_a_round_with_changed_planning_models_is_not_reused(self):
+        """A plan verified with other routes is re-verified, never published blindly."""
+        from wenyi_core.review.run_store import ReviewRunStore
+
+        with tempfile.TemporaryDirectory() as d:
+            store = _store(d)
+            try:
+                config = _config(os.path.join(d, "state"))
+                service = EvaluationRedoService(
+                    PipelineRuntime(config, client=FakeClient(routing_handler))
+                )
+                debug = ReviewRunStore(store.run_dir, storage=store, kind="evaluation-redo")
+                debug.start(
+                    reviewed_content_digest="evaluation-redo",
+                    metadata={"kind": "evaluation_redo"},
+                )
+                debug.write_json(
+                    "autofix/index.json",
+                    {
+                        "version": 1,
+                        "inference": {"autofix.verify": {"model": "other"}},
+                        "review_id": debug.review_id,
+                        "status": "applying",
+                        "records": [],
+                        "locations": [{"chapter": 0, "index": 0}],
+                    },
+                )
+
+                self.assertIsNone(service._resumable_round(store))
+            finally:
+                store.close()
+
+
 if __name__ == "__main__":
     unittest.main()

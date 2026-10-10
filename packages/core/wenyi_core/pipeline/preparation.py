@@ -21,7 +21,6 @@ from ..ingest.epub_reader import peek_epub_title
 from ..ingest.models import Chapter, Document
 from ..ingest.segmenter import load_document
 from ..llm.errors import ProviderFailure, describe_provider_failure
-from ..llm.limits import RequestStopped
 from ..storage.protocol import Storage
 from .context import RollingContext
 from .input_preparation import (
@@ -641,10 +640,11 @@ class PreparationService:
             for i, c in enumerate(chapters)
         ]
 
-        # Every translatable chapter needs a digest before translation: downstream prompts
-        # and the synopsis depend on them, so a partial prescan must stop loudly rather
-        # than translate with missing context. It stops resumably, because the digests that
-        # did succeed are saved and a resume regenerates only the chapters listed here.
+        # A chapter whose digest could not be generated after every attempt no longer stops
+        # the book: resume must always make progress, so translation proceeds with an empty
+        # digest for that chapter (its prompts simply omit the digest block). The chapters
+        # stay listed here, cache no digest, and are retried the next time understanding
+        # runs — a gateway outage cannot stall the whole book behind one chapter.
         missing_digests = [
             ci
             for ci, ch in loaded.items()
@@ -657,10 +657,9 @@ class PreparationService:
                 chapters=sorted(missing_digests),
                 attempts=_DIGEST_ATTEMPTS,
             )
-            raise RequestStopped(
-                "Chapter digests could not be generated for chapters: "
-                + ", ".join(str(ci) for ci in sorted(missing_digests))
-                + f" (after {_DIGEST_ATTEMPTS} attempts). Every other chapter is saved; resume to retry only these."
+            store.log_event(
+                "book_understanding_proceeded_without_digests",
+                chapters=sorted(missing_digests),
             )
 
         analysis = store.load_analysis() or {}

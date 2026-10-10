@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import pytest
 from wenyi_core.config import Config
-from wenyi_core.llm.limits import RequestStopped
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.pipeline import preparation
 from wenyi_core.pipeline.orchestrator import Orchestrator
@@ -111,7 +110,12 @@ def test_initialization_analyses_style_before_any_chapter_prescan(
         assert ordering == ["style"]
 
 
-def test_required_prescan_failure_blocks_translation_without_half_state(tmp_path, monkeypatch):
+def test_prescan_failure_proceeds_without_digests_and_retries_them(tmp_path, monkeypatch):
+    """A failing digest no longer blocks the book: resume must always make progress.
+
+    Translation proceeds with an empty digest for the affected chapter, the failure is
+    recorded, and nothing is cached so the next understanding run retries it.
+    """
     source, config, store = _preparation_inputs(tmp_path)
     orchestrator = Orchestrator(config, client=FakeClient(handler=routing_handler), storage=store)
     store = orchestrator.prepare(str(source))
@@ -122,12 +126,13 @@ def test_required_prescan_failure_blocks_translation_without_half_state(tmp_path
         return routing_handler(messages, tier, json_mode)
 
     monkeypatch.setattr(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0)
-    with pytest.raises(RequestStopped, match="Chapter digests could not be generated"):
-        Orchestrator(
-            config, client=FakeClient(handler=failing), storage=store
-        ).prepare_for_translation(str(source))
+    Orchestrator(config, client=FakeClient(handler=failing), storage=store).prepare_for_translation(
+        str(source)
+    )
     chapters = [store.load_chapter(index) for index in (0, 1)]
     assert not any(chapter.meta.get("source_digest") for chapter in chapters)
+    events = store.list_events(event_type="book_understanding_proceeded_without_digests")
+    assert events, "the run must record that it continued without digests"
     # A failed prescan must not cache the failure: retrying succeeds and saves digests.
     client = FakeClient(handler=routing_handler)
     Orchestrator(config, client=client, storage=store).prepare_for_translation(str(source))

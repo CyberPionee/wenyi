@@ -8,9 +8,11 @@ write path.
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from ..llm.routing import inference_snapshot
 from ..review.models import ReviewOutcome
 from ..review.run_store import ReviewRunStore
 from ..storage.protocol import Storage
@@ -68,6 +70,31 @@ class EvaluationRedoService:
         progress: ProgressFn | None = None,
     ) -> dict[str, Any]:
         """Run one Autofix repair round for failing findings; return a small summary."""
+        # An interrupted round whose plan is already saved resumes by publishing that plan:
+        # planning (verification) is the expensive half and its plan is the durable artifact.
+        resumed = self._resumable_round(store)
+        if resumed is not None:
+            debug, index = resumed
+            self._publisher.apply(store, debug, index, progress=progress)
+            failed = sum(
+                1 for record in index.get("records", []) if record.get("status") == "failed"
+            )
+            summary = {
+                "issue_count": len(index.get("records") or []),
+                "published_segment_count": len(index.get("locations") or []),
+                "failed_issue_count": failed,
+                "review_id": debug.review_id,
+                "resumed": True,
+            }
+            store.log_event(
+                "evaluation_redo_finished",
+                review_id=debug.review_id,
+                resumed=True,
+                issue_count=summary["issue_count"],
+                published_segment_count=summary["published_segment_count"],
+                failed_issue_count=failed,
+            )
+            return summary
         issues = self._build_issues(store, evaluation)
         summary: dict[str, Any] = {
             "issue_count": len(issues),
@@ -123,3 +150,44 @@ class EvaluationRedoService:
             failed_issue_count=failed,
         )
         return summary
+
+    def _resumable_round(self, store: Storage) -> tuple[ReviewRunStore, dict[str, Any]] | None:
+        """Return an interrupted redo round whose plan is already saved.
+
+        The plan (locations + records, written before publishing) is the durable artifact of
+        a round, and publishing it is idempotent: every location carries its baseline, so
+        paragraphs already published or edited since are skipped. A pause between planning
+        and publishing therefore resumes the round instead of re-running every verification
+        call. A round whose planning models differ is not reused — it is re-verified with the
+        current routes.
+        """
+        current = inference_snapshot(self._runtime.llm_config, ("autofix.verify", "autofix.fix"))
+        names = sorted(
+            {
+                key.split("/")[1]
+                for key in store.list_artifacts("reviews/")
+                if len(key.split("/")) > 2 and key.split("/")[1].startswith("evaluation-redo-")
+            },
+            reverse=True,
+        )
+        for name in names:
+            result = store.read_artifact(f"reviews/{name}/result.json")
+            if not isinstance(result, dict) or not ReviewRunStore.is_resumable_status(
+                result.get("status")
+            ):
+                continue
+            index = store.read_artifact(f"reviews/{name}/autofix/index.json")
+            if not isinstance(index, dict) or not index.get("locations"):
+                continue
+            if index.get("inference") != current:
+                continue
+            debug = ReviewRunStore._from_existing(
+                os.path.join(store.run_dir, "reviews", name), name, storage=store
+            )
+            debug.log_event(
+                "evaluation_redo_resumed",
+                review_id=name,
+                location_count=len(index["locations"]),
+            )
+            return debug, index
+        return None

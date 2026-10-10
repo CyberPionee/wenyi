@@ -6,6 +6,7 @@ headings, paragraphs and bilingual content.
 
 from __future__ import annotations
 
+import os
 import zipfile
 from html import escape
 
@@ -123,6 +124,14 @@ def _assemble_html(
         out_path=out_path,
     )
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write(full_html)
+    # Assets are materialized beside the final path; only the HTML file itself is written
+    # through a sibling temporary so a pause cannot leave a partial document.
+    tmp_path = out_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(full_html)
+        os.replace(tmp_path, out_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     return out_path

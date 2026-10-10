@@ -101,7 +101,10 @@ def _assemble_epub(
         )
 
         infos = zin.infolist()
-        with zipfile.ZipFile(out_path, "w") as zout:
+        # Build the archive beside the destination and publish it atomically: a pause
+        # mid-export must not leave a partial EPUB where a complete one is expected.
+        tmp_path = out_path + ".tmp"
+        with zipfile.ZipFile(tmp_path, "w") as zout:
             for info in infos:
                 name = info.filename
                 low = name.lower()
@@ -148,6 +151,7 @@ def _assemble_epub(
                     )
                 else:
                     zout.writestr(info, data)
+        os.replace(tmp_path, out_path)
     return out_path
 
 
@@ -264,9 +268,12 @@ def _build_epub_from_chapters(
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
     book.spine = spine
-    epub.write_epub(out_path, book)
+    # Write beside the destination, style the temporary copy, then publish atomically.
+    tmp_path = out_path + ".tmp"
+    epub.write_epub(tmp_path, book)
     if bilingual and not preserve_source_style:
-        _inject_bilingual_style(out_path, chapter_filenames, lang)
+        _inject_bilingual_style(tmp_path, chapter_filenames, lang)
+    os.replace(tmp_path, out_path)
     return out_path
 
 
@@ -345,5 +352,7 @@ def _build_epub_from_html_templates(
     book.spine = spine
     book.add_item(epub.EpubNcx())
     book.add_item(epub.EpubNav())
-    epub.write_epub(out_path, book)
+    tmp_path = out_path + ".tmp"
+    epub.write_epub(tmp_path, book)
+    os.replace(tmp_path, out_path)
     return out_path

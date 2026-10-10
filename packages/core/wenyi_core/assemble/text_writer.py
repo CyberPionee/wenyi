@@ -5,6 +5,8 @@ or bilingual text according to bilingual and order.
 
 from __future__ import annotations
 
+import os
+
 from ..ingest.models import KIND_HEADING
 from .export_view import AssembleStore
 from .writer_common import _bilingual_source, _merged_paragraphs, _ordered_pair
@@ -40,8 +42,16 @@ def _assemble_plain_text(
                 first, second = _ordered_pair(src, target, order)
                 blocks.extend((first, second))
         chapter_blocks.append("\n\n".join(blocks))
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write("\n\n".join(chapter_blocks) + "\n")
+    # Write through a sibling temporary file so a pause mid-export cannot leave a partial
+    # output where a complete one is expected.
+    tmp_path = out_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write("\n\n".join(chapter_blocks) + "\n")
+        os.replace(tmp_path, out_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
     return out_path
 
 

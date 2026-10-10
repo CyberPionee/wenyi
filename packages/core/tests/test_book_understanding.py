@@ -171,19 +171,21 @@ class SynopsisCompleteTests(unittest.TestCase):
 
 
 class DigestRequirementTests(unittest.TestCase):
-    def test_failed_digest_stops_resumably_and_is_not_cached(self):
-        """A chapter whose digest never arrives stops the run instead of failing it hard."""
+    def test_failed_digest_proceeds_without_caching_it(self):
+        """A chapter whose digest never arrives no longer stops the run; nothing is cached."""
         with tempfile.TemporaryDirectory() as d:
             txt = _write_book(d)
             cfg = _config(os.path.join(d, "state"))
             # Fail every digest call, so no chapter can be recovered by a retry pass.
             orch = Orchestrator(cfg, client=FakeClient(handler=_handler(set(range(20)))))
             with patch.object(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0):
-                with self.assertRaisesRegex(RequestStopped, "digests could not be generated"):
-                    orch.run(txt)
+                store = orch.run(txt)
 
+            # The run kept going and recorded that it continued without digests.
+            self.assertTrue(
+                store.list_events(event_type="book_understanding_proceeded_without_digests")
+            )
             # The failed chapter is not cached: a later run retries instead of reusing "".
-            store = orch._preparation.locate_existing(txt)
             metas = [
                 store.load_chapter(c["index"]).meta
                 for c in store.load_manifest().get("chapters", [])

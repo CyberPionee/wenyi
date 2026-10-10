@@ -13,7 +13,6 @@ from unittest.mock import patch
 from wenyi_core.agents.reviewer import ReviewOutputError
 from wenyi_core.glossary.store import GlossaryStore
 from wenyi_core.ingest.models import Chapter, Segment
-from wenyi_core.llm.limits import RequestStopped
 from wenyi_core.llm.providers.fake import FakeClient
 from wenyi_core.llm.usage import UsageSample
 from wenyi_core.pipeline import preparation
@@ -660,7 +659,9 @@ class TestBookUnderstanding(unittest.TestCase):
             self.assertFalse(any(call["operation"] == "synopsis.chapter" for call in resumed.calls))
             self.assertFalse(any(call["operation"] == "translation.body" for call in resumed.calls))
 
-    def test_required_digest_failure_saves_usage_and_resumes_without_recounting(self):
+    def test_digest_failure_proceeds_and_resumes_without_recounting(self):
+        """A missing digest no longer blocks translation; resume must always progress."""
+
         def failing_digest(messages, tier, json_mode):
             if (
                 "chapter digest writer" in messages[0]["content"]
@@ -680,11 +681,11 @@ class TestBookUnderstanding(unittest.TestCase):
             cfg.pipeline.book_understanding = True
             cfg.freeze_language_policies(store.load_manifest()["source_sha256"])
             with patch.object(preparation, "_DIGEST_RETRY_PAUSE_SECONDS", 0.0):
-                with self.assertRaisesRegex(RequestStopped, "Chapter digests.*1"):
-                    orch.run(txt)
+                orch.run(txt)
             self.assertTrue(store.load_chapter(0).meta["source_digest"])
             self.assertFalse(store.load_chapter(1).meta.get("source_digest"))
-            self.assertFalse(any(call["operation"] == "translation.body" for call in client.calls))
+            # The book kept moving instead of stalling on the failed digest.
+            self.assertTrue(any(call["operation"] == "translation.body" for call in client.calls))
             usage = store.load_usage()
             assert usage is not None
             self.assertEqual(usage["totals"], client.usage_summary()["totals"])

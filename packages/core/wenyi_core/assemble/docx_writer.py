@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from docx import Document as open_docx
 from docx.oxml.ns import qn
 
@@ -63,5 +65,9 @@ def _assemble_docx(
                 body.remove(child)
             break
 
-    doc.save(out_path)
+    # Save beside the destination and publish atomically: a pause mid-export must not leave
+    # a partial DOCX where a complete one is expected.
+    tmp_path = out_path + ".tmp"
+    doc.save(tmp_path)
+    os.replace(tmp_path, out_path)
     return out_path
