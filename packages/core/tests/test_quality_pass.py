@@ -262,6 +262,52 @@ class TestQualityPassService(unittest.TestCase):
             recorded = (store.load_analysis() or {}).get("quality_pass_done") or {}
             self.assertNotIn("chapter_selfcheck", recorded.get("0") or [])
 
+    def test_a_failed_pass_is_recorded_and_skipped_on_the_next_run(self):
+        """A repeatedly failing pass must not block resume.
+
+        The failure lands in its own ledger so the pass is skipped next time; otherwise a
+        pass that keeps failing (e.g. a truncating upstream model) re-runs for minutes on
+        every resume and stalls every stage queued behind it.
+        """
+        with tempfile.TemporaryDirectory() as directory:
+            txt = os.path.join(directory, "novel.txt")
+            write_sample_txt(txt)
+            cfg = _cfg(os.path.join(directory, "state"))
+            orch = Orchestrator(cfg, client=FakeClient(handler=routing_handler))
+            store = orch.run(txt)
+
+            cfg.pipeline.chapter_selfcheck = True
+            agent = orch._runtime.quality_pass
+            calls = {"n": 0}
+
+            def boom(*_args, **_kwargs):
+                calls["n"] += 1
+                raise RuntimeError("provider down")
+
+            agent.chapter_selfcheck = boom
+            try:
+                orch._quality_pass.run_after_translate(store)
+                analysis = store.load_analysis() or {}
+                # Not a completed pass: the done ledger keeps its old meaning.
+                self.assertNotIn(
+                    "chapter_selfcheck", (analysis.get("quality_pass_done") or {}).get("0") or []
+                )
+                # The failure is recorded so the next run skips it instead of blocking.
+                self.assertIn(
+                    "chapter_selfcheck", (analysis.get("quality_pass_failed") or {}).get("0") or []
+                )
+                first = calls["n"]
+                # One attempt per chapter that still owes the pass (the sample book has
+                # more than one chapter).
+                self.assertGreaterEqual(first, 1)
+                self.assertIn(
+                    "chapter_selfcheck", (analysis.get("quality_pass_failed") or {}).get("0") or []
+                )
+                orch._quality_pass.run_after_translate(store)
+                self.assertEqual(calls["n"], first)  # skipped on resume
+            finally:
+                del agent.chapter_selfcheck
+
     def test_a_repeated_run_keeps_notes_from_an_earlier_run(self):
         """Merging per key must not drop the notes an earlier run already recorded."""
         with tempfile.TemporaryDirectory() as directory:

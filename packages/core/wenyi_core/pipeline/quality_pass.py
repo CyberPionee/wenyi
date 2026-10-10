@@ -135,6 +135,15 @@ class QualityPassService:
             for index, value in (analysis.get("quality_pass_done") or {}).items()
             if isinstance(value, list)
         }
+        # A pass that already failed is not retried on resume either: a repeatedly failing
+        # pass (e.g. a truncating upstream model) would otherwise re-run for minutes on
+        # every resume and block every stage queued behind it. The failure stays visible
+        # in the report instead of silently looping.
+        failed_recorded = {
+            str(index): {key for key in value if isinstance(key, str)}
+            for index, value in (analysis.get("quality_pass_failed") or {}).items()
+            if isinstance(value, list)
+        }
         work = [
             (
                 chapter,
@@ -142,12 +151,17 @@ class QualityPassService:
                     key
                     for key, _label in staged
                     if key not in recorded.get(str(chapter.index), set())
+                    and key not in failed_recorded.get(str(chapter.index), set())
                 ],
             )
             for chapter in active
         ]
         work = [(chapter, keys) for chapter, keys in work if keys]
-        editorial_pending = enabled["editorial_pass"] and "editorial_pass" not in recorded
+        editorial_pending = (
+            enabled["editorial_pass"]
+            and "editorial_pass" not in recorded
+            and "editorial_pass" not in failed_recorded
+        )
         total = sum(len(keys) for _chapter, keys in work) + (1 if editorial_pending else 0)
         done = 0
         failed: list[str] = []
@@ -179,6 +193,7 @@ class QualityPassService:
             sampled_pairs.extend(zip(sources, targets))
             sampled_locations.extend((chapter.index, p) for p in positions)
             completed: set[str] = set()
+            failed_attempted: set[str] = set()
             if "self_revision" in pending:
                 report(f"Quality pass · self revision{where}")
                 try:
@@ -191,6 +206,7 @@ class QualityPassService:
                     )
                 except Exception:
                     failed.append("self_revision")
+                    failed_attempted.add("self_revision")
                 else:
                     for index, (before, after) in enumerate(zip(targets, revised)):
                         if after != before:
@@ -211,6 +227,7 @@ class QualityPassService:
                     )
                 except Exception:
                     failed.append("final_polish")
+                    failed_attempted.add("final_polish")
                 else:
                     for index, (before, after) in enumerate(zip(targets, polished)):
                         if after != before:
@@ -231,6 +248,7 @@ class QualityPassService:
                     )
                 except Exception:
                     failed.append("chapter_selfcheck")
+                    failed_attempted.add("chapter_selfcheck")
                 else:
                     for finding in findings:
                         finding = dict(finding)
@@ -249,6 +267,7 @@ class QualityPassService:
                     backs = agent.back_translate(targets[:4], raise_on_failure=True)
                 except Exception:
                     failed.append("back_translation")
+                    failed_attempted.add("back_translation")
                 else:
                     from .evaluation import back_translation_similarity
 
@@ -267,6 +286,10 @@ class QualityPassService:
                     completed.add("back_translation")
                 done += 1
             recorded[str(chapter.index)] = recorded.get(str(chapter.index), set()) | completed
+            if failed_attempted:
+                failed_recorded[str(chapter.index)] = (
+                    failed_recorded.get(str(chapter.index), set()) | failed_attempted
+                )
         if editorial_pending:
             report("Quality pass · editorial notes")
             try:
@@ -279,6 +302,9 @@ class QualityPassService:
                 )
             except Exception:
                 failed.append("editorial_pass")
+                failed_recorded["editorial_pass"] = failed_recorded.get("editorial_pass", set()) | {
+                    "editorial_pass"
+                }
             else:
                 result["editorial_notes"] = editorial["notes"]
                 # editorial_autofix ships passage findings into the Autofix chain; without
@@ -303,6 +329,9 @@ class QualityPassService:
         checkpoint = {key: sorted(value) for key, value in recorded.items() if value}
         if checkpoint:
             analysis["quality_pass_done"] = checkpoint
+        failed_checkpoint = {key: sorted(value) for key, value in failed_recorded.items() if value}
+        if failed_checkpoint:
+            analysis["quality_pass_failed"] = failed_checkpoint
         if result:
             # Merge per key: a resumed run only covers the chapters it still owes, so replacing
             # the record wholesale would drop the notes the checkpoint already claims are done.
@@ -320,7 +349,7 @@ class QualityPassService:
                         seen.add(marker)
                 merged[key] = existing
             analysis["quality_pass"] = merged
-        if checkpoint or result:
+        if checkpoint or failed_checkpoint or result:
             store.save_analysis(analysis)
             store.log_event(
                 "quality_pass_finished",
