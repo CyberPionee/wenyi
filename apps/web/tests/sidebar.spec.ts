@@ -46,7 +46,7 @@ for (const chinese of [false, true]) {
       expect(
         await main.evaluate((element) => element.clientWidth),
       ).toBeGreaterThan(expandedWidth + 100);
-      await expect(navigation.getByRole("link")).toHaveCount(9);
+      await expect(navigation.getByRole("link")).toHaveCount(10);
       const current = navigation.getByRole("link", {
         name: proofreadingLabel,
         exact: true,
@@ -54,7 +54,7 @@ for (const chinese of [false, true]) {
       await expect(current).toBeVisible();
       await expect(current).toHaveAttribute("aria-current", "page");
       await expect(current).toHaveAttribute("title", proofreadingLabel);
-      await expect(sidebar.getByRole("link")).toHaveCount(12);
+      await expect(sidebar.getByRole("link")).toHaveCount(13);
       const global = page.getByRole("navigation", { name: globalLabel });
       await expect(global.getByRole("link")).toHaveCount(1);
       await expect(global.getByRole("link")).toHaveText(chinese ? "项目列表" : "Projects");

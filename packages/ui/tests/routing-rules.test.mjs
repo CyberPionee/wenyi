@@ -77,12 +77,12 @@ test("route manifest is complete and consistent", () => {
   const loadersBlock = manifest.match(/pageLoaders[\s\S]*?=\s*\[([\s\S]*?)\]/);
   assert(loadersBlock, "pageLoaders must exist for warm-up and prefetch");
   const loaderCount = (loadersBlock[1].match(/load[A-Z]\w*/g) || []).length;
-  assert.equal(loaderCount, 13, "one loader per code-split page");
+  assert.equal(loaderCount, 14, "one loader per code-split page");
 
   const navLines = manifest
     .split("\n")
     .filter((line) => /group:\s*"(global|project)"/.test(line) && line.includes('to: "'));
-  assert.equal(navLines.length, 13, "three global + ten project nav entries");
+  assert.equal(navLines.length, 14, "three global + eleven project nav entries");
   const seen = new Set();
   for (const line of navLines) {
     const to = line.match(/to:\s*"([^"]+)"/)?.[1];

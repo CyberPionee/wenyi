@@ -14,6 +14,7 @@ import {
   Settings,
   Settings2,
   Sparkles,
+  Workflow,
   type LucideIcon,
 } from "lucide-react";
 import type { MessageKey } from "@/i18n";
@@ -25,6 +26,7 @@ import type { MessageKey } from "@/i18n";
 const loadDashboard = () => import("../features/dashboard/Dashboard");
 const loadCreateProject = () => import("../features/project-create/CreateProject");
 const loadProgressPage = () => import("../features/progress/ProgressPage");
+const loadPipelinePage = () => import("../features/pipeline/PipelinePage");
 const loadGlossaryPage = () => import("../features/glossary/GlossaryPage");
 const loadStylePage = () => import("../features/style/StylePage");
 const loadReviewPage = () => import("../features/review/ReviewPage");
@@ -41,6 +43,7 @@ const loadSubtitlesPage = () => import("../features/subtitles/SubtitlesPage");
 const Dashboard = lazy(loadDashboard);
 const CreateProject = lazy(loadCreateProject);
 const ProgressPage = lazy(loadProgressPage);
+const PipelinePage = lazy(loadPipelinePage);
 const GlossaryPage = lazy(loadGlossaryPage);
 const StylePage = lazy(loadStylePage);
 const ReviewPage = lazy(loadReviewPage);
@@ -57,6 +60,7 @@ export const pageLoaders: ReadonlyArray<() => Promise<unknown>> = [
   loadDashboard,
   loadCreateProject,
   loadProgressPage,
+  loadPipelinePage,
   loadGlossaryPage,
   loadStylePage,
   loadReviewPage,
@@ -81,6 +85,7 @@ export const routeEntries: RouteEntry[] = [
   { path: "/settings/:section", element: <Navigate to="/settings" replace /> },
   { path: "/projects/new", element: <CreateProject /> },
   { path: "/projects/:pid", element: <ProgressPage /> },
+  { path: "/projects/:pid/pipeline", element: <PipelinePage /> },
   { path: "/projects/:pid/glossary", element: <GlossaryPage /> },
   { path: "/projects/:pid/style", element: <StylePage /> },
   { path: "/projects/:pid/contents", element: <ContentsPage /> },
@@ -123,6 +128,7 @@ export const navEntries: NavEntry[] = [
   { to: "/projects/new", label: "common.createProject", icon: FolderPlus, group: "global", slot: "action", order: 20, audience: "all", loader: loadCreateProject },
   { to: "/settings", label: "settings.title", icon: Settings, group: "global", slot: "foot", order: 30, audience: "all", loader: loadInterfaceSettingsPage },
   { to: "/projects/:pid", label: "common.translationOverview", icon: Sparkles, end: true, group: "project", order: 10, audience: "all", loader: loadProgressPage },
+  { to: "/projects/:pid/pipeline", label: "pipeline.title", icon: Workflow, group: "project", order: 15, audience: "book", loader: loadPipelinePage },
   { to: "/projects/:pid/proofreading", label: "progress.manualProofreading", icon: BookOpenCheck, group: "project", order: 20, audience: "book", loader: loadProofreadingPage },
   { to: "/projects/:pid/review", label: "common.wholeBookReview", icon: ListChecks, group: "project", order: 30, audience: "book", loader: loadReviewPage },
   { to: "/projects/:pid/subtitles", label: "common.subtitleEditor", icon: Captions, group: "project", order: 40, audience: "srt", loader: loadSubtitlesPage },

@@ -16,6 +16,7 @@ const routeChunks = [
   "Dashboard",
   "CreateProject",
   "ProgressPage",
+  "PipelinePage",
   "GlossaryPage",
   "StylePage",
   "ReviewPage",

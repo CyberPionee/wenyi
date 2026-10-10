@@ -48,11 +48,12 @@ for (const mobile of [false, true]) {
     const nav = page.getByRole("navigation", {
       name: mobile ? "项目导航" : "Project navigation",
     });
-    await expect(nav.getByRole("link")).toHaveCount(9);
+    await expect(nav.getByRole("link")).toHaveCount(10);
     await expect(nav.getByRole("link")).toHaveText(
       mobile
         ? [
             "翻译总览",
+            "运行流程",
             "人工校阅",
             "全书审校",
             "术语表",
@@ -64,6 +65,7 @@ for (const mobile of [false, true]) {
           ]
         : [
             "Translation overview",
+            "Pipeline",
             "Manual proofreading",
             "Whole-book review",
             "Glossary",
